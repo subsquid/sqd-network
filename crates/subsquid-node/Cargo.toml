@@ -2,7 +2,35 @@
 name = "subsquid-node"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+default-run = "subsquid-node"
 
 [dependencies]
+subsquid-rpc = { version = "0.1", path = "../subsquid-rpc"}
+subsquid-runtime = { version = "0.1", path = "../subsquid-runtime"}
+
+clap = { version = "3.1", features = ["derive"] }
+frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch = "master" }
+frame-benchmarking-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sc-service = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sc-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sc-executor = { git = "https://github.com/paritytech/substrate", branch = "master" }
+try-runtime-cli = { git = "https://github.com/paritytech/substrate", branch = "master", optional = true}
+
+[features]
+default = ["wasmtime"]
+runtime-benchmarks = [
+  "frame-benchmarking/runtime-benchmarks",
+  "subsquid-runtime/runtime-benchmarks",
+  "wasmtime",
+]
+try-runtime = [
+  "subsquid-runtime/try-runtime",
+  "try-runtime-cli",
+]
+wasmtime = [
+  "sc-cli/wasmtime",
+  "sc-executor/wasmtime",
+  "sc-service/wasmtime",
+]
