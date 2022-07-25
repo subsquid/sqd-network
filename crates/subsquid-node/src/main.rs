@@ -1,3 +1,4 @@
+mod benchmarking;
 mod chain_spec;
 mod cli;
 #[macro_use]

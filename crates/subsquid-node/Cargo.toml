@@ -13,6 +13,8 @@ subsquid-runtime = { version = "0.1", path = "../subsquid-runtime"}
 clap = { version = "3.1", features = ["derive"] }
 frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch = "master" }
 frame-benchmarking-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
+frame-system = { git = "https://github.com/paritytech/substrate", branch = "master" }
+pallet-transaction-payment = { git = "https://github.com/paritytech/substrate", branch = "master"}
 sc-basic-authorship = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sc-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sc-client-api = { git = "https://github.com/paritytech/substrate", branch = "master" }
@@ -28,6 +30,8 @@ sp-consensus = { git = "https://github.com/paritytech/substrate", branch = "mast
 sp-consensus-aura = { git = "https://github.com/paritytech/substrate", branch = "master"}
 sp-core = { git = "https://github.com/paritytech/substrate", branch = "master"}
 sp-finality-grandpa = { git = "https://github.com/paritytech/substrate", branch = "master"}
+sp-inherents = { git = "https://github.com/paritytech/substrate", branch = "master"}
+sp-keyring = { git = "https://github.com/paritytech/substrate", branch = "master"}
 sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "master"}
 sp-timestamp = { git = "https://github.com/paritytech/substrate", branch = "master"}
 try-runtime-cli = { git = "https://github.com/paritytech/substrate", branch = "master", optional = true}
@@ -36,6 +40,7 @@ try-runtime-cli = { git = "https://github.com/paritytech/substrate", branch = "m
 default = ["wasmtime"]
 runtime-benchmarks = [
   "frame-benchmarking/runtime-benchmarks",
+  "frame-system/runtime-benchmarks",
   "subsquid-runtime/runtime-benchmarks",
   "wasmtime",
 ]
