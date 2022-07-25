@@ -10,3 +10,8 @@
 ## Decentralization specification
 
 - [ ] Draft version
+
+## Subsquid network implementation
+
+- [ ] Initial version based on substrate node template project
+- [ ] Add vesting logic
