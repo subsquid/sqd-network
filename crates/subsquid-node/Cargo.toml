@@ -13,9 +13,13 @@ subsquid-runtime = { version = "0.1", path = "../subsquid-runtime"}
 clap = { version = "3.1", features = ["derive"] }
 frame-benchmarking = { git = "https://github.com/paritytech/substrate", branch = "master" }
 frame-benchmarking-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
-sc-service = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sc-cli = { git = "https://github.com/paritytech/substrate", branch = "master" }
 sc-executor = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sc-service = { git = "https://github.com/paritytech/substrate", branch = "master" }
+sp-consensus-aura = { git = "https://github.com/paritytech/substrate", branch = "master"}
+sp-core = { git = "https://github.com/paritytech/substrate", branch = "master"}
+sp-finality-grandpa = { git = "https://github.com/paritytech/substrate", branch = "master"}
+sp-runtime = { git = "https://github.com/paritytech/substrate", branch = "master"}
 try-runtime-cli = { git = "https://github.com/paritytech/substrate", branch = "master", optional = true}
 
 [features]
