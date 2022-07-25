@@ -6,3 +6,7 @@
 - [ ] The Graph
 - [ ] Kyve Network
 - [ ] Subquery
+
+## Decentralization specification
+
+- [ ] Draft version
