@@ -13,5 +13,5 @@
 
 ## Subsquid network implementation
 
-- [ ] Initial version based on substrate node template project --- `07/25/2022`
+- [x] Initial version based on substrate node template project --- `07/25/2022`
 - [ ] Add vesting logic --- `08/08/2022`
