@@ -20,7 +20,7 @@ impl SubstrateCli for Cli {
     }
 
     fn description() -> String {
-        "Subsqiod Node".into()
+        "Subsquid Node".into()
     }
 
     fn author() -> String {
