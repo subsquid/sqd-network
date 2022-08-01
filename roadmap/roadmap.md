@@ -3,7 +3,7 @@
 ## Research
 
 - [x] Pokt Network --- `07/05/2022`
-- [ ] The Graph --- `08/01/2022`
+- [x] The Graph --- `08/01/2022`
 - [ ] Kyve Network --- `08/15/2022`
 - [ ] Subquery --- `08/22/2022`
 
