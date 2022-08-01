@@ -102,6 +102,33 @@ A Curator stakes a deposit of Graph Tokens for a particular dataset in exchange 
 
 Token holders who do not feel equipped to perform one of these functions may delegate their tokens to an Indexing Node that is staked for a particular dataset. In this case, the delegator is the residual claimant for their stake, earning participation rewards according to the activities of the delegatee Indexing Node but also forfeiting their stake in the event that the delagatee Indexing Node is slashed.
 
+#### Query processing architecture
+
+In either construction, query processing consists of the following steps:
+1. Query Planning (Optional)
+2. Service Discovery
+3. Service Selection
+4. Processing and Payment
+5. Response Collation
+
+**Query Planning**
+
+In this stage, the Query Node transforms a query into a plan, consisting of an ordered set of lower-level read operations that may be used to retrieve the data specified by the query.
+
+**Service Discovery**
+
+Processing a query plan, or processing a query directly, results in low-level read operations being made to Indexing Nodes. Each read operation corresponds to a specific dataset and, thus, needs to be made against an Indexing Node for that dataset. In the Service Discovery step, the Query Node locates Indexing Nodes for a specific dataset as well as important metadata that is useful in deciding which Indexing Node to issue read operations to, such as price, performance, and economic security margin.
+
+Fetching price and latency for a node is done via a single call to the Indexing Node RPC API and returns the following data: the latency required to fulfill the request; a `bandwidthPrice` measured in price per byte transmitted over the network; and a `gasPrice`, which captures the cost of compute and IO for a given read operation.
+
+**Service Selection**
+
+In the Service Selection stage, Query Nodes choose which Indexing Nodes to transact with for each read operation. An algorithm for this stage could incorporate latency (measured in ms), economicSecurityMargin (measured in Graph Tokens), gasPrice, and bytesPrice (the cost of sending a byte over the network).
+
+**Processing and Payment**
+
+Available read operations are defined in the Read Interface, and are sent to the Indexing Nodes via the JSON-RPC API. They are accompanied by Locked Transfers, conditional micropayments that may be unlocked by the Indexing Node producing a Read Response and a signed Attestation message certifying the response data is correct.
+
 ### Kyve
 
 ### Subquery
