@@ -214,7 +214,9 @@ The chain layer is the backbone of KYVE. The chain layer is an entirely sovereig
 
 The protocol layer sits on top of the chain layer and enables the actual use case of KYVE. Every feature and unit of logic which makes KYVE unique is implemented directly into the chain nodes. This includes pools, funding, staking and delegating.
 
+#### $KYVE
 
+$KYVE is the native currency of the KYVE blockchain. On a chain level, $KYVE is used for staking and delegating, securing the network through Proof of Stake. Furthermore, $KYVE is used on the protocol level for funding, staking, and delegating, incentivizing participants to behave accordingly.
 
 ### Subquery
 
