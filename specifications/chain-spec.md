@@ -200,6 +200,22 @@ Available read operations are defined in the Read Interface, and are sent to the
 
 ### Kyve
 
+KYVE is a network of storage pools built to store data streams or create snapshots of already existing data. It is secured by its blockchain built on cosmos.
+
+#### Architecture
+
+![image](https://docs.kyve.network/architecture.png)
+
+**Chain Layer**
+
+The chain layer is the backbone of KYVE. The chain layer is an entirely sovereign Proof of Stake. This blockchain is run by independent nodes we call chain nodes since they're running on the chain level. The native currency of the KYVE chain is $KYVE. It secures the chain and allows chain nodes to stake and other users to delegate to them.
+
+**Protocol Layer**
+
+The protocol layer sits on top of the chain layer and enables the actual use case of KYVE. Every feature and unit of logic which makes KYVE unique is implemented directly into the chain nodes. This includes pools, funding, staking and delegating.
+
+
+
 ### Subquery
 
 ### Summary
