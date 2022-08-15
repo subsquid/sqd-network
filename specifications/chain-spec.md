@@ -244,6 +244,31 @@ By delegating to a node, you help to secure the network. Delegation is a form of
 
 At KYVE, you can delegate to both protocol and chain nodes, allowing you to have multiple ways of earning rewards for your tokens.
 
+#### Data storage and validation
+
+KYVE is an initiative to store any data stream with built-in validation. By leveraging the Arweave blockchain, we can permanently and immutably store this data.
+
+**Data in rounds**
+
+Saving many data items or even a data stream is tricky. Thats why we aggregate data into bundles to store them more efficiently. It enables KYVE to validate multiple data items which are bundled up in a single validation round. A selected validator will collect data in each round, create a bundle, and submit it to the network. This marks the beginning of such a proposal round.
+
+**Lifecycle**
+
+1. Selecting an uploader for the data bundle.
+For a bundled proposal round to start, the next_uploader has to create a bundle, upload it to Arweave and then submit it to the network. But first, the next uploader has to be selected. For that, we use a weighted random selection with the following two factors:
+    - The personal stake (linear)
+    - The total delegation into the validator (sqrt)
+
+2. Creating a bundle proposal. Once a node is selected as the next_uploader, it will create a bundle proposal that other validators can validate.
+
+3. Uploading the bundle. Now the node can finally upload the bundle to Arweave. In return, it receives the transaction id of the Arweave transaction. The node can submit it to the network with this bundle id and other information like the `bundle_size` and the `byte_size`.
+
+4. Validating the bundle. When the new bundle proposal is submitted, the latest round officially starts. The chain will emit an event that all nodes can listen to. When they see the uploader submitted a new bundle proposal, they will get the bundle id with the other data and start validating it. They take the bundle_id(the Arweave transaction id), download the raw bundle, unzip it, and parse the bundle to its original JSON format. After that the nodes will perform a simple hash compare. If the submitted byte_size is matching to the node will vote either valid or invalid.
+
+5. Finalizing the bundle. After at least > 50% of all nodes (excluding the uploader) have voted quorum has been reached. If that is the case the uploader of the next round submits his bundle he prepared in the meantime and finalizes the round.
+
+The bundle proposal was accepted and finalized if more than 50% of the validators voted with valid. The chain will save the bundle id and make it available for the users. As a reward, the uploader of this bundle will receive a bundle reward.
+
 ### Subquery
 
 ### Summary
