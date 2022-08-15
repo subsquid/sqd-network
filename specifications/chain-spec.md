@@ -238,6 +238,12 @@ A storage pool requires funding in $KYVE and can be provided by anyone. The fund
 
 A storage pool requires protocol nodes that upload and validate data. To ensure that nodes upload correct data and validate honestly, the protocol nodes have to stake $KYVE. When protocol nodes stake $KYVE in a pool, they are allowed to operate in that specific pool. In case of nodes misbehaving (e.g., uploading and submitting invalid data or validating incorrectly), the node would get slashed. In return for the risk of being slashed and the work of uploading and validating data, nodes are rewarded with $KYVE based on their staking amount.
 
+#### Delegating
+
+By delegating to a node, you help to secure the network. Delegation is a form of staking which does not require you to run your node. You provide stake as network security to a node and generate rewards. In an ideal world, everyone would be able to run their node, leading to a very secure network with millions of nodes. But on the tech, this leads to many problems because those nodes generate a lot of traffic, leading the chain to slow down and eventually halt.
+
+At KYVE, you can delegate to both protocol and chain nodes, allowing you to have multiple ways of earning rewards for your tokens.
+
 ### Subquery
 
 ### Summary
