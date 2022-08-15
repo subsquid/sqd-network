@@ -230,6 +230,10 @@ A pool always requires two instructions:
 
 These instructions are defined in the pools runtime. Because data can look very different and every data stream has its unique features, other runtimes exist for different data streams. For example, to archive the Ethereum blockchain, the runtime will be @kyve/evm. Besides Ethereum, this runtime can also archive other EVM chains like Moonbeam or Aurora. For example, suppose you want to archive Solana. In that case, you need to run a different runtime specially designed for Solana data, @kyve/solana.
 
+#### Funding
+
+A storage pool requires funding in $KYVE and can be provided by anyone. The funding gets paid out to the protocol nodes active in the pool. If a pool runs out of funds, it stops. This is a crucial part of KYVEs token economics. The goal at KYVE is to build a decentralized data lake that gets utilized by as many users/projects as possible. When users create a business case on top of KYVE data, they are highly incentivized to ensure that the pool keeps producing the data. Whenever a pool is close to running out of tokens, it will purchase some more tokens and top up the pool's funding. The more users/projects do this, the more they share the costs, making it easier and reducing the risk of a pool running out of funding.
+
 ### Subquery
 
 ### Summary
