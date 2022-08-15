@@ -234,6 +234,10 @@ These instructions are defined in the pools runtime. Because data can look very 
 
 A storage pool requires funding in $KYVE and can be provided by anyone. The funding gets paid out to the protocol nodes active in the pool. If a pool runs out of funds, it stops. This is a crucial part of KYVEs token economics. The goal at KYVE is to build a decentralized data lake that gets utilized by as many users/projects as possible. When users create a business case on top of KYVE data, they are highly incentivized to ensure that the pool keeps producing the data. Whenever a pool is close to running out of tokens, it will purchase some more tokens and top up the pool's funding. The more users/projects do this, the more they share the costs, making it easier and reducing the risk of a pool running out of funding.
 
+#### Staking
+
+A storage pool requires protocol nodes that upload and validate data. To ensure that nodes upload correct data and validate honestly, the protocol nodes have to stake $KYVE. When protocol nodes stake $KYVE in a pool, they are allowed to operate in that specific pool. In case of nodes misbehaving (e.g., uploading and submitting invalid data or validating incorrectly), the node would get slashed. In return for the risk of being slashed and the work of uploading and validating data, nodes are rewarded with $KYVE based on their staking amount.
+
 ### Subquery
 
 ### Summary
