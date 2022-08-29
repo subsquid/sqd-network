@@ -166,3 +166,37 @@ Before going in depth about the archive decentralized implementation itself we w
 Based on it we decided that using a blockchain framework suits us the best based on our subsquid goals as we don't aim to overcame obstacles in terms of general blockchain tasks.
 
 After speding some time on blockchain framework research, we decided to use a Substrate as it provides the following great features: [flexible](https://docs.substrate.io/fundamentals/why-substrate/#flexible), [open](https://docs.substrate.io/fundamentals/why-substrate/#open), [interoperable](https://docs.substrate.io/fundamentals/why-substrate/#interoperable) and [future-proof](https://docs.substrate.io/fundamentals/why-substrate/#future-proof).
+
+## General flow scheme
+
+## Components
+
+The key components of substrate based subsquid-network.
+
+### Validator
+
+A simple blockchain node that is responsible for blocks production and finalization to properly manage state changes.
+
+### Subsquid Runtime
+
+Defines core bussines logic and connects different low-level business components with each other.
+
+### Pallet Archive
+
+Defines and setup rules in which subsquid archives join the Archive set and process requests.
+
+### Pallet Pool
+
+Defines a way to create and manage a pool of archives.
+
+### Pallet Balances
+
+Set up subsquid token and rules to hold, transfer, locking it.
+
+### Pallet Fisherman
+
+Defines rules to validate archive and pool responses.
+
+### Pallet Staking
+
+Defines a logic to stake tokens to be able request and process responses in the network.
