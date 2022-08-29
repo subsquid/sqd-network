@@ -92,7 +92,24 @@ The [SubQuery Network](subquery.md) indexes and services data to the global comm
 
 ## Proposed design
 
+In assumption, that archives business logic is going to manage different stuff like some rules being a part of archives set, regulating and validatation network members activities, economic logic enabling, etc. The general subsquid-network should should consists of 2 key layers, similar to Kyve:
+- The chain layer.
+- The protocol layer.
 
+### The chain layer
+
+The chain layer is responsible mainly for maintaining decentralized peer-to-peer network that operates the same data storage for the state changes recorded as a result of transactions, consensus methodology for blocks production and finalization to protect against malicious activity and ensure the ongoing progress of the chain, cryptography logic to enable blockchain works in the way we need.
+
+Additionally, as we know, running and maintaining such logic requires resources - processors, memory, storage, and network bandwidth—to perform operations. To support a community and make the network sustainable, users should pay for the network resources they use in different forms that will be defined.
+
+#### Core components
+
+- _Blockchain core state_ with the following key states components:
+    - Basic token flow.
+    - Transaction execution and application rules.
+    - Archive related logic and rules.
+- _Validators_ are responsible for block production and finalization to mantain state changes properly.
+- _Squid token_ to manage economic in terms of token transfer, fees, staking, delegation, etc.
 
 ## Implementation key thoughts
 
