@@ -143,6 +143,18 @@ Archive with the same target blockchain can be united into Pools. The Pool is ab
 
 The pool owner defines the pool rewards, the canonical image for the archive.
 
+### Aka Fisherman service
+
+It's a network member that run a service that meets requirements to validate archive and pool responses and in the event of an invalid response, may run a protocol-level dispute.
+
+### Staking
+
+To ensure that archives process requests honestly, the archives have to stake subsquid tokens. In case of misbehaving (e.g., uploading and submitting invalid data), the archive or pool would get slashed.
+
+### Delegating
+
+Delegation is a form of staking which does not require you to run your node or archive. Uou can delegate to both validators and archives, allowing you to have multiple ways of earning rewards for your tokens.
+
 ## Implementation key thoughts
 
 Before going in depth about the archive decentralized implementation itself we would like to consider basic approaches of decentralization logic implementation. There are the following keys options to enable it:
