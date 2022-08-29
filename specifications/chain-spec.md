@@ -131,11 +131,17 @@ We should define a light request in some way. It's like a request that can be pr
 
 #### Request processing
 
-Requests are submitted to the network on-chain (via transaction). The network devide the request into chunks of light requests if the request is heavy. Then the network should choose a set of archive that should process request based on some metrics and prices. The request has a special status until it has been processing.
+Requests are submitted to the network on-chain (via transaction). The network devides the request into chunks of light requests if the request is heavy. Then the network should choose a set of archive that should process corresponding light request based on some metrics and prices. The request has a special status until it has been processing.
 
 When the archive is ready to provide response to submmitted light request then it submits the response via a transaction as well. The response can contain some proof of processed data that link to any distributed storage like IPFS.
 
-The network validate responses and do punishment logic if it's required.
+The network validate responses and does punishment logic if it's required.
+
+### Pools
+
+Archive with the same target blockchain can be united into Pools. The Pool is able to process more than 1 light requests as it consists of some number of archives. The Pool should define their resources, times, prices, number of light requests that can be proccesed in 1 unit request time. It's required to properly choose a set of archives and pool that will process incoming request by the network.
+
+The pool owner defines the pool rewards, the canonical image for the archive.
 
 ## Implementation key thoughts
 
