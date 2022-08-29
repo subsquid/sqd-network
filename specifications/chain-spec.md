@@ -91,3 +91,12 @@ The [SubQuery Network](subquery.md) indexes and services data to the global comm
 ### Summary
 
 ## Proposed design
+
+
+
+## Implementation key thoughts
+
+Before going in depth about the archive decentralized implementation itself we would like to consider basic approaches of decentralization logic implementation. There are the following keys options to enable it:
+- develop on top of existing blockchain;
+- write own blockchain from scratch;
+- use a blockchain framework;
