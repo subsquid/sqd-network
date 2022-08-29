@@ -112,6 +112,31 @@ Additionally, as we know, running and maintaining such logic requires resources 
 
 The protocol layer is responsible for defining and managing subsquid specific related activities. Logically we should define what is an Archive as a network member, it's goals and rules; who is able to be a part of Archive set; different techniques and mechanisms to process and validate client requests to archives, rewards and punishment logic to stimulate protocol members do their job properly without behaving badly.
 
+### Archive
+
+Archive is a service that ingests raw on-chain data, stores it into persistent storage in a normalized way and exposes it via API for downstream data pipelines (such as Squid Processor) and ad-hoc exploration. Compared to data access using a conventional chain node RPC, an archive allows one to access data in a more granular fashion and from multiple blocks at once, thanks to its rich batching and filtering capabilities.
+
+### Archive logical requirements
+
+- Archive is run for particular blockchain network.
+- Archive should be able to process data extraction requests and return a proper response that will be validated. Requests and responses should meet a predefined format.
+- Archive owner should stake a minimum required subsquid tokens to join the Archive set.
+- Archive owner should pass a registration process to join the Archive set.
+- Archive should get reward for valid work.
+- Archive misbehavior should be punished.
+
+### Requests types
+
+We should define a light request in some way. It's like a request that can be processed by one archive using predefined resources and times. The requests that require more resources or time are Heavy requests.
+
+#### Request processing
+
+Requests are submitted to the network on-chain (via transaction). The network devide the request into chunks of light requests if the request is heavy. Then the network should choose a set of archive that should process request based on some metrics and prices. The request has a special status until it has been processing.
+
+When the archive is ready to provide response to submmitted light request then it submits the response via a transaction as well. The response can contain some proof of processed data that link to any distributed storage like IPFS.
+
+The network validate responses and do punishment logic if it's required.
+
 ## Implementation key thoughts
 
 Before going in depth about the archive decentralized implementation itself we would like to consider basic approaches of decentralization logic implementation. There are the following keys options to enable it:
