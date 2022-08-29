@@ -104,12 +104,13 @@ Additionally, as we know, running and maintaining such logic requires resources 
 
 #### Core components
 
-- _Blockchain core state_ with the following key states components:
-    - Basic token flow.
-    - Transaction execution and application rules.
-    - Archive related logic and rules.
-- _Validators_ are responsible for block production and finalization to mantain state changes properly.
+- _Blockchain core state_ that defines transaction execution and application rules.
+- _Validators_ are responsible for block production and finalization to maintain state changes properly.
 - _Squid token_ to manage economic in terms of token transfer, fees, staking, delegation, etc.
+
+### The protocol layer
+
+The protocol layer is responsible for defining and managing subsquid specific related activities. Logically we should define what is an Archive as a network member, it's goals and rules; who is able to be a part of Archive set; different techniques and mechanisms to process and validate client requests to archives, rewards and punishment logic to stimulate protocol members do their job properly without behaving badly.
 
 ## Implementation key thoughts
 
