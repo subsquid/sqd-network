@@ -4,6 +4,17 @@
 
 ## Subsquide team goals
 
+- Fast syncs of archives by randomly distributing the blocks between the nodes, encouraging peer-to-peer communication between the nodes.
+- Fast syncs of archives for new nodes (by downloading chunks from IPFS rather than from gRPC).
+- Distribute the load and the queries between the archives in a leaderless way.
+- Incentivize redundancy for ingestion and query resolution, enabling O(1) verification.
+- Accomodate frequent updates of the ingesting packages (due to bugs, changes or improvements) and an open-ended set of target blockchains to index.
+- Prevent spam requests.
+- Validate that an Archive Node is fully in sync and responds with valid data.
+- Trustless selection of an Archive Node.
+- It should be profitable for archivers to join the marketplace and get rewarded.
+- The end client should be able to pay either with KSM/USDT (or any other stable) AND by locking SQD.
+
 ## Similar approaches
 
 According to the fact that today we have already running similar projects we think that the best way to come up with a good own design is to analyze these projects with their key features.
