@@ -6,6 +6,8 @@
 
 ## Similar approaches
 
+According to the fact that today we have already running similar projects we think that the best way to come up with a good own design is to analyze these projects with their key features.
+
 ### POKT Network
 
 The [Pocket Network](pokt.md) is comprised of 3 components: Applications, Nodes and the Network Layer.
