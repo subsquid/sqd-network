@@ -175,6 +175,8 @@ _Note_: We can consider submitting proof of few responses instead of submitting 
 
 The network validate responses and does punishment logic if it's required.
 
+TODO!. A scheme to illustrate request processing flow.
+
 ### Pools
 
 Archive with the same target blockchain can be united into Pools. The Pool is able to process more than 1 light requests as it consists of some number of archives. The Pool should define their resources, times, prices, number of light requests that can be proccesed in 1 unit request time. It's required to properly choose a set of archives and pool that will process incoming request by the network.
