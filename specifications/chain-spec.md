@@ -2,6 +2,16 @@
 
 ## Abstract
 
+Current subsquid architecture is organized in a centralized way that has some cons that doesn't allow provide more useful and interesting features for our users and the project as a business itself. Below the list of some of thems:
+- Each archive/squid provides different blockchain data independently.
+- You as user should choose and use an archive/squid based on your own choice.
+- You need to implement or ask somebody else for additional tools to verify archive/squid trusted behavior.
+- It's difficult to punish somehow archive/squid behaving badly.
+- Archive and squid horizontal scalability issue.
+- etc.
+
+Today decentralized approaches provide additional good things to make subsquid like projects more trusted with own economic and protocol logic that enables additional ways to bring more advantages in terms of valid requests execution, archive/squids stimulation do their job properly withou behaving badly, horizontal scalability, participating in subsquid at different network layer from a deep technical guy that can run own archive and squid to simple user delegating own tokens to others for future earning rewards.
+
 ## Subsquide team goals
 
 - Fast syncs of archives by randomly distributing the blocks between the nodes, encouraging peer-to-peer communication between the nodes.
