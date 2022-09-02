@@ -113,6 +113,8 @@ The [SubQuery Network](subquery.md) indexes and services data to the global comm
 
 ### Summary
 
+TODO!. It's good to provide our feedback on above projects based on our needs.
+
 ## Proposed design
 
 In assumption, that archives business logic is going to manage different stuff like some rules being a part of archives set, regulating and validatation network members activities, economic logic enabling, etc. The general subsquid-network should should consists of 2 key layers, similar to Kyve:
