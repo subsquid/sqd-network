@@ -119,9 +119,10 @@ Archive is a service that ingests raw on-chain data, stores it into persistent s
 ### Archive logical requirements
 
 - Archive is run for particular blockchain network.
+- Archive should be run using a predefined docker images.
 - Archive should be able to process data extraction requests and return a proper response that will be validated. Requests and responses should meet a predefined format.
 - Archive owner should stake a minimum required subsquid tokens to join the Archive set.
-- Archive owner should pass a registration process to join the Archive set.
+- Archive owner should pass a registration process to join the Archive set. It should be possible to pass attestation in case archive is based on the predfined docker images mentioned above.
 - Archive should get reward for valid work.
 - Archive misbehavior should be punished.
 
