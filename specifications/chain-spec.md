@@ -205,7 +205,9 @@ Based on it we decided that using a blockchain framework suits us the best based
 
 After speding some time on blockchain framework research, we decided to use a Substrate as it provides the following great features: [flexible](https://docs.substrate.io/fundamentals/why-substrate/#flexible), [open](https://docs.substrate.io/fundamentals/why-substrate/#open), [interoperable](https://docs.substrate.io/fundamentals/why-substrate/#interoperable) and [future-proof](https://docs.substrate.io/fundamentals/why-substrate/#future-proof).
 
-## General flow scheme
+## General components overview
+
+TODO!. We need to illustrate a general components overview scheme with importnant connections.
 
 ## Components
 
