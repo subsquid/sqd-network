@@ -112,6 +112,12 @@ Additionally, as we know, running and maintaining such logic requires resources 
 
 The protocol layer is responsible for defining and managing subsquid specific related activities. Logically we should define what is an Archive as a network member, it's goals and rules; who is able to be a part of Archive set; different techniques and mechanisms to process and validate client requests to archives, rewards and punishment logic to stimulate protocol members do their job properly without behaving badly.
 
+### Query client
+
+Any client that sumbits requests to the network related to non-native blockchain requests. The requests is a special transaction kind.
+
+The client should pay a regular network fee to be transaction included into block. As additional parameters the client should specify a cost that will be paid for request. The network verifies that required amount of tokens are already staked to cover the cost.
+
 ### Archive
 
 Archive is a service that ingests raw on-chain data, stores it into persistent storage in a normalized way and exposes it via API for downstream data pipelines (such as Squid Processor) and ad-hoc exploration. Compared to data access using a conventional chain node RPC, an archive allows one to access data in a more granular fashion and from multiple blocks at once, thanks to its rich batching and filtering capabilities.
@@ -135,6 +141,8 @@ We should define a light request in some way. It's like a request that can be pr
 Requests are submitted to the network on-chain (via transaction). The network devides the request into chunks of light requests if the request is heavy. Then the network should choose a set of archive that should process corresponding light request based on some metrics and prices. The request has a special status until it has been processing.
 
 When the archive is ready to provide response to submmitted light request then it submits the response via a transaction as well. The response can contain some proof of processed data that link to any distributed storage like IPFS.
+
+_Note_: We can consider submitting proof of few responses instead of submitting one on-chain transaction for each response separately. Just collect request and response into some proof and later submit it included into proof transaction.
 
 The network validate responses and does punishment logic if it's required.
 
