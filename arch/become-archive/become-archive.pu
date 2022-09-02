@@ -12,7 +12,9 @@ box "Subsquid Network (Storage)"
   participant PalletArchive
 end box
 
-ArchiveCandidate -> Node: Trx BeA: [be_validator(Alice, Signature)]
+ArchiveCandidate -> ArchiveCandidate: Prepare transaction\nto become an archive\nthat proves a required\ndocker image is run.
+
+ArchiveCandidate -> Node: Trx BeA: [be_archive(Alice, Signature)]
 Node -> Validators: Propagate Trx BeA
 
 Validators -> Validators: Verify Trx BeA
