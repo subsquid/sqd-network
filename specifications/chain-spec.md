@@ -132,6 +132,10 @@ Archive is a service that ingests raw on-chain data, stores it into persistent s
 - Archive should get reward for valid work.
 - Archive misbehavior should be punished.
 
+### Become an Archive flow
+
+![image](../arch/become-archive/become_archive.png)
+
 ### Requests types
 
 We should define a light request in some way. It's like a request that can be processed by one archive using predefined resources and times. The requests that require more resources or time are Heavy requests.
