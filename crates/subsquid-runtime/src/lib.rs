@@ -275,15 +275,6 @@ parameter_types! {
     pub const MinVestedTransfer: Balance = BALANCE_UNIT;
 }
 
-impl pallet_vesting::Config for Runtime {
-    type Event = Event;
-    type Currency = Balances;
-    type BlockNumberToBalance = ConvertInto;
-    type MinVestedTransfer = MinVestedTransfer;
-    type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
-    const MAX_VESTING_SCHEDULES: u32 = 28;
-}
-
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -298,7 +289,6 @@ construct_runtime!(
         Grandpa: pallet_grandpa,
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
-        Vesting: pallet_vesting,
         Sudo: pallet_sudo,
     }
 );
