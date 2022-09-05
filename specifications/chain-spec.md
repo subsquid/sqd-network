@@ -161,6 +161,20 @@ Archive is a service that ingests raw on-chain data, stores it into persistent s
 
 ![image](../arch/become-archive/become_archive.png)
 
+### Worker (aka Resource Node)
+
+Worker is a part of the network that provides resources for running archives for particular blockchain that are run using dockerized images. In other words, it's a special light client of the network with the following requirements.
+
+#### Requirements
+
+- Worker should pass some registration to be a part of the network.
+- Worker should stake required SQD tokens.
+- Worker should listen the network for events to run a particular archive in it's environment.
+- Worker should use approved (by the network) docker images for running archives.
+- Worker should submit a special attestation transaction to verify that an approved image was run for particular blockchain. Otherwise, the worker should be punishment.
+- Worker should stop running archive if a special event is produced by the network.
+- There is a range of workers number when it's profitable to run it.
+
 ### Requests types
 
 We should define a light request in some way. It's like a request that can be processed by one archive using predefined resources and times. The requests that require more resources or time are Heavy requests.
