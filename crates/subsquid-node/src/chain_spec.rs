@@ -5,7 +5,7 @@ use sp_finality_grandpa::AuthorityId as GrandpaId;
 use sp_runtime::traits::{IdentifyAccount, Verify};
 use subsquid_runtime::{
     AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig,
-    SystemConfig, VestingConfig, WASM_BINARY,
+    SystemConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -162,6 +162,5 @@ fn testnet_genesis(
             key: Some(root_key),
         },
         transaction_payment: Default::default(),
-        vesting: VestingConfig { vesting: vec![] },
     }
 }
