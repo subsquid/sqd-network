@@ -3,22 +3,22 @@
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use frame_support::traits::StorageVersion;
-use frame_system::WeightInfo;
+use frame_support::{traits::StorageVersion, WeakBoundedVec};
 use sp_runtime::RuntimeAppPublic;
 use sp_std::prelude::*;
 
 pub use pallet::*;
 
-pub struct Archive;
+pub mod weights;
 
 const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
-    use frame_support::{pallet_prelude::*, WeakBoundedVec};
+    use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
+    use weights::WeightInfo;
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
@@ -70,5 +70,27 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         NewArchive { archive_id: T::ArchiveId },
+    }
+
+    #[pallet::error]
+    pub enum Error<T> {
+        ArchivesLimitExceeded,
+    }
+
+    #[pallet::call]
+    impl<T: Config> Pallet<T> {
+        #[pallet::weight(T::WeightInfo::register())]
+        pub fn register(origin: OriginFor<T>, archive_id: T::ArchiveId) -> DispatchResult {
+            let _sender = ensure_signed(origin)?;
+
+            <Archives<T>>::try_mutate::<_, DispatchError, _>(|archives| {
+                archives
+                    .try_push(archive_id.clone())
+                    .map_err(|_| Error::<T>::ArchivesLimitExceeded)?;
+                Self::deposit_event(Event::NewArchive { archive_id });
+                Ok(())
+            })?;
+            Ok(())
+        }
     }
 }
