@@ -9,6 +9,8 @@ use sp_std::prelude::*;
 
 pub use pallet::*;
 
+#[cfg(test)]
+mod tests;
 pub mod weights;
 
 const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
