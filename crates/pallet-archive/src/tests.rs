@@ -9,6 +9,7 @@ use sp_core::H256;
 use sp_runtime::{
     testing::{Header, UintAuthorityId},
     traits::{BadOrigin, BlakeTwo256, IdentityLookup},
+    BuildStorage,
 };
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
@@ -57,4 +58,14 @@ impl pallet_archive::Config for Test {
     type ArchiveId = UintAuthorityId;
     type MaxArchives = ConstU32<100>;
     type WeightInfo = ();
+}
+
+pub fn new_test_ext() -> sp_io::TestExternalities {
+    let genesis_config = GenesisConfig::default();
+    new_test_ext_with(genesis_config)
+}
+
+pub fn new_test_ext_with(genesis_config: GenesisConfig) -> sp_io::TestExternalities {
+    let storage = genesis_config.build_storage().unwrap();
+    storage.into()
 }

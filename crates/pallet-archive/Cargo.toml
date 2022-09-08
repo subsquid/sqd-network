@@ -19,6 +19,7 @@ frame-system = { default-features = false, git = "https://github.com/paritytech/
 
 [dev-dependencies]
 sp-core = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
+sp-io = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
 
 [features]
 default = ["std"]
