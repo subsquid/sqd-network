@@ -77,6 +77,7 @@ pub mod pallet {
     #[pallet::error]
     pub enum Error<T> {
         ArchivesLimitExceeded,
+        ArchiveAlreadyRegistered,
     }
 
     #[pallet::call]
@@ -84,6 +85,10 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::register())]
         pub fn register(origin: OriginFor<T>, archive_id: T::ArchiveId) -> DispatchResult {
             let _sender = ensure_signed(origin)?;
+
+            if Self::is_registered(&archive_id) {
+                return Err(DispatchError::from(Error::<T>::ArchiveAlreadyRegistered));
+            }
 
             <Archives<T>>::try_mutate::<_, DispatchError, _>(|archives| {
                 archives
@@ -93,6 +98,12 @@ pub mod pallet {
                 Ok(())
             })?;
             Ok(())
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        pub fn is_registered(archive_id: &T::ArchiveId) -> bool {
+            Archives::<T>::get().iter().any(|id| id == archive_id)
         }
     }
 }
