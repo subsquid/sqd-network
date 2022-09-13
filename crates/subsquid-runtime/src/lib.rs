@@ -9,6 +9,7 @@ include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 use pallet_grandpa::{
     fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
 };
+use primitives_archive::ArchiveId;
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
@@ -268,8 +269,11 @@ impl pallet_sudo::Config for Runtime {
     type Call = Call;
 }
 
-parameter_types! {
-    pub const MinVestedTransfer: Balance = BALANCE_UNIT;
+impl pallet_archive::Config for Runtime {
+    type Event = Event;
+    type ArchiveId = ArchiveId;
+    type MaxArchives = ConstU32<100>;
+    type WeightInfo = ();
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -287,6 +291,7 @@ construct_runtime!(
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
+        Archive: pallet_archive,
     }
 );
 

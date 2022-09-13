@@ -4,8 +4,8 @@ use sp_core::{sr25519, Pair, Public};
 use sp_finality_grandpa::AuthorityId as GrandpaId;
 use sp_runtime::traits::{IdentifyAccount, Verify};
 use subsquid_runtime::{
-    AccountId, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature, SudoConfig,
-    SystemConfig, WASM_BINARY,
+    AccountId, ArchiveConfig, AuraConfig, BalancesConfig, GenesisConfig, GrandpaConfig, Signature,
+    SudoConfig, SystemConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
@@ -157,6 +157,7 @@ fn testnet_genesis(
                 .map(|x| (x.1.clone(), 1))
                 .collect(),
         },
+        archive: ArchiveConfig { archives: vec![] },
         sudo: SudoConfig {
             // Assign network admin rights.
             key: Some(root_key),
