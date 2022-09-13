@@ -1,0 +1,9 @@
+[package]
+name = "resource-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bollard = "0.13"
+futures-util = "0.3"
+tokio = { version = "1.21", features = ["full"] }
