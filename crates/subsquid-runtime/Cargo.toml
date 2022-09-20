@@ -9,8 +9,8 @@ codec = { package = "parity-scale-codec", version = "3.0.0", default-features = 
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 static_assertions = "1.1.0"
 
-pallet-archive = { default-features = false, version = "0.1", path = "../pallet-archive"}
-primitives-archive = { default-features = false, version = "0.1", path = "../primitives-archive"}
+pallet-worker = { default-features = false, version = "0.1", path = "../pallet-worker"}
+primitives-worker = { default-features = false, version = "0.1", path = "../primitives-worker"}
 
 # Substrate primitive dependencies
 sp-api = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
@@ -51,7 +51,6 @@ std = [
   "frame-support/std",
   "frame-system-rpc-runtime-api/std",
   "frame-system/std",
-  "pallet-archive/std",
   "pallet-aura/std",
   "pallet-balances/std",
   "pallet-grandpa/std",
@@ -60,7 +59,8 @@ std = [
   "pallet-timestamp/std",
   "pallet-transaction-payment-rpc-runtime-api/std",
   "pallet-transaction-payment/std",
-  "primitives-archive/std",
+  "pallet-worker/std",
+  "primitives-worker/std",
   "sp-api/std",
   "sp-block-builder/std",
   "sp-consensus-aura/std",
@@ -77,17 +77,16 @@ std = [
 runtime-benchmarks = [
   "frame-support/runtime-benchmarks",
   "frame-system/runtime-benchmarks",
-  "pallet-archive/runtime-benchmarks",
   "pallet-balances/runtime-benchmarks",
   "pallet-grandpa/runtime-benchmarks",
   "pallet-timestamp/runtime-benchmarks",
+  "pallet-worker/runtime-benchmarks",
   "sp-runtime/runtime-benchmarks",
 ]
 
 try-runtime = [
   "frame-executive/try-runtime",
   "frame-system/try-runtime",
-  "pallet-archive/try-runtime",
   "pallet-aura/try-runtime",
   "pallet-balances/try-runtime",
   "pallet-grandpa/try-runtime",
@@ -95,4 +94,5 @@ try-runtime = [
   "pallet-sudo/try-runtime",
   "pallet-timestamp/try-runtime",
   "pallet-transaction-payment/try-runtime",
+  "pallet-worker/try-runtime",
 ]

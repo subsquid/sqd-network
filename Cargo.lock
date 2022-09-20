@@ -3843,21 +3843,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-archive"
-version = "0.1.0"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "pallet-aura"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate?branch=master#b8591d63c998a8a80376018c426a5b1fd75714db"
@@ -4033,6 +4018,21 @@ dependencies = [
  "parity-scale-codec",
  "sp-api",
  "sp-runtime",
+]
+
+[[package]]
+name = "pallet-worker"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]
@@ -4371,7 +4371,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "primitives-archive"
+name = "primitives-worker"
 version = "0.1.0"
 dependencies = [
  "parity-scale-codec",
@@ -7072,7 +7072,6 @@ dependencies = [
  "frame-support",
  "frame-system",
  "frame-system-rpc-runtime-api",
- "pallet-archive",
  "pallet-aura",
  "pallet-balances",
  "pallet-grandpa",
@@ -7081,8 +7080,9 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-worker",
  "parity-scale-codec",
- "primitives-archive",
+ "primitives-worker",
  "scale-info",
  "sp-api",
  "sp-block-builder",

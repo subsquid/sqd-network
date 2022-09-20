@@ -1,12 +1,12 @@
-//! Archive related primitives.
+//! Worker related primitives.
 
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use sp_application_crypto::KeyTypeId;
 
-/// Keystore Bioauth Account ID key type definition.
-pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"arid");
+/// Worker Account Id.
+pub const KEY_TYPE: KeyTypeId = KeyTypeId(*b"wrkr");
 
 /// App key definition.
 mod app {
@@ -15,4 +15,4 @@ mod app {
 }
 
 /// App key export.
-pub type ArchiveId = app::Public;
+pub type WorkerId = app::Public;
