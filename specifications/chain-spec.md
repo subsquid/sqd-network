@@ -2,9 +2,9 @@
 
 ## Abstract
 
-Current subsquid architecture is organized in a centralized way that has some cons that doesn't allow provide more useful and interesting features for our users and the project as a business itself. Below the list of some of thems:
+Current subsquid architecture is organized in a centralized way that has some cons that doesn't provide more useful and interesting features for our users and the project as a business itself. Below is the list of some such features:
 - Each archive/squid provides different blockchain data independently.
-- You as user should choose and use an archive/squid based on your own choice.
+- You as a user should choose and use an archive/squid based on your own choice.
 - You need to implement or ask somebody else for additional tools to verify archive/squid trusted behavior.
 - It's difficult to punish somehow archive/squid behaving badly.
 - Archive and squid horizontal scalability issue.
@@ -27,89 +27,12 @@ Today decentralized approaches provide additional good things to make subsquid l
 
 ## Similar approaches
 
-According to the fact that today we have already running similar projects we think that the best way to come up with a good own design is to analyze these projects with their key features.
+According to the fact that today we have already running similar projects we think that the best way to come up with a good own design is to analyze these projects with their key features. Below is the list of analyzed projects and links to short summaries.
 
-### POKT Network
-
-The [Pocket Network](pokt.md) is comprised of 3 components: Applications, Nodes and the Network Layer.
-
-- An Application submits Relays, or API requests meant to be routed to any public database node.
-- Nodes service these Relays, by submitting them to the public databases they are meant for, and sending the response (if any) back to the Application.
-- The Network Layer is comprised of all the rules, protocols and finality storage that serve as the backbone of the interactions between Applications and Nodes, including (but not limited to), configuration, record tracking, governance and economic policy.
-- The mechanism the Network uses to regulate the interactions between Applications and Nodes are Sessions.
-- The only way to obtain sanctioned throughput from Nodes within the Pocket Network is by staking the native cryptocurrency within the network.
-- Due to the architecture of the Session mechanism, Applications are provided five (5) individual Service Nodes per requested chain in one session.
-
-### The Graph
-
-[Graph Protocol](graph.md) falls into a category as a layer 2 read-scalability solution.
-
-#### High-Level Architecture
-
-```ascii
-    +------------------------------------------------------------------+
-    |                                                                  |
-    | Decentralized Application (dApp)                                 |
-    |                                                                  |
-    +-+---------------------------------^--------------------------+---+
-      |                                 |                          |
-      |                              Queries                       |
-      |                                 |                          |
-      |   +-----------------------------+--------------------+     |
-      |   |                                                  |     |
-      |   |  Query Nodes and Clients                         | Micropayments
-      |   |                                                  |     |
-      |   +---------+-------------------^--------------------+     |
-      |             |                   |                          |
-Transactions   Attestations     (Reads, Attestations)              |
-      |             |                   |                          |
-      |   +---------v-----------+  +----+--------------------------v---+
-      |   |                     |  |                                   |
-      |   |  Fisherman Service  |  | Indexing Nodes                    |
-      |   |                     |  |                                   |
-      |   +---------+-----------+  +----^-------------------^----------+
-      |             |                   |                   |
-      |         Disputes          (Events, Data)          Data
-      |             |                   |                   |
-    +-v-------------v-------------------+-----+ +-----------+----------+
-    |                                         | |                      |
-    |                Ethereum                 | |   IPFS               |
-    |                                         | |                      |
-    +-----------------------------------------+ +----------------------+
-```
-
-- the Query Node is responsible for discovering Indexing Nodes in the network that are indexing a specific dataset, and selecting an Indexing Node to read from based on factors such as price and performance (see Query Processing).
-- Indexing Nodes index one or more user-defined datasets, called subgraphs. These nodes perform a deterministic streaming extract, transform and load (ETL) of events emitted by the Ethereum blockchain.
-- Fisherman Services is an economic agent who verifies read responses in exchange for a reward in cases where they detect that an Indexing Node has attested to an incorrect response, and the Fisherman successfully disputes the response on-chain.
-- Indexing Node operators stake deposits of Graph Tokens for particular datasets, called subgraphs, to gain the right to participate in the data retrieval marketplaces for that dataset-indexing data and responding to read requests in exchange for micropayments.
-- Indexing Nodes which have staked to index a particular dataset, will be discoverable in the data retrieval market for that dataset.
-- Curators are economic agents who earn rewards by betting on the future economic value of datasets, perhaps with the benefit of private information.
-- Token holders who do not feel equipped to perform one of these functions may delegate their tokens to an Indexing Node that is staked for a particular dataset.
-- In the Service Discovery step, the Query Node locates Indexing Nodes for a specific dataset as well as important metadata that is useful in deciding which Indexing Node to issue read operations to, such as price, performance, and economic security margin. Fetching price and latency for a node is done via a single call to the Indexing Node RPC API and returns the following data: the latency required to fulfill the request; a `bandwidthPrice` measured in price per byte transmitted over the network; and a `gasPrice`, which captures the cost of compute and IO for a given read operation.
-- In the Service Selection stage, Query Nodes choose which Indexing Nodes to transact with for each read operation. An algorithm for this stage could incorporate latency (measured in ms), economicSecurityMargin (measured in Graph Tokens), gasPrice, and bytesPrice (the cost of sending a byte over the network).
-
-### Kyve
-
-[KYVE](kyve.md) is a network of storage pools built to store data streams or create snapshots of already existing data. It is secured by its blockchain built on cosmos.
-
-![image](https://docs.kyve.network/architecture.png)
-
-- The chain layer is an entirely sovereign Proof of Stake. This blockchain is run by independent nodes we call chain nodes since they're running on the chain level. The native currency of the KYVE chain is $KYVE. It secures the chain and allows chain nodes to stake and other users to delegate to them.
-- The protocol layer sits on top of the chain layer and enables the actual use case of KYVE. Every feature and unit of logic which makes KYVE unique is implemented directly into the chain nodes. This includes pools, funding, staking and delegating.
-- Storage pools (or just pools) can be described as discrete entities arranged around specific data sources. Protocol nodes have to run with the specified pool runtime for a pool to function. If specific criteria are met, pools distribute $KYVE to designated node runners.For example, to archive the Ethereum blockchain, the runtime will be @kyve/evm.
-- A storage pool requires funding in $KYVE and can be provided by anyone. The funding gets paid out to the protocol nodes active in the pool. If a pool runs out of funds, it stops.
-- A storage pool requires protocol nodes that upload and validate data. To ensure that nodes upload correct data and validate honestly, the protocol nodes have to stake $KYVE.
-- Delegation is a form of staking which does not require you to run your node. You provide stake as network security to a node and generate rewards.
-
-### Subquery
-
-The [SubQuery Network](subquery.md) indexes and services data to the global community in an incentivised and verifiable way.
-
-- A Consumer is a participant in the SubQuery network and is either an individual or organisation that pays for processed and organised blockchain data from the SubQuery Network.
-- The cost of querying data on the blockchain will be based on supply and demand and will be comparable to other similar services currently available.
-- An Indexer is a SubQuery network participant who is responsible for indexing blockchain data and providing this data to their customers.
-- In order to earn rewards from query revenue as an Indexer it is proposed that Indexers must stake SQT against a particular SubQuery Project that they are providing the service to.
-- A Delegator is a non-technical network role in the SubQuery Network and is a great way to start participating in the SubQuery Network. This role enables Delegators to “delegate” their SQT to one or more Indexers and earn rewards (similar to staking).
+- [Pocket Network](pokt.md).
+- [Graph Protocol](graph.md).
+- [KYVE](kyve.md).
+- [SubQuery Network](subquery.md).
 
 ### Summary
 
