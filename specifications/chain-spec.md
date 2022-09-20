@@ -144,38 +144,20 @@ Based on it we decided that using a blockchain framework suits us the best based
 
 After speding some time on blockchain framework research, we decided to use a Substrate as it provides the following great features: [flexible](https://docs.substrate.io/fundamentals/why-substrate/#flexible), [open](https://docs.substrate.io/fundamentals/why-substrate/#open), [interoperable](https://docs.substrate.io/fundamentals/why-substrate/#interoperable) and [future-proof](https://docs.substrate.io/fundamentals/why-substrate/#future-proof).
 
-## General components overview
+## PoC vision to verify the logic of decentralized archives.
 
-TODO!. We need to illustrate a general components overview scheme with importnant connections.
+### Introduction
 
-## Components
+We would like to verify general vision and flow of data requests and processing based on the following key components:
 
-The key components of substrate based subsquid-network.
+- _Client_ that submits requests to the network to get required data from non native blockchain networks.
+- _Validator_ (chain layer node) that mantains general blockchain logic and state.
+- _IPFS_ to store processed non native blockchain networks data by archives.
+- _Archive (Ingester)_ that communicates with a particular non native blockchain network and stores processed data into _IPFS_.
+- _Worker_ listens the subsquid network events and executes a stream of tasks sourced from the network on a machine it is running on.
 
-### Validator
+### The general scheme
 
-A simple blockchain node that is responsible for blocks production and finalization to properly manage state changes.
+The below you can see a high-level scheme that describes communication and data processing between key components.
 
-### Subsquid Runtime
-
-Defines core bussines logic and connects different low-level business components with each other.
-
-### Pallet Archive
-
-Defines and setup rules in which subsquid archives join the Archive set and process requests.
-
-### Pallet Pool
-
-Defines a way to create and manage a pool of archives.
-
-### Pallet Balances
-
-Set up subsquid token and rules to hold, transfer, locking it.
-
-### Pallet Fisherman
-
-Defines rules to validate archive and pool responses.
-
-### Pallet Staking
-
-Defines a logic to stake tokens to be able request and process responses in the network.
+![image](https://user-images.githubusercontent.com/8627422/191043347-135248ef-43c5-499b-a09a-5b8c60d06f7d.png)
