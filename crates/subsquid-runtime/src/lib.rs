@@ -14,10 +14,7 @@ use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
     create_runtime_str, generic, impl_opaque_keys,
-    traits::{
-        AccountIdLookup, BlakeTwo256, Block as BlockT, ConvertInto, IdentifyAccount, NumberFor,
-        Verify,
-    },
+    traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify},
     transaction_validity::{TransactionSource, TransactionValidity},
     ApplyExtrinsicResult, MultiSignature,
 };
@@ -275,15 +272,6 @@ parameter_types! {
     pub const MinVestedTransfer: Balance = BALANCE_UNIT;
 }
 
-impl pallet_vesting::Config for Runtime {
-    type Event = Event;
-    type Currency = Balances;
-    type BlockNumberToBalance = ConvertInto;
-    type MinVestedTransfer = MinVestedTransfer;
-    type WeightInfo = pallet_vesting::weights::SubstrateWeight<Runtime>;
-    const MAX_VESTING_SCHEDULES: u32 = 28;
-}
-
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -298,7 +286,6 @@ construct_runtime!(
         Grandpa: pallet_grandpa,
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
-        Vesting: pallet_vesting,
         Sudo: pallet_sudo,
     }
 );

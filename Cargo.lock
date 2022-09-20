@@ -4021,20 +4021,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-vesting"
-version = "4.0.0-dev"
-source = "git+https://github.com/paritytech/substrate?branch=master#b8591d63c998a8a80376018c426a5b1fd75714db"
-dependencies = [
- "frame-support",
- "frame-system",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "parity-db"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7070,7 +7056,6 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
- "pallet-vesting",
  "parity-scale-codec",
  "scale-info",
  "sp-api",
