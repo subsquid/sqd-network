@@ -194,3 +194,4 @@ Implements additional core logic to simple basic blockchain implementation:
 - `pallet-whead`: manage the rules by which a specific subset of workers is going to process client requests, expose an interface as well.
 - `pallet-ingester`: manage the list of ingesters with their up-to-date internal state.
 - `pallet-fisherman`: verify workers jobs results and apply punishment rules if it's required.
+- `pallet-nnbreq`: process clients non native blockchain requests.
