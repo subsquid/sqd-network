@@ -161,3 +161,36 @@ We would like to verify general vision and flow of data requests and processing 
 The below you can see a high-level scheme that describes communication and data processing between key components.
 
 ![image](https://user-images.githubusercontent.com/8627422/191043347-135248ef-43c5-499b-a09a-5b8c60d06f7d.png)
+
+### Implementation details
+
+#### Client
+
+A simple software that is able to submit different non native blockchain requests with possible filters to subsquid network.
+
+#### Ingester
+
+For PoC purposes we are going to use centralized ingester that process non native blockchain network data and stores processed data into IPFS in parquet file format.
+
+Ingester periodically (for example, each 100k blocks) submits a special extrinsic to the network to announce it's state.
+
+Should be registered in the network.
+
+#### Worker
+
+Compute worker providers install on their machines a special daemon called Worker client. Worker client sequentially executes a stream of tasks sourced from blockchain network on a machine it is running on.
+
+- submits data availability extrinsics to the network to update network runtime state respectively.
+- listens events from ingester (submitted extrinsic with entire current state) to download non native blockchain processed data from IPFS if it's required.
+- listens network events to run a particular job to process client request (partial or full).
+- store job's result to IPFS.
+- submits job's result to the network in form of extrinsic.
+
+#### Subsquid substrate-based network
+
+Implements additional core logic to simple basic blockchain implementation:
+
+- `pallet-worker`: manage the lists of workers with their up-to-date internal state that are registered in the network, provides a respective interface to the list and state to manage it.
+- `pallet-whead`: manage the rules by which a specific subset of workers is going to process client requests, expose an interface as well.
+- `pallet-ingester`: manage the list of ingesters with their up-to-date internal state.
+- `pallet-fisherman`: verify workers jobs results and apply punishment rules if it's required.
