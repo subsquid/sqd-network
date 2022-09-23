@@ -190,8 +190,13 @@ Compute worker providers install on their machines a special daemon called Worke
 
 Implements additional core logic to simple basic blockchain implementation:
 
-- `pallet-worker`: manage the lists of workers with their up-to-date internal state that are registered in the network, provides a respective interface to the list and state to manage it.
-- `pallet-whead`: manage the rules by which a specific subset of workers is going to process client requests, expose an interface as well.
 - `pallet-ingester`: manage the list of ingesters with their up-to-date internal state.
-- `pallet-fisherman`: verify workers jobs results and apply punishment rules if it's required.
+![image](../arch/pallet-ingester/pallet-ingester.png)
+- `pallet-worker`: manage the lists of workers with their up-to-date internal state that are registered in the network, provides a respective interface to the list and state to manage it.
+![image](../arch/pallet-worker/pallet-worker.png)
+- `pallet-whead`: manage the rules by which a specific subset of workers is going to process client requests, expose an interface as well.
+![image](../arch/pallet-whead/pallet-whead.png)
 - `pallet-nnbreq`: process clients non native blockchain requests.
+![image](../arch/pallet-nnbreq/pallet-nnbreq.png)
+- `pallet-fisherman`: verify workers jobs results and apply punishment rules if it's required.
+![image](../arch/pallet-fisherman/pallet-fisherman.png)
