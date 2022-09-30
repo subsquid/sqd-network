@@ -4028,6 +4028,8 @@ dependencies = [
  "frame-support",
  "frame-system",
  "parity-scale-codec",
+ "primitives-networks",
+ "primitives-worker",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -4368,6 +4370,27 @@ dependencies = [
  "impl-serde",
  "scale-info",
  "uint",
+]
+
+[[package]]
+name = "primitives-networks"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "primitives-worker"
+version = "0.1.0"
+dependencies = [
+ "parity-scale-codec",
+ "primitives-networks",
+ "scale-info",
+ "sp-runtime",
+ "sp-std",
 ]
 
 [[package]]
