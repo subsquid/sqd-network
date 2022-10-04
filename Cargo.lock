@@ -3843,6 +3843,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-acala-network"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-aura"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate?branch=master#b8591d63c998a8a80376018c426a5b1fd75714db"
