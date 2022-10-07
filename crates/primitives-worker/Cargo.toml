@@ -5,8 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-primitives-networks = { default-features = false, version = "0.1", path = "../primitives-networks" }
-
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
@@ -18,8 +16,7 @@ sp-std = { default-features = false, git = "https://github.com/paritytech/substr
 default = ["std"]
 std = [
 	"codec/std",
-  "primitives-networks/std",
-	"scale-info/std",
+  "scale-info/std",
   "sp-runtime/std",
   "sp-std/std",
 ]

@@ -4,23 +4,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use codec::MaxEncodedLen;
-use frame_support::BoundedVec;
-use primitives_networks::Network;
-use primitives_worker::{DataAvailability, Task};
+use primitives_worker::{Status, Task};
 
 pub use pallet::*;
 
 pub mod weights;
-
-/// Expose controller logic to manage workers state.
-pub trait WorkerController<WorkerId> {
-    /// Get current worker status.
-    fn current_status(worker_id: WorkerId) -> (Vec<Task>, Vec<DataAvailability>);
-    /// Run the task for particular worker.
-    fn run_task(worker_id: WorkerId, task: Task);
-    /// Stop the task for particular worker.
-    fn stop_task(worker_id: WorkerId, task: Task);
-}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -35,12 +23,6 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         /// WorkerId type.
         type WorkerId: Parameter + MaxEncodedLen;
-        /// Max workers number.
-        type MaxWorkers: Get<u32>;
-        /// Max tasks number.
-        type MaxTasks: Get<u32>;
-        /// Max da number.
-        type MaxDA: Get<u32>;
         /// WeightInfo type that should implement `WeightInfo` trait.
         type WeightInfo: WeightInfo;
     }
@@ -49,28 +31,10 @@ pub mod pallet {
     #[pallet::generate_store(pub(super) trait Store)]
     pub struct Pallet<T>(_);
 
-    /// Current workers tasks in `StorageMap` view: `WorkerId` -> `BoundedVec<Tasks>`.
+    /// Current workers state in `StorageMap` view: `WorkerId` -> `Status`.
     #[pallet::storage]
-    #[pallet::getter(fn workers_tasks)]
-    pub type WorkersTasks<T: Config> =
-        StorageMap<_, Twox64Concat, T::WorkerId, BoundedVec<Task, T::MaxTasks>, OptionQuery>;
-
-    /// Current workers data availability in `StorageMap` view: `WorkerId` -> `BoundedVec<DA>`.
-    #[pallet::storage]
-    #[pallet::getter(fn workers_da)]
-    pub type WorkersDA<T: Config> = StorageMap<
-        _,
-        Twox64Concat,
-        T::WorkerId,
-        BoundedVec<DataAvailability, T::MaxDA>,
-        OptionQuery,
-    >;
-
-    /// Current networks data availability in `StorageMap` view: `Network` -> `WorkerId`.
-    #[pallet::storage]
-    #[pallet::getter(fn networks_data)]
-    pub type NetworksData<T: Config> =
-        StorageMap<_, Twox64Concat, Network, T::WorkerId, OptionQuery>;
+    #[pallet::getter(fn workers)]
+    pub type Workers<T: Config> = StorageMap<_, Twox64Concat, T::WorkerId, Status, OptionQuery>;
 
     /// Possible events list.
     #[pallet::event]
@@ -78,7 +42,6 @@ pub mod pallet {
     pub enum Event<T: Config> {
         NewWorker { worker_id: T::WorkerId },
         RunTask { task: Task },
-        StopTask { task: Task },
     }
 
     #[pallet::call]
@@ -92,22 +55,20 @@ pub mod pallet {
 
         /// Execute submit_task_result call by Worker.
         #[pallet::weight(T::WeightInfo::register())]
-        pub fn submit_task_result(_origin: OriginFor<T>, _task_result: Task) -> DispatchResult {
+        pub fn done(_origin: OriginFor<T>, _task: Task) -> DispatchResult {
             todo!()
         }
     }
-}
 
-impl<T: Config> WorkerController<T::WorkerId> for Pallet<T> {
-    fn current_status(_worker_id: T::WorkerId) -> (Vec<Task>, Vec<DataAvailability>) {
-        todo!()
-    }
+    impl<T: Config> Pallet<T> {
+        fn _current_status(
+            _worker_id: T::WorkerId,
+        ) -> sp_std::result::Result<Status, DispatchError> {
+            todo!()
+        }
 
-    fn run_task(_worker_id: T::WorkerId, _task: Task) {
-        todo!()
-    }
-
-    fn stop_task(_worker_id: T::WorkerId, _task: Task) {
-        todo!()
+        fn _run_task(_worker_id: T::WorkerId, _task: Task) -> DispatchResult {
+            todo!()
+        }
     }
 }

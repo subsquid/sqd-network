@@ -19,7 +19,7 @@ pub struct Request;
 #[frame_support::pallet]
 pub mod pallet {
 
-    use crate::traits::{RequestInterface, SchedulerInterface};
+    use crate::traits::{RequestIdGenerator, SchedulerInterface};
 
     use super::*;
     use frame_support::pallet_prelude::*;
@@ -30,13 +30,9 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        type Status: Parameter + MaxEncodedLen;
+        type Status: Parameter + MaxEncodedLen + Copy;
         type RequestId: Parameter + MaxEncodedLen + Copy;
-        type RequestInterface: RequestInterface<
-            Id = Self::RequestId,
-            Data = Request,
-            Status = Self::Status,
-        >;
+        type RequestIdGenerator: RequestIdGenerator<Id = Self::RequestId, Data = Request>;
         type SchedulerInterface: SchedulerInterface<RequestId = Self::RequestId, Request = Request>;
         type WeightInfo: WeightInfo;
     }
@@ -71,11 +67,21 @@ pub mod pallet {
         },
     }
 
+    #[pallet::error]
+    pub enum Error<T> {
+        RequestIdAlreadyExists,
+        NoRequestId,
+    }
+
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::weight(T::WeightInfo::request())]
         pub fn request(_origin: OriginFor<T>, request: Request) -> DispatchResult {
-            let request_id = T::RequestInterface::generate_id(request);
+            let request_id = T::RequestIdGenerator::generate_id(request);
+
+            if <RequestsData<T>>::contains_key(request_id) {
+                return Err(<Error<T>>::RequestIdAlreadyExists.into());
+            }
 
             Self::deposit_event(Event::NewRequest {
                 request_id,
@@ -83,6 +89,20 @@ pub mod pallet {
             });
 
             T::SchedulerInterface::schedule(request_id, request)?;
+
+            todo!()
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        pub fn update_status(request_id: T::RequestId, status: T::Status) -> DispatchResult {
+            if <RequestsStatus<T>>::contains_key(request_id) {
+                return Err(<Error<T>>::NoRequestId.into());
+            }
+
+            <RequestsStatus<T>>::insert(request_id, status);
+
+            Self::deposit_event(Event::StatusUpdate { request_id, status });
 
             todo!()
         }

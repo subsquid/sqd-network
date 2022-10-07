@@ -7,11 +7,9 @@ pub trait SchedulerInterface {
     fn schedule(request_id: Self::RequestId, request: Self::Request) -> DispatchResult;
 }
 
-pub trait RequestInterface {
+pub trait RequestIdGenerator {
     type Id;
     type Data;
-    type Status;
 
     fn generate_id(request: Self::Data) -> Self::Id;
-    fn update_status(request_id: Self::Id, status: Self::Status) -> DispatchResult;
 }

@@ -3843,19 +3843,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-acala-network"
-version = "0.1.0"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "pallet-aura"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate?branch=master#b8591d63c998a8a80376018c426a5b1fd75714db"
@@ -3960,6 +3947,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-substrate-native-requests"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-sudo"
 version = "4.0.0-dev"
 source = "git+https://github.com/paritytech/substrate?branch=master#b8591d63c998a8a80376018c426a5b1fd75714db"
@@ -4041,11 +4041,24 @@ dependencies = [
  "frame-support",
  "frame-system",
  "parity-scale-codec",
- "primitives-networks",
  "primitives-worker",
  "scale-info",
  "sp-core",
  "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
+name = "pallet-workers-scheduler"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "parity-scale-codec",
+ "primitives-worker",
+ "scale-info",
  "sp-runtime",
  "sp-std",
 ]
@@ -4386,21 +4399,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "primitives-networks"
-version = "0.1.0"
-dependencies = [
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "primitives-worker"
 version = "0.1.0"
 dependencies = [
  "parity-scale-codec",
- "primitives-networks",
  "scale-info",
  "sp-runtime",
  "sp-std",
