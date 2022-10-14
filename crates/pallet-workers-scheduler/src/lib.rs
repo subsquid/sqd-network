@@ -14,7 +14,7 @@ pub mod weights;
 #[frame_support::pallet]
 pub mod pallet {
 
-    use crate::traits::WorkerController;
+    use crate::traits::{DataSourceController, WorkerController};
 
     use super::*;
     use frame_support::pallet_prelude::*;
@@ -24,13 +24,19 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        type WorkerId: Parameter + MaxEncodedLen;
         type RequestId: Parameter + MaxEncodedLen;
         type Request;
+        type WorkerId: Parameter + MaxEncodedLen;
         type WorkerController: WorkerController<
             WorkerId = Self::WorkerId,
             Task = Task,
             Status = Status,
+        >;
+        type DataSourceId: Parameter + MaxEncodedLen;
+        type DataSource;
+        type DataSourceController: DataSourceController<
+            Id = Self::DataSourceId,
+            Data = Self::DataSource,
         >;
         type WeightInfo: WeightInfo;
     }
@@ -48,7 +54,8 @@ pub mod pallet {
 
     impl<T: Config> Pallet<T> {
         fn _schedule(_request_id: T::RequestId, _request: T::Request) -> DispatchResult {
-            // Analyze current workers status and decide which task is going to be applied.
+            // Analyze current workers status and available data sources
+            // and decide which task is going to be applied.
 
             // let scheduled_task =
             // Self::deposit_event(Event::TaskScheduled { worker_id, task: scheduled_task });

@@ -11,3 +11,10 @@ pub trait WorkerController {
     /// Run the task for particular worker.
     fn run_task(worker_id: Self::WorkerId, task: Self::Task) -> DispatchResult;
 }
+
+pub trait DataSourceController {
+    type Id;
+    type Data;
+
+    fn current_data(id: Self::Id) -> Result<Self::Data, DispatchError>;
+}
