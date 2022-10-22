@@ -23,6 +23,9 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
+mod requests;
+mod scheduler;
+
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
     construct_runtime, parameter_types,
@@ -272,6 +275,15 @@ parameter_types! {
     pub const MinVestedTransfer: Balance = BALANCE_UNIT;
 }
 
+impl pallet_substrate_native_requests::Config for Runtime {
+    type Event = Event;
+    type Status = requests::Status;
+    type RequestId = [u8; 32];
+    type RequestIdGenerator = requests::IdGenerator;
+    type SchedulerInterface = scheduler::Scheduler;
+    type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -287,6 +299,7 @@ construct_runtime!(
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
+        SubstrateNativeRequests: pallet_substrate_native_requests,
     }
 );
 

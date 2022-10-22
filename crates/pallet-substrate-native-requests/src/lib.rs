@@ -13,10 +13,10 @@ pub mod weights;
 
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
 pub struct Request {
-    chain: [u8; 32],
-    from: u32,
-    to: u32,
-    call: [u8; 32],
+    pub chain: [u8; 32],
+    pub from: u32,
+    pub to: u32,
+    pub call: [u8; 32],
 }
 
 #[frame_support::pallet]
@@ -103,10 +103,6 @@ pub mod pallet {
 
     impl<T: Config> Pallet<T> {
         pub fn update_status(request_id: T::RequestId, status: T::Status) -> DispatchResult {
-            if <RequestsStatus<T>>::contains_key(request_id) {
-                return Err(<Error<T>>::NoRequestId.into());
-            }
-
             <RequestsStatus<T>>::insert(request_id, status);
 
             Self::deposit_event(Event::StatusUpdate { request_id, status });
