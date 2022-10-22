@@ -11,10 +11,13 @@ pub use pallet::*;
 pub mod traits;
 pub mod weights;
 
-/// We should define a common behavior of Request for different networks
-/// as we a going to operate it by making a decision at scheduling level on it.
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct Request;
+pub struct Request {
+    chain: [u8; 32],
+    from: u32,
+    to: u32,
+    call: [u8; 32],
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -58,6 +61,7 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         NewRequest {
+            who: T::AccountId,
             request_id: T::RequestId,
             request: Request,
         },
@@ -76,7 +80,9 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::weight(T::WeightInfo::request())]
-        pub fn request(_origin: OriginFor<T>, request: Request) -> DispatchResult {
+        pub fn request(origin: OriginFor<T>, request: Request) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
             let request_id = T::RequestIdGenerator::generate_id(request);
 
             if <RequestsData<T>>::contains_key(request_id) {
@@ -84,13 +90,14 @@ pub mod pallet {
             }
 
             Self::deposit_event(Event::NewRequest {
+                who,
                 request_id,
                 request,
             });
 
             T::SchedulerInterface::schedule(request_id, request)?;
 
-            todo!()
+            Ok(())
         }
     }
 
