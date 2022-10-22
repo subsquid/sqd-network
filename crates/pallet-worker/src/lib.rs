@@ -64,7 +64,7 @@ pub mod pallet {
             Ok(())
         }
 
-        #[pallet::weight(T::WeightInfo::register())]
+        #[pallet::weight(T::WeightInfo::done())]
         pub fn done(_origin: OriginFor<T>, worker_id: T::WorkerId) -> DispatchResult {
             let current_status = Self::current_status(worker_id)?;
 

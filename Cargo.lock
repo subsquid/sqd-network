@@ -7126,6 +7126,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-worker",
  "parity-scale-codec",
  "scale-info",
  "sp-api",

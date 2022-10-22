@@ -6,6 +6,8 @@ publish = false
 
 [dependencies]
 pallet-substrate-native-requests = { version = "0.1", path = "../pallet-substrate-native-requests", default-features = false }
+pallet-worker = { version = "0.1", path = "../pallet-worker", default-features = false }
+
 
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
@@ -59,6 +61,7 @@ std = [
   "pallet-timestamp/std",
   "pallet-transaction-payment-rpc-runtime-api/std",
   "pallet-transaction-payment/std",
+  "pallet-worker/std",
   "sp-api/std",
   "sp-block-builder/std",
   "sp-consensus-aura/std",
@@ -79,6 +82,7 @@ runtime-benchmarks = [
   "pallet-grandpa/runtime-benchmarks",
   "pallet-substrate-native-requests/runtime-benchmarks",
   "pallet-timestamp/runtime-benchmarks",
+  "pallet-worker/runtime-benchmarks",
   "sp-runtime/runtime-benchmarks",
 ]
 
@@ -93,4 +97,5 @@ try-runtime = [
   "pallet-sudo/try-runtime",
   "pallet-timestamp/try-runtime",
   "pallet-transaction-payment/try-runtime",
+  "pallet-worker/try-runtime",
 ]

@@ -284,6 +284,12 @@ impl pallet_substrate_native_requests::Config for Runtime {
     type WeightInfo = ();
 }
 
+impl pallet_worker::Config for Runtime {
+    type Event = Event;
+    type WorkerId = u64;
+    type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -300,6 +306,7 @@ construct_runtime!(
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
         SubstrateNativeRequests: pallet_substrate_native_requests,
+        Worker: pallet_worker,
     }
 );
 
