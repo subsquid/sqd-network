@@ -7119,6 +7119,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "pallet-aura",
  "pallet-balances",
+ "pallet-data-source",
  "pallet-grandpa",
  "pallet-randomness-collective-flip",
  "pallet-substrate-native-requests",
