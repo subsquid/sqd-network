@@ -12,7 +12,10 @@ pub use pallet::*;
 pub mod weights;
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct DataSource;
+pub struct Data {
+    pub from: u32,
+    pub to: u32,
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -26,7 +29,7 @@ pub mod pallet {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         /// DataSourceId type.
-        type DataSourceId: Parameter + MaxEncodedLen;
+        type DataSourceId: Parameter + MaxEncodedLen + Copy;
         /// WeightInfo type that should implement `WeightInfo` trait.
         type WeightInfo: WeightInfo;
     }
@@ -39,36 +42,57 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn data_sources)]
     pub type DataSources<T: Config> =
-        StorageMap<_, Twox64Concat, T::DataSourceId, DataSource, OptionQuery>;
+        StorageMap<_, Twox64Concat, T::DataSourceId, Data, OptionQuery>;
 
     /// Possible events list.
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        NewDataSource { data_source_id: T::DataSourceId },
+        NewDataSource {
+            who: T::AccountId,
+            id: T::DataSourceId,
+        },
+        DataAnnounced {
+            id: T::DataSourceId,
+            data: Data,
+        },
+    }
+
+    #[pallet::error]
+    pub enum Error<T> {
+        DataSourceAlreadyRegistered,
+        NoDataSource,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// Executte register call by WorkerCandidate.
         #[pallet::weight(T::WeightInfo::register())]
-        pub fn register(_origin: OriginFor<T>, data_source_id: T::DataSourceId) -> DispatchResult {
-            Self::deposit_event(Event::NewDataSource { data_source_id });
-            todo!()
+        pub fn register(origin: OriginFor<T>, id: T::DataSourceId) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            if <DataSources<T>>::contains_key(id) {
+                return Err(<Error<T>>::DataSourceAlreadyRegistered.into());
+            }
+
+            <DataSources<T>>::insert(id, Data { from: 0, to: 0 });
+
+            Self::deposit_event(Event::NewDataSource { who, id });
+            Ok(())
         }
 
-        /// Announce data source.
         #[pallet::weight(T::WeightInfo::register())]
-        pub fn announce_data(_origin: OriginFor<T>, _data_source: DataSource) -> DispatchResult {
-            todo!()
-        }
-    }
+        pub fn announce_data(
+            _origin: OriginFor<T>,
+            id: T::DataSourceId,
+            data: Data,
+        ) -> DispatchResult {
+            if !<DataSources<T>>::contains_key(id) {
+                return Err(<Error<T>>::NoDataSource.into());
+            }
 
-    impl<T: Config> Pallet<T> {
-        fn _current_data(
-            _data_source_id: T::DataSourceId,
-        ) -> sp_std::result::Result<DataSource, DispatchError> {
-            todo!()
+            <DataSources<T>>::insert(id, data.clone());
+            Self::deposit_event(Event::DataAnnounced { id, data });
+            Ok(())
         }
     }
 }
