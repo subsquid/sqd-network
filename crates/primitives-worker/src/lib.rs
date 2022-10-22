@@ -8,13 +8,19 @@ use scale_info::TypeInfo;
 use sp_std::{fmt::Debug, prelude::*};
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct DockerImage;
+pub enum DockerImage {
+    SubstrateWorker,
+}
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct Command;
+pub enum Command {
+    Run,
+}
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct ResultStorage;
+pub enum ResultStorage {
+    IPFS,
+}
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
 pub struct Task {
