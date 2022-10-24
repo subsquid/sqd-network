@@ -89,13 +89,15 @@ pub mod pallet {
                 return Err(<Error<T>>::RequestIdAlreadyExists.into());
             }
 
+            T::SchedulerInterface::schedule(request_id, request)?;
+
+            <RequestsData<T>>::insert(request_id, request);
+
             Self::deposit_event(Event::NewRequest {
                 who,
                 request_id,
                 request,
             });
-
-            T::SchedulerInterface::schedule(request_id, request)?;
 
             Ok(())
         }
@@ -107,7 +109,7 @@ pub mod pallet {
 
             Self::deposit_event(Event::StatusUpdate { request_id, status });
 
-            todo!()
+            Ok(())
         }
     }
 }
