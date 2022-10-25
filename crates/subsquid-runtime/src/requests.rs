@@ -19,3 +19,8 @@ impl RequestIdGenerator for IdGenerator {
         request.call
     }
 }
+
+/// 1. Финиширую PoC.
+/// 2. Иметь возможность выкатывать.
+/// 3. Для Озгура сделать легкого клиента.
+/// 4. Показать и определить симуляция worker и data source с Озгуром.

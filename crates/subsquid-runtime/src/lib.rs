@@ -296,6 +296,13 @@ impl pallet_data_source::Config for Runtime {
     type WeightInfo = ();
 }
 
+// impl pallet_workers_scheduler::Config {
+//     type Event = Event;
+//     type RequestId = [u8; 32];
+//     type Request = ();
+//     type WeightInfo = ();
+// }
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -314,6 +321,7 @@ construct_runtime!(
         SubstrateNativeRequests: pallet_substrate_native_requests,
         Worker: pallet_worker,
         DataSource: pallet_data_source,
+        // WorkersScheduler: pallet_workers_scheduler,
     }
 );
 

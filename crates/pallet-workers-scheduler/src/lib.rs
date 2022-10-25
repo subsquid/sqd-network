@@ -8,36 +8,23 @@ use primitives_worker::{Status, Task};
 
 pub use pallet::*;
 
-pub mod traits;
 pub mod weights;
 
 #[frame_support::pallet]
 pub mod pallet {
-
-    use crate::traits::{DataSourceController, WorkerController};
 
     use super::*;
     use frame_support::pallet_prelude::*;
     use weights::WeightInfo;
 
     #[pallet::config]
-    pub trait Config: frame_system::Config {
+    pub trait Config:
+        frame_system::Config + pallet_worker::Config + pallet_data_source::Config
+    {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type RequestId: Parameter + MaxEncodedLen;
         type Request;
-        type WorkerId: Parameter + MaxEncodedLen;
-        type WorkerController: WorkerController<
-            WorkerId = Self::WorkerId,
-            Task = Task,
-            Status = Status,
-        >;
-        type DataSourceId: Parameter + MaxEncodedLen;
-        type DataSource;
-        type DataSourceController: DataSourceController<
-            Id = Self::DataSourceId,
-            Data = Self::DataSource,
-        >;
         type WeightInfo: WeightInfo;
     }
 
@@ -52,15 +39,23 @@ pub mod pallet {
         TaskScheduled { worker_id: T::WorkerId, task: Task },
     }
 
-    impl<T: Config> Pallet<T> {
-        fn _schedule(_request_id: T::RequestId, _request: T::Request) -> DispatchResult {
-            // Analyze current workers status and available data sources
-            // and decide which task is going to be applied.
+    #[pallet::error]
+    pub enum Error<T> {
+        NoAvailableWorkers,
+        NoRequiredDataSource,
+    }
 
-            // let scheduled_task =
+    impl<T: Config> Pallet<T> {
+        pub fn _schedule(_request_id: T::RequestId, _request: T::Request) -> DispatchResult {
+            // let worker_id = pallet_worker::Workers::iter if Ready take it.
+
+            // let data_source = pallet_data_source iter if the same take it.
+
+            // let task =
+
             // Self::deposit_event(Event::TaskScheduled { worker_id, task: scheduled_task });
 
-            todo!()
+            Ok(())
         }
     }
 }

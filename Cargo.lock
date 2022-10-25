@@ -4072,6 +4072,8 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "pallet-data-source",
+ "pallet-worker",
  "parity-scale-codec",
  "primitives-worker",
  "scale-info",

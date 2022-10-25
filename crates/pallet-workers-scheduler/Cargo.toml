@@ -5,6 +5,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
+pallet-data-source = { version = "0.1", path = "../pallet-data-source" }
+pallet-worker = { version = "0.1", path = "../pallet-worker" }
 primitives-worker = { version = "0.1", path = "../primitives-worker" }
 
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
@@ -27,9 +29,19 @@ std = [
 	"frame-support/std",
 	"scale-info/std",
   "frame-system/std",
+  "pallet-data-source/std",
+  "pallet-worker/std",
   "primitives-worker/std",
   "sp-runtime/std",
   "sp-std/std",
 ]
-runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]
-try-runtime = ["frame-support/try-runtime"]
+runtime-benchmarks = [
+  "frame-benchmarking/runtime-benchmarks",
+  "pallet-data-source/runtime-benchmarks",
+  "pallet-worker/runtime-benchmarks",
+]
+try-runtime = [
+  "frame-support/try-runtime",
+  "pallet-data-source/try-runtime",
+  "pallet-worker/try-runtime",
+]
