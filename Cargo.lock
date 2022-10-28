@@ -7132,6 +7132,7 @@ dependencies = [
  "pallet-worker",
  "pallet-workers-scheduler",
  "parity-scale-codec",
+ "primitives-worker",
  "scale-info",
  "sp-api",
  "sp-block-builder",

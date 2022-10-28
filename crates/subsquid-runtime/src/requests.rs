@@ -1,3 +1,4 @@
+use crate::RequestId;
 use codec::{Decode, Encode, MaxEncodedLen};
 use pallet_substrate_native_requests::{traits::RequestIdGenerator, Request};
 use scale_info::TypeInfo;
@@ -12,7 +13,7 @@ pub enum Status {
 pub struct IdGenerator;
 
 impl RequestIdGenerator for IdGenerator {
-    type Id = [u8; 32];
+    type Id = RequestId;
     type Data = Request;
 
     fn generate_id(request: Self::Data) -> Self::Id {

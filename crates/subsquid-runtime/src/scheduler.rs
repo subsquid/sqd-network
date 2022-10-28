@@ -10,7 +10,7 @@ impl SchedulerInterface for Scheduler {
 
     fn schedule(request_id: Self::RequestId, request: Self::Request) -> DispatchResult {
         SubstrateNativeRequests::update_status(request_id, Status::Scheduling)?;
-        WorkersScheduler::schedule(request_id, request)?;
+        WorkersScheduler::schedule(request)?;
         SubstrateNativeRequests::update_status(request_id, Status::Scheduled)?;
         Ok(())
     }

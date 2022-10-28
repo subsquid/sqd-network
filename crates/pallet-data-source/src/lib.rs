@@ -91,10 +91,12 @@ pub mod pallet {
             }
 
             <DataSources<T>>::insert(data_source_id, data_range.clone());
+
             Self::deposit_event(Event::DataRangeAnnounced {
                 data_source_id,
                 data_range,
             });
+
             Ok(())
         }
     }

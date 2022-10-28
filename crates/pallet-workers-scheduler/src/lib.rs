@@ -14,7 +14,7 @@ pub mod weights;
 #[frame_support::pallet]
 pub mod pallet {
 
-    use crate::traits::IsDataSourceSuit;
+    use crate::traits::{IsDataSourceSuit, PrepareTask};
 
     use super::*;
     use frame_support::pallet_prelude::*;
@@ -28,7 +28,15 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type RequestId: Parameter + MaxEncodedLen;
         type Request;
-        type IsDataSourceSuit: IsDataSourceSuit<Request = Self::Request>;
+        type IsDataSourceSuit: IsDataSourceSuit<
+            DataSourceId = Self::DataSourceId,
+            Request = Self::Request,
+        >;
+        type PrepareTask: PrepareTask<
+            WorkerId = Self::WorkerId,
+            DataSourceId = Self::DataSourceId,
+            Request = Self::Request,
+        >;
         type WeightInfo: WeightInfo;
     }
 
@@ -50,20 +58,20 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn schedule(_request_id: T::RequestId, request: T::Request) -> DispatchResult {
+        pub fn schedule(request: T::Request) -> DispatchResult {
             let (worker_id, _) = pallet_worker::Workers::<T>::iter()
                 .find(|(_, status)| status == &Status::Ready)
                 .ok_or(<Error<T>>::NoAvailableWorkers)?;
 
             let (data_source_id, _) = pallet_data_source::DataSources::<T>::iter()
-                .find(|(_, data)| T::IsDataSourceSuit::is_suit(data, &request))
+                .find(|(data_source_id, data_range)| {
+                    T::IsDataSourceSuit::is_suit(data_source_id, data_range, &request)
+                })
                 .ok_or(<Error<T>>::NoRequiredDataSource)?;
 
-            let task = Task {
-                docker_image: primitives_worker::DockerImage::SubstrateWorker,
-                command: primitives_worker::Command::Run,
-                result_storage: primitives_worker::ResultStorage::IPFS,
-            };
+            let task = T::PrepareTask::prepare_task(&worker_id, &data_source_id, &request);
+
+            pallet_worker::Pallet::<T>::run_task(worker_id, task.clone())?;
 
             Self::deposit_event(Event::TaskScheduled { worker_id, task });
 

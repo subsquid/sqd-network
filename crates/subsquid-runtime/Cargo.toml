@@ -9,6 +9,7 @@ pallet-data-source = { version = "0.1", path = "../pallet-data-source", default-
 pallet-substrate-native-requests = { version = "0.1", path = "../pallet-substrate-native-requests", default-features = false }
 pallet-worker = { version = "0.1", path = "../pallet-worker", default-features = false }
 pallet-workers-scheduler = { version = "0.1", path = "../pallet-workers-scheduler", default-features = false }
+primitives-worker = { version = "0.1", path = "../primitives-worker", default-features = false }
 
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
@@ -65,6 +66,7 @@ std = [
   "pallet-transaction-payment/std",
   "pallet-worker/std",
   "pallet-workers-scheduler/std",
+  "primitives-worker/std",
   "sp-api/std",
   "sp-block-builder/std",
   "sp-consensus-aura/std",
