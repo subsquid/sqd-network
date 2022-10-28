@@ -7130,6 +7130,7 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-worker",
+ "pallet-workers-scheduler",
  "parity-scale-codec",
  "scale-info",
  "sp-api",

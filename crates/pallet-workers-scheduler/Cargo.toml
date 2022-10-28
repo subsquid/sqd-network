@@ -5,9 +5,9 @@ edition = "2021"
 publish = false
 
 [dependencies]
-pallet-data-source = { version = "0.1", path = "../pallet-data-source" }
-pallet-worker = { version = "0.1", path = "../pallet-worker" }
-primitives-worker = { version = "0.1", path = "../primitives-worker" }
+pallet-data-source = { default-features = false, version = "0.1", path = "../pallet-data-source" }
+pallet-worker = { default-features = false, version = "0.1", path = "../pallet-worker" }
+primitives-worker = { default-features = false, version = "0.1", path = "../primitives-worker" }
 
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }

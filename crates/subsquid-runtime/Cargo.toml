@@ -8,7 +8,7 @@ publish = false
 pallet-data-source = { version = "0.1", path = "../pallet-data-source", default-features = false }
 pallet-substrate-native-requests = { version = "0.1", path = "../pallet-substrate-native-requests", default-features = false }
 pallet-worker = { version = "0.1", path = "../pallet-worker", default-features = false }
-# pallet-workers-scheduler = { version = "0.1", path = "../pallet-workers-scheduler", default-features = false }
+pallet-workers-scheduler = { version = "0.1", path = "../pallet-workers-scheduler", default-features = false }
 
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
@@ -64,7 +64,7 @@ std = [
   "pallet-transaction-payment-rpc-runtime-api/std",
   "pallet-transaction-payment/std",
   "pallet-worker/std",
-  # "pallet-workers-scheduler/std",
+  "pallet-workers-scheduler/std",
   "sp-api/std",
   "sp-block-builder/std",
   "sp-consensus-aura/std",
@@ -87,7 +87,7 @@ runtime-benchmarks = [
   "pallet-substrate-native-requests/runtime-benchmarks",
   "pallet-timestamp/runtime-benchmarks",
   "pallet-worker/runtime-benchmarks",
-  # "pallet-workers-scheduler/runtime-benchmarks",
+  "pallet-workers-scheduler/runtime-benchmarks",
   "sp-runtime/runtime-benchmarks",
 ]
 
@@ -104,5 +104,5 @@ try-runtime = [
   "pallet-timestamp/try-runtime",
   "pallet-transaction-payment/try-runtime",
   "pallet-worker/try-runtime",
-  # "pallet-workers-scheduler/try-runtime",
+  "pallet-workers-scheduler/try-runtime",
 ]

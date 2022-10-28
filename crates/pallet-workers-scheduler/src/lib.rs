@@ -8,10 +8,13 @@ use primitives_worker::{Status, Task};
 
 pub use pallet::*;
 
+pub mod traits;
 pub mod weights;
 
 #[frame_support::pallet]
 pub mod pallet {
+
+    use crate::traits::IsDataSourceSuit;
 
     use super::*;
     use frame_support::pallet_prelude::*;
@@ -25,6 +28,7 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type RequestId: Parameter + MaxEncodedLen;
         type Request;
+        type IsDataSourceSuit: IsDataSourceSuit<Request = Self::Request>;
         type WeightInfo: WeightInfo;
     }
 
@@ -46,14 +50,22 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn _schedule(_request_id: T::RequestId, _request: T::Request) -> DispatchResult {
-            // let worker_id = pallet_worker::Workers::iter if Ready take it.
+        pub fn _schedule(_request_id: T::RequestId, request: T::Request) -> DispatchResult {
+            let (worker_id, _) = pallet_worker::Workers::<T>::iter()
+                .find(|(_, status)| status == &Status::Ready)
+                .ok_or(<Error<T>>::NoAvailableWorkers)?;
 
-            // let data_source = pallet_data_source iter if the same take it.
+            let (data_source_id, _) = pallet_data_source::DataSources::<T>::iter()
+                .find(|(_, data)| T::IsDataSourceSuit::is_suit(data, &request))
+                .ok_or(<Error<T>>::NoRequiredDataSource)?;
 
-            // let task =
+            let task = Task {
+                docker_image: primitives_worker::DockerImage::SubstrateWorker,
+                command: primitives_worker::Command::Run,
+                result_storage: primitives_worker::ResultStorage::IPFS,
+            };
 
-            // Self::deposit_event(Event::TaskScheduled { worker_id, task: scheduled_task });
+            Self::deposit_event(Event::TaskScheduled { worker_id, task });
 
             Ok(())
         }

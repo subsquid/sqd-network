@@ -11,6 +11,8 @@ pub use pallet::*;
 pub mod traits;
 pub mod weights;
 
+/// Один паллет для обработки request со своими коллами.
+///
 /// Сделать generic request
 /// Определить к какой сети он относится (substrate-native, substrate-evm, native-evm).
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
