@@ -50,7 +50,7 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        pub fn _schedule(_request_id: T::RequestId, request: T::Request) -> DispatchResult {
+        pub fn schedule(_request_id: T::RequestId, request: T::Request) -> DispatchResult {
             let (worker_id, _) = pallet_worker::Workers::<T>::iter()
                 .find(|(_, status)| status == &Status::Ready)
                 .ok_or(<Error<T>>::NoAvailableWorkers)?;

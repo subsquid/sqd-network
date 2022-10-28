@@ -1,4 +1,4 @@
-use crate::{requests::Status, SubstrateNativeRequests};
+use crate::{requests::Status, SubstrateNativeRequests, WorkersScheduler};
 use pallet_substrate_native_requests::{traits::SchedulerInterface, Request};
 use sp_runtime::DispatchResult;
 
@@ -8,9 +8,9 @@ impl SchedulerInterface for Scheduler {
     type RequestId = [u8; 32];
     type Request = Request;
 
-    fn schedule(request_id: Self::RequestId, _request: Self::Request) -> DispatchResult {
+    fn schedule(request_id: Self::RequestId, request: Self::Request) -> DispatchResult {
         SubstrateNativeRequests::update_status(request_id, Status::Scheduling)?;
-        // Schedule request
+        WorkersScheduler::schedule(request_id, request)?;
         SubstrateNativeRequests::update_status(request_id, Status::Scheduled)?;
         Ok(())
     }

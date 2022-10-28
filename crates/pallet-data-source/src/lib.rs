@@ -12,7 +12,7 @@ pub use pallet::*;
 pub mod weights;
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct Data {
+pub struct DataRange {
     pub from: u32,
     pub to: u32,
 }
@@ -28,7 +28,7 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        /// DataSourceId type.
+        /// SourceId type.
         type DataSourceId: Parameter + MaxEncodedLen + Copy;
         /// WeightInfo type that should implement `WeightInfo` trait.
         type WeightInfo: WeightInfo;
@@ -42,7 +42,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn data_sources)]
     pub type DataSources<T: Config> =
-        StorageMap<_, Twox64Concat, T::DataSourceId, Data, OptionQuery>;
+        StorageMap<_, Twox64Concat, T::DataSourceId, DataRange, OptionQuery>;
 
     /// Possible events list.
     #[pallet::event]
@@ -52,9 +52,9 @@ pub mod pallet {
             who: T::AccountId,
             id: T::DataSourceId,
         },
-        DataAnnounced {
-            id: T::DataSourceId,
-            data: Data,
+        DataRangeAnnounced {
+            data_source_id: T::DataSourceId,
+            data_range: DataRange,
         },
     }
 
@@ -74,7 +74,7 @@ pub mod pallet {
                 return Err(<Error<T>>::DataSourceAlreadyRegistered.into());
             }
 
-            <DataSources<T>>::insert(id, Data { from: 0, to: 0 });
+            <DataSources<T>>::insert(id, DataRange { from: 0, to: 0 });
 
             Self::deposit_event(Event::NewDataSource { who, id });
             Ok(())
@@ -83,15 +83,18 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::register())]
         pub fn announce_data(
             _origin: OriginFor<T>,
-            id: T::DataSourceId,
-            data: Data,
+            data_source_id: T::DataSourceId,
+            data_range: DataRange,
         ) -> DispatchResult {
-            if !<DataSources<T>>::contains_key(id) {
+            if !<DataSources<T>>::contains_key(data_source_id) {
                 return Err(<Error<T>>::NoDataSource.into());
             }
 
-            <DataSources<T>>::insert(id, data.clone());
-            Self::deposit_event(Event::DataAnnounced { id, data });
+            <DataSources<T>>::insert(data_source_id, data_range.clone());
+            Self::deposit_event(Event::DataRangeAnnounced {
+                data_source_id,
+                data_range,
+            });
             Ok(())
         }
     }
