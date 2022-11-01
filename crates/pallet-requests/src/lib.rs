@@ -108,9 +108,36 @@ pub mod pallet {
             request: NativeEthRequest,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-
             let request = Request::NativeEthRequest(request);
 
+            Self::process(who, request)
+        }
+
+        #[pallet::weight(T::WeightInfo::request())]
+        pub fn native_substrate_request(
+            origin: OriginFor<T>,
+            request: NativeSubstrateRequest,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let request = Request::NativeSubstrateRequest(request);
+
+            Self::process(who, request)
+        }
+
+        #[pallet::weight(T::WeightInfo::request())]
+        pub fn substrate_evm_request(
+            origin: OriginFor<T>,
+            request: SubstrateEvmRequest,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let request = Request::SubstrateEvmRequest(request);
+
+            Self::process(who, request)
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        fn process(who: T::AccountId, request: Request) -> DispatchResult {
             let request_id = T::RequestIdGenerator::generate_id(request);
 
             if <RequestsData<T>>::contains_key(request_id) {
@@ -129,9 +156,7 @@ pub mod pallet {
 
             Ok(())
         }
-    }
 
-    impl<T: Config> Pallet<T> {
         pub fn update_status(request_id: T::RequestId, status: T::Status) -> DispatchResult {
             <RequestsStatus<T>>::insert(request_id, status);
 
