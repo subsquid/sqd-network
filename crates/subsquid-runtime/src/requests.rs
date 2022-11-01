@@ -1,6 +1,6 @@
 use crate::RequestId;
 use codec::{Decode, Encode, MaxEncodedLen};
-use pallet_substrate_native_requests::{traits::RequestIdGenerator, Request};
+use pallet_requests::{traits::RequestIdGenerator, Request};
 use scale_info::TypeInfo;
 
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
@@ -17,7 +17,11 @@ impl RequestIdGenerator for IdGenerator {
     type Data = Request;
 
     fn generate_id(request: Self::Data) -> Self::Id {
-        request.call
+        match request {
+            Request::NativeEthRequest(req) => req.call,
+            Request::NativeSubstrateRequest(req) => req.call,
+            Request::SubstrateEvmRequest(req) => req.call,
+        }
     }
 }
 

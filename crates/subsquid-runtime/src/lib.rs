@@ -281,7 +281,7 @@ parameter_types! {
     pub const MinVestedTransfer: Balance = BALANCE_UNIT;
 }
 
-impl pallet_substrate_native_requests::Config for Runtime {
+impl pallet_requests::Config for Runtime {
     type Event = Event;
     type Status = requests::Status;
     type RequestId = RequestId;
@@ -305,7 +305,7 @@ impl pallet_data_source::Config for Runtime {
 impl pallet_workers_scheduler::Config for Runtime {
     type Event = Event;
     type RequestId = RequestId;
-    type Request = pallet_substrate_native_requests::Request;
+    type Request = pallet_requests::Request;
     type IsDataSourceSuit = data_sources::IsDataSourceSuit;
     type PrepareTask = task_preparation::TaskPreparation;
     type WeightInfo = ();
@@ -326,7 +326,7 @@ construct_runtime!(
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
-        SubstrateNativeRequests: pallet_substrate_native_requests,
+        Requests: pallet_requests,
         Worker: pallet_worker,
         DataSource: pallet_data_source,
         WorkersScheduler: pallet_workers_scheduler,

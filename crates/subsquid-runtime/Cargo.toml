@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 pallet-data-source = { version = "0.1", path = "../pallet-data-source", default-features = false }
-pallet-substrate-native-requests = { version = "0.1", path = "../pallet-substrate-native-requests", default-features = false }
+pallet-requests = { version = "0.1", path = "../pallet-requests", default-features = false }
 pallet-worker = { version = "0.1", path = "../pallet-worker", default-features = false }
 pallet-workers-scheduler = { version = "0.1", path = "../pallet-workers-scheduler", default-features = false }
 primitives-worker = { version = "0.1", path = "../primitives-worker", default-features = false }
@@ -59,7 +59,7 @@ std = [
   "pallet-data-source/std",
   "pallet-grandpa/std",
   "pallet-randomness-collective-flip/std",
-  "pallet-substrate-native-requests/std",
+  "pallet-requests/std",
   "pallet-sudo/std",
   "pallet-timestamp/std",
   "pallet-transaction-payment-rpc-runtime-api/std",
@@ -86,7 +86,7 @@ runtime-benchmarks = [
   "pallet-balances/runtime-benchmarks",
   "pallet-data-source/runtime-benchmarks",
   "pallet-grandpa/runtime-benchmarks",
-  "pallet-substrate-native-requests/runtime-benchmarks",
+  "pallet-requests/runtime-benchmarks",
   "pallet-timestamp/runtime-benchmarks",
   "pallet-worker/runtime-benchmarks",
   "pallet-workers-scheduler/runtime-benchmarks",
@@ -101,7 +101,7 @@ try-runtime = [
   "pallet-data-source/try-runtime",
   "pallet-grandpa/try-runtime",
   "pallet-randomness-collective-flip/try-runtime",
-  "pallet-substrate-native-requests/try-runtime",
+  "pallet-requests/try-runtime",
   "pallet-sudo/try-runtime",
   "pallet-timestamp/try-runtime",
   "pallet-transaction-payment/try-runtime",

@@ -11,16 +11,35 @@ pub use pallet::*;
 pub mod traits;
 pub mod weights;
 
-/// Один паллет для обработки request со своими коллами.
-///
-/// Сделать generic request
-/// Определить к какой сети он относится (substrate-native, substrate-evm, native-evm).
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct Request {
+pub struct NativeEthRequest {
     pub chain: [u8; 32],
     pub from: u32,
     pub to: u32,
     pub call: [u8; 32],
+}
+
+#[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
+pub struct NativeSubstrateRequest {
+    pub chain: [u8; 32],
+    pub from: u32,
+    pub to: u32,
+    pub call: [u8; 32],
+}
+
+#[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
+pub struct SubstrateEvmRequest {
+    pub chain: [u8; 32],
+    pub from: u32,
+    pub to: u32,
+    pub call: [u8; 32],
+}
+
+#[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
+pub enum Request {
+    NativeEthRequest(NativeEthRequest),
+    NativeSubstrateRequest(NativeSubstrateRequest),
+    SubstrateEvmRequest(SubstrateEvmRequest),
 }
 
 #[frame_support::pallet]
@@ -84,8 +103,13 @@ pub mod pallet {
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::weight(T::WeightInfo::request())]
-        pub fn request(origin: OriginFor<T>, request: Request) -> DispatchResult {
+        pub fn native_eth_request(
+            origin: OriginFor<T>,
+            request: NativeEthRequest,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
+
+            let request = Request::NativeEthRequest(request);
 
             let request_id = T::RequestIdGenerator::generate_id(request);
 

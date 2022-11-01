@@ -1,5 +1,5 @@
 use crate::{DataSourceId, WorkerId};
-use pallet_substrate_native_requests::Request;
+use pallet_requests::Request;
 use pallet_workers_scheduler::traits::PrepareTask;
 use primitives_worker::Task;
 

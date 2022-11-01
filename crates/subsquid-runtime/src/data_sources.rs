@@ -1,5 +1,5 @@
 use crate::DataSourceId;
-use pallet_substrate_native_requests::Request;
+use pallet_requests::Request;
 use pallet_workers_scheduler::traits::IsDataSourceSuit as IsDataSourceSuitT;
 
 pub struct IsDataSourceSuit;
