@@ -4,7 +4,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 use codec::MaxEncodedLen;
-use primitives_worker::{Status, Task};
 
 pub use pallet::*;
 
@@ -14,7 +13,7 @@ pub mod weights;
 #[frame_support::pallet]
 pub mod pallet {
 
-    use crate::traits::{IsDataSourceSuit, PrepareTask};
+    use crate::traits::PrepareTask;
 
     use super::*;
     use frame_support::pallet_prelude::*;
@@ -28,15 +27,7 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type RequestId: Parameter + MaxEncodedLen;
         type Request;
-        type IsDataSourceSuit: IsDataSourceSuit<
-            DataSourceId = Self::DataSourceId,
-            Request = Self::Request,
-        >;
-        type PrepareTask: PrepareTask<
-            WorkerId = Self::WorkerId,
-            DataSourceId = Self::DataSourceId,
-            Request = Self::Request,
-        >;
+        type PrepareTask: PrepareTask<Request = Self::Request, Task = Self::Task>;
         type WeightInfo: WeightInfo;
     }
 
@@ -48,7 +39,10 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        TaskScheduled { worker_id: T::WorkerId, task: Task },
+        TaskScheduled {
+            worker_id: T::AccountId,
+            task: T::Task,
+        },
     }
 
     #[pallet::error]
@@ -60,18 +54,12 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         pub fn schedule(request: T::Request) -> DispatchResult {
             let (worker_id, _) = pallet_worker::Workers::<T>::iter()
-                .find(|(_, status)| status == &Status::Ready)
+                .find(|(_, task)| task == &T::Task::default())
                 .ok_or(<Error<T>>::NoAvailableWorkers)?;
 
-            let (data_source_id, _) = pallet_data_source::DataSources::<T>::iter()
-                .find(|(data_source_id, data_range)| {
-                    T::IsDataSourceSuit::is_suit(data_source_id, data_range, &request)
-                })
-                .ok_or(<Error<T>>::NoRequiredDataSource)?;
+            let task = T::PrepareTask::prepare_task(&request);
 
-            let task = T::PrepareTask::prepare_task(&worker_id, &data_source_id, &request);
-
-            pallet_worker::Pallet::<T>::run_task(worker_id, task.clone())?;
+            pallet_worker::Pallet::<T>::run_task(worker_id.clone(), task.clone())?;
 
             Self::deposit_event(Event::TaskScheduled { worker_id, task });
 

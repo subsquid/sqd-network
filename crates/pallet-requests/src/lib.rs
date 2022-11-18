@@ -12,31 +12,7 @@ pub mod traits;
 pub mod weights;
 
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct NativeEthRequest {
-    pub chain: [u8; 32],
-    pub from: u32,
-    pub to: u32,
-    pub call: [u8; 32],
-}
-
-#[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct NativeSubstrateRequest {
-    pub chain: [u8; 32],
-    pub from: u32,
-    pub to: u32,
-    pub call: [u8; 32],
-}
-
-#[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct SubstrateEvmRequest {
-    pub chain: [u8; 32],
-    pub from: u32,
-    pub to: u32,
-    pub call: [u8; 32],
-}
-
-#[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub enum Request {
+pub enum Request<NativeEthRequest, NativeSubstrateRequest, SubstrateEvmRequest> {
     NativeEthRequest(NativeEthRequest),
     NativeSubstrateRequest(NativeSubstrateRequest),
     SubstrateEvmRequest(SubstrateEvmRequest),
@@ -56,10 +32,28 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        type Status: Parameter + MaxEncodedLen + Copy;
+        type Status: Parameter + MaxEncodedLen + Copy + Default;
+        type NativeEthRequest: Parameter + MaxEncodedLen;
+        type NativeSubstrateRequest: Parameter + MaxEncodedLen;
+        type SubstrateEvmRequest: Parameter + MaxEncodedLen;
         type RequestId: Parameter + MaxEncodedLen + Copy;
-        type RequestIdGenerator: RequestIdGenerator<Id = Self::RequestId, Data = Request>;
-        type SchedulerInterface: SchedulerInterface<RequestId = Self::RequestId, Request = Request>;
+        type RequestIdGenerator: RequestIdGenerator<
+            Id = Self::RequestId,
+            Request = Request<
+                Self::NativeEthRequest,
+                Self::NativeSubstrateRequest,
+                Self::SubstrateEvmRequest,
+            >,
+        >;
+        type SchedulerInterface: SchedulerInterface<
+            RequestId = Self::RequestId,
+            Request = Request<
+                Self::NativeEthRequest,
+                Self::NativeSubstrateRequest,
+                Self::SubstrateEvmRequest,
+            >,
+            Status = Self::Status,
+        >;
         type WeightInfo: WeightInfo;
     }
 
@@ -69,15 +63,17 @@ pub mod pallet {
 
     /// Current requests.
     #[pallet::storage]
-    #[pallet::getter(fn requests_data)]
-    pub type RequestsData<T: Config> =
-        StorageMap<_, Twox64Concat, T::RequestId, Request, OptionQuery>;
-
-    /// Current status.
-    #[pallet::storage]
-    #[pallet::getter(fn status)]
-    pub type RequestsStatus<T: Config> =
-        StorageMap<_, Twox64Concat, T::RequestId, T::Status, OptionQuery>;
+    #[pallet::getter(fn requests)]
+    pub type Requests<T: Config> = StorageMap<
+        _,
+        Twox64Concat,
+        T::RequestId,
+        (
+            T::Status,
+            Request<T::NativeEthRequest, T::NativeSubstrateRequest, T::SubstrateEvmRequest>,
+        ),
+        OptionQuery,
+    >;
 
     /// Possible events list.
     #[pallet::event]
@@ -86,7 +82,8 @@ pub mod pallet {
         NewRequest {
             who: T::AccountId,
             request_id: T::RequestId,
-            request: Request,
+            request:
+                Request<T::NativeEthRequest, T::NativeSubstrateRequest, T::SubstrateEvmRequest>,
         },
         StatusUpdate {
             request_id: T::RequestId,
@@ -105,7 +102,7 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::request())]
         pub fn native_eth_request(
             origin: OriginFor<T>,
-            request: NativeEthRequest,
+            request: T::NativeEthRequest,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let request = Request::NativeEthRequest(request);
@@ -116,7 +113,7 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::request())]
         pub fn native_substrate_request(
             origin: OriginFor<T>,
-            request: NativeSubstrateRequest,
+            request: T::NativeSubstrateRequest,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let request = Request::NativeSubstrateRequest(request);
@@ -127,7 +124,7 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::request())]
         pub fn substrate_evm_request(
             origin: OriginFor<T>,
-            request: SubstrateEvmRequest,
+            request: T::SubstrateEvmRequest,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
             let request = Request::SubstrateEvmRequest(request);
@@ -137,16 +134,34 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
-        fn process(who: T::AccountId, request: Request) -> DispatchResult {
-            let request_id = T::RequestIdGenerator::generate_id(request);
+        fn process(
+            who: T::AccountId,
+            request: Request<
+                T::NativeEthRequest,
+                T::NativeSubstrateRequest,
+                T::SubstrateEvmRequest,
+            >,
+        ) -> DispatchResult {
+            let request_id = T::RequestIdGenerator::generate_id(request.clone());
 
-            if <RequestsData<T>>::contains_key(request_id) {
+            if <Requests<T>>::contains_key(request_id) {
                 return Err(<Error<T>>::RequestIdAlreadyExists.into());
             }
 
-            T::SchedulerInterface::schedule(request_id, request)?;
+            let init_status = T::Status::default();
 
-            <RequestsData<T>>::insert(request_id, request);
+            <Requests<T>>::insert(request_id, (init_status, request.clone()));
+
+            Self::deposit_event(Event::StatusUpdate {
+                request_id,
+                status: init_status,
+            });
+
+            let status = T::SchedulerInterface::schedule(request_id, request.clone())?;
+
+            Self::deposit_event(Event::StatusUpdate { request_id, status });
+
+            <Requests<T>>::insert(request_id, (status, request.clone()));
 
             Self::deposit_event(Event::NewRequest {
                 who,
@@ -158,7 +173,10 @@ pub mod pallet {
         }
 
         pub fn update_status(request_id: T::RequestId, status: T::Status) -> DispatchResult {
-            <RequestsStatus<T>>::insert(request_id, status);
+            match <Requests<T>>::get(request_id) {
+                Some((_, request)) => <Requests<T>>::insert(request_id, (status, request)),
+                None => return Err(<Error<T>>::NoRequestId.into()),
+            }
 
             Self::deposit_event(Event::StatusUpdate { request_id, status });
 

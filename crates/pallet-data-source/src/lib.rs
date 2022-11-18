@@ -3,22 +3,13 @@
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::{Decode, Encode, MaxEncodedLen};
-use scale_info::TypeInfo;
-use sp_std::{fmt::Debug, prelude::*};
-
 pub use pallet::*;
 
 pub mod weights;
 
-#[derive(PartialEq, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub struct DataRange {
-    pub from: u32,
-    pub to: u32,
-}
-
 #[frame_support::pallet]
 pub mod pallet {
+
     use super::*;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
@@ -28,8 +19,7 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        /// SourceId type.
-        type DataSourceId: Parameter + MaxEncodedLen + Copy;
+        type DataSource: Parameter + MaxEncodedLen;
         /// WeightInfo type that should implement `WeightInfo` trait.
         type WeightInfo: WeightInfo;
     }
@@ -38,11 +28,10 @@ pub mod pallet {
     #[pallet::generate_store(pub(super) trait Store)]
     pub struct Pallet<T>(_);
 
-    /// Current data sources state.
     #[pallet::storage]
     #[pallet::getter(fn data_sources)]
     pub type DataSources<T: Config> =
-        StorageMap<_, Twox64Concat, T::DataSourceId, DataRange, OptionQuery>;
+        StorageMap<_, Twox64Concat, T::AccountId, T::DataSource, OptionQuery>;
 
     /// Possible events list.
     #[pallet::event]
@@ -50,53 +39,32 @@ pub mod pallet {
     pub enum Event<T: Config> {
         NewDataSource {
             who: T::AccountId,
-            id: T::DataSourceId,
+            data_source: T::DataSource,
         },
-        DataRangeAnnounced {
-            data_source_id: T::DataSourceId,
-            data_range: DataRange,
+        DataAnnounced {
+            who: T::AccountId,
+            data_source: T::DataSource,
         },
     }
 
     #[pallet::error]
     pub enum Error<T> {
         DataSourceAlreadyRegistered,
-        NoDataSource,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::weight(T::WeightInfo::register())]
-        pub fn register(origin: OriginFor<T>, id: T::DataSourceId) -> DispatchResult {
+        pub fn register(origin: OriginFor<T>, data_source: T::DataSource) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            if <DataSources<T>>::contains_key(id) {
+            if <DataSources<T>>::contains_key(&who) {
                 return Err(<Error<T>>::DataSourceAlreadyRegistered.into());
             }
 
-            <DataSources<T>>::insert(id, DataRange { from: 0, to: 0 });
+            <DataSources<T>>::insert(who.clone(), data_source.clone());
 
-            Self::deposit_event(Event::NewDataSource { who, id });
-            Ok(())
-        }
-
-        #[pallet::weight(T::WeightInfo::register())]
-        pub fn announce_data(
-            _origin: OriginFor<T>,
-            data_source_id: T::DataSourceId,
-            data_range: DataRange,
-        ) -> DispatchResult {
-            if !<DataSources<T>>::contains_key(data_source_id) {
-                return Err(<Error<T>>::NoDataSource.into());
-            }
-
-            <DataSources<T>>::insert(data_source_id, data_range.clone());
-
-            Self::deposit_event(Event::DataRangeAnnounced {
-                data_source_id,
-                data_range,
-            });
-
+            Self::deposit_event(Event::NewDataSource { who, data_source });
             Ok(())
         }
     }

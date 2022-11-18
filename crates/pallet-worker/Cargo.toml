@@ -5,8 +5,6 @@ edition = "2021"
 publish = false
 
 [dependencies]
-primitives-worker = { default-features = false, version = "0.1", path = "../primitives-worker" }
-
 codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
@@ -30,7 +28,6 @@ std = [
 	"frame-benchmarking/std",
 	"frame-support/std",
   "frame-system/std",
-  "primitives-worker/std",
   "scale-info/std",
   "sp-runtime/std",
   "sp-std/std",

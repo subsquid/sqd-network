@@ -23,10 +23,12 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
+mod common;
 mod data_sources;
 mod requests;
 mod scheduler;
 mod task_preparation;
+mod workers;
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
@@ -47,10 +49,6 @@ use pallet_transaction_payment::CurrencyAdapter;
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
-
-pub type WorkerId = u64;
-pub type RequestId = [u8; 32];
-pub type DataSourceId = [u8; 32];
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -284,29 +282,32 @@ parameter_types! {
 impl pallet_requests::Config for Runtime {
     type Event = Event;
     type Status = requests::Status;
-    type RequestId = RequestId;
-    type RequestIdGenerator = requests::IdGenerator;
+    type NativeEthRequest = requests::NativeEthRequest;
+    type NativeSubstrateRequest = requests::NativeSubstrateRequest;
+    type SubstrateEvmRequest = requests::SubstrateEvmRequest;
+    type RequestId = requests::RequestId;
+    type RequestIdGenerator = requests::RequestIdGenerator;
     type SchedulerInterface = scheduler::Scheduler;
     type WeightInfo = ();
 }
 
 impl pallet_worker::Config for Runtime {
     type Event = Event;
-    type WorkerId = WorkerId;
+    type Task = workers::Task;
+    type ResultStorage = workers::ResultStorage;
     type WeightInfo = ();
 }
 
 impl pallet_data_source::Config for Runtime {
     type Event = Event;
-    type DataSourceId = DataSourceId;
+    type DataSource = data_sources::DataSource;
     type WeightInfo = ();
 }
 
 impl pallet_workers_scheduler::Config for Runtime {
     type Event = Event;
-    type RequestId = RequestId;
-    type Request = pallet_requests::Request;
-    type IsDataSourceSuit = data_sources::IsDataSourceSuit;
+    type RequestId = requests::RequestId;
+    type Request = requests::Request;
     type PrepareTask = task_preparation::TaskPreparation;
     type WeightInfo = ();
 }

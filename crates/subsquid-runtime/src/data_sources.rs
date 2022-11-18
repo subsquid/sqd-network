@@ -1,18 +1,20 @@
-use crate::DataSourceId;
-use pallet_requests::Request;
-use pallet_workers_scheduler::traits::IsDataSourceSuit as IsDataSourceSuitT;
+use crate::common::{BlockRange, ChainId};
+use codec::{Decode, Encode, MaxEncodedLen};
+use scale_info::TypeInfo;
 
-pub struct IsDataSourceSuit;
+pub type IpnsHash = [u8; 32];
 
-impl IsDataSourceSuitT for IsDataSourceSuit {
-    type DataSourceId = DataSourceId;
-    type Request = Request;
+#[derive(PartialEq, Eq, Clone, Encode, Decode, Debug, TypeInfo, MaxEncodedLen)]
+pub enum ChainType {
+    NativeEth,
+    NativeSubstrate,
+    SubstrateEvm,
+}
 
-    fn is_suit(
-        _data_source_id: &Self::DataSourceId,
-        _data_range: &pallet_data_source::DataRange,
-        _request: &Self::Request,
-    ) -> bool {
-        true
-    }
+#[derive(PartialEq, Eq, Clone, Encode, Decode, Debug, TypeInfo, MaxEncodedLen)]
+pub struct DataSource {
+    pub chain_type: ChainType,
+    pub chain_id: ChainId,
+    pub block_range: BlockRange,
+    pub ipns: IpnsHash,
 }

@@ -3896,7 +3896,6 @@ dependencies = [
  "frame-support",
  "frame-system",
  "parity-scale-codec",
- "primitives-worker",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -4057,7 +4056,6 @@ dependencies = [
  "frame-support",
  "frame-system",
  "parity-scale-codec",
- "primitives-worker",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -4075,7 +4073,6 @@ dependencies = [
  "pallet-data-source",
  "pallet-worker",
  "parity-scale-codec",
- "primitives-worker",
  "scale-info",
  "sp-runtime",
  "sp-std",
@@ -4414,16 +4411,6 @@ dependencies = [
  "impl-serde",
  "scale-info",
  "uint",
-]
-
-[[package]]
-name = "primitives-worker"
-version = "0.1.0"
-dependencies = [
- "parity-scale-codec",
- "scale-info",
- "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
@@ -7132,13 +7119,13 @@ dependencies = [
  "pallet-worker",
  "pallet-workers-scheduler",
  "parity-scale-codec",
- "primitives-worker",
  "scale-info",
  "sp-api",
  "sp-block-builder",
  "sp-consensus-aura",
  "sp-core",
  "sp-inherents",
+ "sp-io",
  "sp-offchain",
  "sp-runtime",
  "sp-session",
