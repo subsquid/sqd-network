@@ -23,7 +23,6 @@ use sp_std::prelude::*;
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
 
-mod common;
 mod data_sources;
 mod requests;
 mod scheduler;
@@ -294,7 +293,8 @@ impl pallet_requests::Config for Runtime {
 impl pallet_worker::Config for Runtime {
     type Event = Event;
     type Task = workers::Task;
-    type ResultStorage = workers::ResultStorage;
+    type Result = workers::Result;
+    type UpdateRequestStatus = workers::UpdateRequestStatus;
     type WeightInfo = ();
 }
 

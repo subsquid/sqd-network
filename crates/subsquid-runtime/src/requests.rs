@@ -1,3 +1,4 @@
+use crate::workers::Result;
 use codec::{Decode, Encode, MaxEncodedLen};
 use pallet_requests::traits::RequestIdGenerator as RequestIdGeneratorT;
 use scale_info::TypeInfo;
@@ -7,46 +8,38 @@ pub type RequestId = [u8; 32];
 
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
 pub struct NativeEthRequest {
-    pub chain: [u8; 32],
-    pub from: u32,
-    pub to: u32,
-    pub call: [u8; 32],
+    pub from_block: u32,
+    pub to_block: Option<u32>,
 }
 
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
 pub struct NativeSubstrateRequest {
     pub chain: [u8; 32],
-    pub from: u32,
-    pub to: u32,
-    pub call: [u8; 32],
 }
 
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
 pub struct SubstrateEvmRequest {
     pub chain: [u8; 32],
-    pub from: u32,
-    pub to: u32,
-    pub call: [u8; 32],
 }
 
 pub type Request =
     pallet_requests::Request<NativeEthRequest, NativeSubstrateRequest, SubstrateEvmRequest>;
 
 #[derive(PartialEq, Copy, Eq, Clone, Encode, Decode, Hash, Debug, TypeInfo, MaxEncodedLen)]
-pub enum Status {
-    Scheduling,
-    Scheduled,
-    Done,
+pub enum Error {
+    NotAllTaskSuccesfullyFinished,
 }
 
-impl Default for Status {
-    fn default() -> Self {
-        Status::Scheduling
-    }
+#[derive(PartialEq, Eq, Clone, Encode, Decode, Debug, TypeInfo, MaxEncodedLen)]
+pub enum Status {
+    Scheduled,
+    Done(Result),
+    Fail(Error),
 }
 
 pub struct RequestIdGenerator;
 
+// TODO. Add an entropy.
 impl RequestIdGeneratorT for RequestIdGenerator {
     type Id = RequestId;
     type Request = Request;

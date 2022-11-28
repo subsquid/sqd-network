@@ -20,7 +20,6 @@ pub mod pallet {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type DataSource: Parameter + MaxEncodedLen;
-        /// WeightInfo type that should implement `WeightInfo` trait.
         type WeightInfo: WeightInfo;
     }
 
@@ -38,11 +37,12 @@ pub mod pallet {
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
         NewDataSource {
-            who: T::AccountId,
+            owner: T::AccountId,
             data_source: T::DataSource,
         },
-        DataAnnounced {
+        DataSourceInfoUpdate {
             who: T::AccountId,
+            owner: T::AccountId,
             data_source: T::DataSource,
         },
     }
@@ -50,6 +50,7 @@ pub mod pallet {
     #[pallet::error]
     pub enum Error<T> {
         DataSourceAlreadyRegistered,
+        NoDataSource,
     }
 
     #[pallet::call]
@@ -64,7 +65,32 @@ pub mod pallet {
 
             <DataSources<T>>::insert(who.clone(), data_source.clone());
 
-            Self::deposit_event(Event::NewDataSource { who, data_source });
+            Self::deposit_event(Event::NewDataSource {
+                owner: who,
+                data_source,
+            });
+            Ok(())
+        }
+
+        #[pallet::weight(T::WeightInfo::update_info())]
+        pub fn update_data_source_info(
+            origin: OriginFor<T>,
+            owner: T::AccountId,
+            data_source: T::DataSource,
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            if !<DataSources<T>>::contains_key(&owner) {
+                return Err(<Error<T>>::NoDataSource.into());
+            }
+
+            <DataSources<T>>::insert(owner.clone(), data_source.clone());
+
+            Self::deposit_event(Event::DataSourceInfoUpdate {
+                who,
+                owner,
+                data_source,
+            });
             Ok(())
         }
     }

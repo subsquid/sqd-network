@@ -32,7 +32,7 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        type Status: Parameter + MaxEncodedLen + Copy + Default;
+        type Status: Parameter + MaxEncodedLen;
         type NativeEthRequest: Parameter + MaxEncodedLen;
         type NativeSubstrateRequest: Parameter + MaxEncodedLen;
         type SubstrateEvmRequest: Parameter + MaxEncodedLen;
@@ -148,18 +148,12 @@ pub mod pallet {
                 return Err(<Error<T>>::RequestIdAlreadyExists.into());
             }
 
-            let init_status = T::Status::default();
-
-            <Requests<T>>::insert(request_id, (init_status, request.clone()));
+            let status = T::SchedulerInterface::schedule(request_id, request.clone())?;
 
             Self::deposit_event(Event::StatusUpdate {
                 request_id,
-                status: init_status,
+                status: status.clone(),
             });
-
-            let status = T::SchedulerInterface::schedule(request_id, request.clone())?;
-
-            Self::deposit_event(Event::StatusUpdate { request_id, status });
 
             <Requests<T>>::insert(request_id, (status, request.clone()));
 
@@ -174,7 +168,7 @@ pub mod pallet {
 
         pub fn update_status(request_id: T::RequestId, status: T::Status) -> DispatchResult {
             match <Requests<T>>::get(request_id) {
-                Some((_, request)) => <Requests<T>>::insert(request_id, (status, request)),
+                Some((_, request)) => <Requests<T>>::insert(request_id, (status.clone(), request)),
                 None => return Err(<Error<T>>::NoRequestId.into()),
             }
 

@@ -5,10 +5,13 @@
 
 pub use pallet::*;
 
+pub mod traits;
 pub mod weights;
 
 #[frame_support::pallet]
 pub mod pallet {
+    use crate::traits::UpdateRequestStatus;
+
     use super::*;
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
@@ -19,7 +22,8 @@ pub mod pallet {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type Task: Parameter + MaxEncodedLen + Default;
-        type ResultStorage: Parameter + MaxEncodedLen;
+        type Result: Parameter + MaxEncodedLen;
+        type UpdateRequestStatus: UpdateRequestStatus<Task = Self::Task, Result = Self::Result>;
         /// WeightInfo type that should implement `WeightInfo` trait.
         type WeightInfo: WeightInfo;
     }
@@ -46,7 +50,7 @@ pub mod pallet {
         TaskDone {
             worker_id: T::AccountId,
             task: T::Task,
-            result_storage: T::ResultStorage,
+            result: T::Result,
         },
     }
 
@@ -73,11 +77,7 @@ pub mod pallet {
         }
 
         #[pallet::weight(T::WeightInfo::done())]
-        pub fn done(
-            origin: OriginFor<T>,
-            task: T::Task,
-            result_storage: T::ResultStorage,
-        ) -> DispatchResult {
+        pub fn done(origin: OriginFor<T>, task: T::Task, result: T::Result) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             let current_task = Self::current_task(who.clone())?;
@@ -86,10 +86,12 @@ pub mod pallet {
                 return Err(<Error<T>>::NoSubmittedTask.into());
             }
 
+            T::UpdateRequestStatus::update_request_status(task.clone(), result.clone())?;
+
             Self::deposit_event(Event::TaskDone {
                 worker_id: who.clone(),
                 task,
-                result_storage,
+                result,
             });
 
             <Workers<T>>::insert(who, T::Task::default());

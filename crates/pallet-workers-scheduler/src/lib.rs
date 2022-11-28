@@ -20,9 +20,7 @@ pub mod pallet {
     use weights::WeightInfo;
 
     #[pallet::config]
-    pub trait Config:
-        frame_system::Config + pallet_worker::Config + pallet_data_source::Config
-    {
+    pub trait Config: frame_system::Config + pallet_worker::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         type RequestId: Parameter + MaxEncodedLen;
@@ -48,16 +46,16 @@ pub mod pallet {
     #[pallet::error]
     pub enum Error<T> {
         NoAvailableWorkers,
-        NoRequiredDataSource,
     }
 
     impl<T: Config> Pallet<T> {
+        // One worker per one request for demo purposes.
         pub fn schedule(request: T::Request) -> DispatchResult {
             let (worker_id, _) = pallet_worker::Workers::<T>::iter()
                 .find(|(_, task)| task == &T::Task::default())
                 .ok_or(<Error<T>>::NoAvailableWorkers)?;
 
-            let task = T::PrepareTask::prepare_task(&request);
+            let task = T::PrepareTask::prepare_task(request);
 
             pallet_worker::Pallet::<T>::run_task(worker_id.clone(), task.clone())?;
 
