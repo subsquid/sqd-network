@@ -3,6 +3,7 @@ use sp_runtime::traits::Zero;
 
 /// Weight functions needed for pallet.
 pub trait WeightInfo {
+    /// Weight for `request` call.
     fn request() -> Weight;
 }
 
