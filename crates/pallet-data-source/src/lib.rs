@@ -19,7 +19,9 @@ pub mod pallet {
     pub trait Config: frame_system::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+        /// Data source info representation in the network.
         type DataSource: Parameter + MaxEncodedLen;
+        /// The weight information provider type.
         type WeightInfo: WeightInfo;
     }
 
@@ -27,6 +29,7 @@ pub mod pallet {
     #[pallet::generate_store(pub(super) trait Store)]
     pub struct Pallet<T>(_);
 
+    /// The list of data sources registered in the network.
     #[pallet::storage]
     #[pallet::getter(fn data_sources)]
     pub type DataSources<T: Config> =
@@ -36,26 +39,36 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
+        /// The new data source has been registered in the network.
         NewDataSource {
+            /// An account that owns data source.
             owner: T::AccountId,
+            /// Data source detailed information.
             data_source: T::DataSource,
         },
+        /// The current data source information has been updated.
         DataSourceInfoUpdate {
+            /// An account that has checked data source current state.
             who: T::AccountId,
+            /// Data source owner.
             owner: T::AccountId,
+            /// Updated data source information.
             data_source: T::DataSource,
         },
     }
 
     #[pallet::error]
     pub enum Error<T> {
+        /// Data source already registered in the network.
         DataSourceAlreadyRegistered,
+        /// No data source was found.
         NoDataSource,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::weight(T::WeightInfo::register())]
+        /// Register the data source with owner and data source information itself.
         pub fn register(origin: OriginFor<T>, data_source: T::DataSource) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
@@ -73,6 +86,7 @@ pub mod pallet {
         }
 
         #[pallet::weight(T::WeightInfo::update_info())]
+        /// Update data source information.
         pub fn update_data_source_info(
             origin: OriginFor<T>,
             owner: T::AccountId,
