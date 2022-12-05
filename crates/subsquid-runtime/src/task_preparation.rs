@@ -14,7 +14,7 @@ impl PrepareTask for TaskPreparation {
     fn prepare_task(request: Self::Request) -> Task {
         Task::Execute(TaskData {
             request_id: RequestIdGenerator::generate_id(request),
-            docker_image: DockerImage::EthNetwork,
+            docker_image: DockerImage::default(),
             command: Command::default(),
         })
     }

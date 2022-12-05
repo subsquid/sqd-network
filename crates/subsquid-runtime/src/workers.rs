@@ -6,13 +6,11 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::traits::ConstU32;
 use pallet_worker::traits::UpdateRequestStatus as UpdateRequestStatusT;
 use scale_info::TypeInfo;
+use sp_core::H256;
 use sp_runtime::{BoundedVec, DispatchError};
 use sp_std::{fmt::Debug, prelude::*};
 
-#[derive(PartialEq, Eq, Clone, Encode, Decode, Debug, TypeInfo, MaxEncodedLen)]
-pub enum DockerImage {
-    EthNetwork,
-}
+pub type DockerImage = H256;
 
 pub const MAX_COMMAND_BYTES: u32 = 100;
 pub type Command = BoundedVec<u8, ConstU32<MAX_COMMAND_BYTES>>;
