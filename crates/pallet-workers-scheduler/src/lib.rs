@@ -1,4 +1,4 @@
-//! Pallet.
+//! Pallet workers scheduler logic.
 
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
@@ -8,7 +8,6 @@ use codec::MaxEncodedLen;
 pub use pallet::*;
 
 pub mod traits;
-pub mod weights;
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -17,16 +16,17 @@ pub mod pallet {
 
     use super::*;
     use frame_support::pallet_prelude::*;
-    use weights::WeightInfo;
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_worker::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+        /// The request id type.
         type RequestId: Parameter + MaxEncodedLen;
+        /// The request type.
         type Request;
+        /// An interface to prepare task for request.
         type PrepareTask: PrepareTask<Request = Self::Request, Task = Self::Task>;
-        type WeightInfo: WeightInfo;
     }
 
     #[pallet::pallet]
@@ -37,19 +37,26 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
+        /// The task has been scheduled.
         TaskScheduled {
+            /// The worker id that should execute the task.
             worker_id: T::AccountId,
+            /// The task details.
             task: T::Task,
         },
     }
 
     #[pallet::error]
     pub enum Error<T> {
+        /// No available workers was found.
         NoAvailableWorkers,
     }
 
     impl<T: Config> Pallet<T> {
-        // One worker per one request for demo purposes.
+        /// An algorithm to schedule the request to worker.
+        ///
+        /// At current moment we apply simple way just choosing any free available worker.
+        /// One request per one worker.
         pub fn schedule(request: T::Request) -> DispatchResult {
             let (worker_id, _) = pallet_worker::Workers::<T>::iter()
                 .find(|(_, task)| task == &T::Task::default())
