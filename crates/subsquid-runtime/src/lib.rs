@@ -309,7 +309,6 @@ impl pallet_workers_scheduler::Config for Runtime {
     type RequestId = requests::RequestId;
     type Request = requests::Request;
     type PrepareTask = task_preparation::TaskPreparation;
-    type WeightInfo = ();
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
