@@ -1,4 +1,4 @@
-use crate::workers::Result;
+use crate::workers::TaskResult;
 use codec::{Decode, Encode, MaxEncodedLen};
 use pallet_requests::traits::RequestIdGenerator as RequestIdGeneratorT;
 use scale_info::TypeInfo;
@@ -33,7 +33,7 @@ pub enum Error {
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Debug, TypeInfo, MaxEncodedLen)]
 pub enum Status {
     Scheduled,
-    Done(Result),
+    Done(TaskResult),
     Fail(Error),
 }
 

@@ -37,22 +37,22 @@ impl Default for Task {
 pub const MAX_STDOUT_BYTES: u32 = 100;
 pub const MAX_STDERR_BYTES: u32 = 100;
 
+pub type ExitCode = u32;
 pub type StdOut = BoundedVec<u8, ConstU32<MAX_STDOUT_BYTES>>;
 pub type StdErr = BoundedVec<u8, ConstU32<MAX_STDERR_BYTES>>;
-pub type ExitCode = u32;
 
 #[derive(PartialEq, Eq, Clone, Encode, Decode, Debug, TypeInfo, MaxEncodedLen)]
-pub struct Result {
-    pub std_out: StdOut,
-    pub std_err: StdErr,
+pub struct TaskResult {
     pub exit_code: ExitCode,
+    pub stdout: StdOut,
+    pub stderr: StdErr,
 }
 
 pub struct UpdateRequestStatus;
 
 impl UpdateRequestStatusT for UpdateRequestStatus {
     type Task = Task;
-    type Result = Result;
+    type Result = TaskResult;
 
     fn update_request_status(task: Self::Task, result: Self::Result) -> sp_runtime::DispatchResult {
         match task {

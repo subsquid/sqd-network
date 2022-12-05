@@ -293,7 +293,7 @@ impl pallet_requests::Config for Runtime {
 impl pallet_worker::Config for Runtime {
     type Event = Event;
     type Task = workers::Task;
-    type Result = workers::Result;
+    type Result = workers::TaskResult;
     type UpdateRequestStatus = workers::UpdateRequestStatus;
     type WeightInfo = ();
 }
