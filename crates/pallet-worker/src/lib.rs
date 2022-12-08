@@ -69,6 +69,8 @@ pub mod pallet {
 
     #[pallet::error]
     pub enum Error<T> {
+        /// Worker already registered.
+        WorkerAlreadyRegistered,
         /// No worker was found.
         NoWorkerId,
         /// No submitted task was found.
@@ -83,6 +85,10 @@ pub mod pallet {
         /// Register the worker in the network.
         pub fn register(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
+
+            if <Workers<T>>::contains_key(&who) {
+                return Err(<Error<T>>::WorkerAlreadyRegistered.into());
+            }
 
             Self::deposit_event(Event::NewWorker {
                 worker_id: who.clone(),
