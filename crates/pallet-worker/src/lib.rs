@@ -10,7 +10,7 @@ pub mod weights;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use crate::traits::UpdateRequestStatus;
+    use crate::traits::{GetTaskId, UpdateRequestStatus};
 
     use super::*;
     use frame_support::pallet_prelude::*;
@@ -23,10 +23,17 @@ pub mod pallet {
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
         /// Worker task type.
         type Task: Parameter + MaxEncodedLen + Default;
-        /// Task result type.
-        type Result: Parameter + MaxEncodedLen;
-        /// The type that to update task related request.
-        type UpdateRequestStatus: UpdateRequestStatus<Task = Self::Task, Result = Self::Result>;
+        /// Worker task id type.
+        type TaskId: Parameter + MaxEncodedLen;
+        /// Task TaskResult type.
+        type TaskResult: Parameter + MaxEncodedLen;
+        /// Get task id interface.
+        type GetTaskId: GetTaskId<Task = Self::Task, TaskId = Self::TaskId>;
+        /// Update task related request.
+        type UpdateRequestStatus: UpdateRequestStatus<
+            TaskId = Self::TaskId,
+            TaskResult = Self::TaskResult,
+        >;
         /// The weight information provider type.
         type WeightInfo: WeightInfo;
     }
@@ -60,10 +67,10 @@ pub mod pallet {
         TaskDone {
             /// The worker of finished task.
             worker_id: T::AccountId,
-            /// The task information.
-            task: T::Task,
+            /// The task id.
+            task_id: T::TaskId,
             /// The task result.
-            result: T::Result,
+            task_result: T::TaskResult,
         },
     }
 
@@ -101,21 +108,26 @@ pub mod pallet {
 
         #[pallet::weight(T::WeightInfo::done())]
         /// Submit the task result.
-        pub fn done(origin: OriginFor<T>, task: T::Task, result: T::Result) -> DispatchResult {
+        pub fn done(
+            origin: OriginFor<T>,
+            task_id: T::TaskId,
+            task_result: T::TaskResult,
+        ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
             let current_task = Self::current_task(who.clone())?;
+            let current_task_id = T::GetTaskId::get_id(&current_task);
 
-            if current_task != task {
+            if current_task_id != task_id {
                 return Err(<Error<T>>::NoSubmittedTask.into());
             }
 
-            T::UpdateRequestStatus::update_request_status(task.clone(), result.clone())?;
+            T::UpdateRequestStatus::update_request_status(task_id.clone(), task_result.clone())?;
 
             Self::deposit_event(Event::TaskDone {
                 worker_id: who.clone(),
-                task,
-                result,
+                task_id,
+                task_result,
             });
 
             <Workers<T>>::insert(who, T::Task::default());
