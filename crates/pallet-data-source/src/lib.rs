@@ -87,6 +87,8 @@ pub mod pallet {
 
         #[pallet::weight(T::WeightInfo::update_info())]
         /// Update data source information.
+        ///
+        /// TODO. Data info can be updated only by workers.
         pub fn update_data_source_info(
             origin: OriginFor<T>,
             owner: T::AccountId,
