@@ -116,7 +116,8 @@ pub mod pallet {
             let who = ensure_signed(origin)?;
 
             let current_task = Self::current_task(who.clone())?;
-            let current_task_id = T::GetTaskId::get_id(&current_task);
+            let current_task_id =
+                T::GetTaskId::get_id(&current_task).ok_or(<Error<T>>::NoSubmittedTask)?;
 
             if current_task_id != task_id {
                 return Err(<Error<T>>::NoSubmittedTask.into());

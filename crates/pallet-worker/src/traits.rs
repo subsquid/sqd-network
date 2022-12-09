@@ -24,5 +24,5 @@ pub trait GetTaskId {
     type TaskId;
 
     /// Get task id.
-    fn get_id(task: &Self::Task) -> Self::TaskId;
+    fn get_id(task: &Self::Task) -> Option<Self::TaskId>;
 }
