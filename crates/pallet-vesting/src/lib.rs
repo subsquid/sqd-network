@@ -72,8 +72,10 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// An \[account\] has become fully vested.
+        /// Full unlocked.
         VestingCompleted { account: T::AccountId },
+        /// The vesting was removed by sudo account.
+        VestingRemoved { account: T::AccountId },
     }
 
     /// Error for the vesting pallet.
@@ -85,6 +87,8 @@ pub mod pallet {
         AmountLow,
         /// The account used to create vesting is already used.
         AccountAlreadyHasVesting,
+        /// There is no vesting.
+        NoVesting,
     }
 
     #[pallet::call]
@@ -96,7 +100,19 @@ pub mod pallet {
         #[pallet::weight(T::WeightInfo::vest_locked())]
         pub fn vest(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            todo!()
+
+            with_storage_layer(|| {
+                // TODO: Add calculation to check the part of locked balance that should be unlocked.
+                let _vest_info = <Vesting<T>>::get(&who).ok_or(<Error<T>>::NoVesting)?;
+
+                T::Currency::remove_lock(VESTING_ID, &who);
+
+                <Vesting<T>>::remove(&who);
+
+                Self::deposit_event(Event::<T>::VestingCompleted { account: who });
+
+                Ok(())
+            })
         }
 
         /// Unlock any vested funds of a `target` account.
@@ -107,8 +123,20 @@ pub mod pallet {
         /// locked under this pallet.
         #[pallet::weight(T::WeightInfo::vest_locked())]
         pub fn vest_other(origin: OriginFor<T>, target: T::AccountId) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            todo!()
+            ensure_signed(origin)?;
+
+            with_storage_layer(|| {
+                // TODO: Add calculation to check the part of locked balance that should be unlocked.
+                let _vest_info = <Vesting<T>>::get(&target).ok_or(<Error<T>>::NoVesting)?;
+
+                T::Currency::remove_lock(VESTING_ID, &target);
+
+                <Vesting<T>>::remove(&target);
+
+                Self::deposit_event(Event::<T>::VestingCompleted { account: target });
+
+                Ok(())
+            })
         }
 
         /// Create a vested transfer.
@@ -141,7 +169,7 @@ pub mod pallet {
                     &transactor,
                     &target,
                     schedule.locked,
-                    ExistenceRequirement::KeepAlive,
+                    ExistenceRequirement::AllowDeath,
                 )?;
 
                 let reasons =
@@ -155,11 +183,34 @@ pub mod pallet {
             })
         }
 
-        /// Remove vesting (sudo or owner)?
+        /// Remove vesting.
         #[pallet::weight(T::WeightInfo::vest_locked())]
-        pub fn remove_vest(origin: OriginFor<T>, target: T::AccountId) -> DispatchResult {
+        pub fn remove_vest(
+            origin: OriginFor<T>,
+            target: T::AccountId,
+            send_to: T::AccountId,
+        ) -> DispatchResult {
             ensure_root(origin)?;
-            todo!()
+
+            let vest_info = <Vesting<T>>::get(&target).ok_or(<Error<T>>::NoVesting)?;
+
+            with_storage_layer(move || {
+                T::Currency::remove_lock(VESTING_ID, &target);
+
+                // TODO. Send only the rest part.
+                T::Currency::transfer(
+                    &target,
+                    &send_to,
+                    vest_info.locked,
+                    ExistenceRequirement::AllowDeath,
+                )?;
+
+                <Vesting<T>>::remove(&target);
+
+                Self::deposit_event(Event::<T>::VestingRemoved { account: target });
+
+                Ok(())
+            })
         }
     }
 }
