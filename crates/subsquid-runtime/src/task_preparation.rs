@@ -12,9 +12,10 @@ impl PrepareTask for TaskPreparation {
     type Task = Task;
 
     fn prepare_task(request: Self::Request) -> Task {
+        let task_id = RequestIdGenerator::generate_id(request);
         Task::Execute(TaskData {
-            request_id: RequestIdGenerator::generate_id(request),
-            docker_image: DockerImage::EthNetwork,
+            task_id,
+            docker_image: DockerImage::default(),
             command: Command::default(),
         })
     }

@@ -292,7 +292,9 @@ impl pallet_requests::Config for Runtime {
 impl pallet_worker::Config for Runtime {
     type Event = Event;
     type Task = workers::Task;
-    type Result = workers::Result;
+    type TaskId = workers::TaskId;
+    type TaskResult = workers::TaskResult;
+    type GetTaskId = workers::GetTaskId;
     type UpdateRequestStatus = workers::UpdateRequestStatus;
     type WeightInfo = ();
 }
@@ -305,7 +307,6 @@ impl pallet_data_source::Config for Runtime {
 
 impl pallet_workers_scheduler::Config for Runtime {
     type Event = Event;
-    type RequestId = requests::RequestId;
     type Request = requests::Request;
     type PrepareTask = task_preparation::TaskPreparation;
 }

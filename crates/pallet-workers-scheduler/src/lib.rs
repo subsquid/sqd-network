@@ -3,8 +3,6 @@
 // Ensure we're `no_std` when compiling for Wasm.
 #![cfg_attr(not(feature = "std"), no_std)]
 
-use codec::MaxEncodedLen;
-
 pub use pallet::*;
 
 pub mod traits;
@@ -21,8 +19,6 @@ pub mod pallet {
     pub trait Config: frame_system::Config + pallet_worker::Config {
         /// Event type.
         type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
-        /// The request id type.
-        type RequestId: Parameter + MaxEncodedLen;
         /// The request type.
         type Request;
         /// An interface to prepare task for request.
