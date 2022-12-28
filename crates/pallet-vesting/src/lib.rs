@@ -12,6 +12,11 @@ pub use weights::WeightInfo;
 
 pub mod weights;
 
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
+
 type BalanceOf<T> =
     <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
@@ -66,7 +71,7 @@ pub mod pallet {
     /// Information regarding the vesting of a given account.
     #[pallet::storage]
     #[pallet::getter(fn vesting)]
-    pub type Vesting<T: Config> =
+    pub type Vestings<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, VestingInfo<BalanceOf<T>, T::VestingTime>>;
 
     #[pallet::event]
@@ -103,11 +108,11 @@ pub mod pallet {
 
             with_storage_layer(|| {
                 // TODO: Add calculation to check the part of locked balance that should be unlocked.
-                let _vest_info = <Vesting<T>>::get(&who).ok_or(<Error<T>>::NoVesting)?;
+                let _vest_info = <Vestings<T>>::get(&who).ok_or(<Error<T>>::NoVesting)?;
 
                 T::Currency::remove_lock(VESTING_ID, &who);
 
-                <Vesting<T>>::remove(&who);
+                <Vestings<T>>::remove(&who);
 
                 Self::deposit_event(Event::<T>::VestingCompleted { account: who });
 
@@ -127,11 +132,11 @@ pub mod pallet {
 
             with_storage_layer(|| {
                 // TODO: Add calculation to check the part of locked balance that should be unlocked.
-                let _vest_info = <Vesting<T>>::get(&target).ok_or(<Error<T>>::NoVesting)?;
+                let _vest_info = <Vestings<T>>::get(&target).ok_or(<Error<T>>::NoVesting)?;
 
                 T::Currency::remove_lock(VESTING_ID, &target);
 
-                <Vesting<T>>::remove(&target);
+                <Vestings<T>>::remove(&target);
 
                 Self::deposit_event(Event::<T>::VestingCompleted { account: target });
 
@@ -160,7 +165,7 @@ pub mod pallet {
                 Error::<T>::AmountLow
             );
 
-            if <Vesting<T>>::contains_key(&target) {
+            if <Vestings<T>>::contains_key(&target) {
                 return Err(<Error<T>>::AccountAlreadyHasVesting.into());
             }
 
@@ -177,7 +182,7 @@ pub mod pallet {
 
                 T::Currency::set_lock(VESTING_ID, &target, schedule.locked, reasons);
 
-                <Vesting<T>>::insert(target, schedule);
+                <Vestings<T>>::insert(target, schedule);
 
                 Ok(())
             })
@@ -192,7 +197,7 @@ pub mod pallet {
         ) -> DispatchResult {
             ensure_root(origin)?;
 
-            let vest_info = <Vesting<T>>::get(&target).ok_or(<Error<T>>::NoVesting)?;
+            let vest_info = <Vestings<T>>::get(&target).ok_or(<Error<T>>::NoVesting)?;
 
             with_storage_layer(move || {
                 T::Currency::remove_lock(VESTING_ID, &target);
@@ -205,7 +210,7 @@ pub mod pallet {
                     ExistenceRequirement::AllowDeath,
                 )?;
 
-                <Vesting<T>>::remove(&target);
+                <Vestings<T>>::remove(&target);
 
                 Self::deposit_event(Event::<T>::VestingRemoved { account: target });
 

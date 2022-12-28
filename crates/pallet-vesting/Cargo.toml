@@ -17,6 +17,10 @@ frame-benchmarking = { default-features = false, git = "https://github.com/parit
 frame-support = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
 frame-system = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
 
+[dev-dependencies]
+pallet-balances = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
+sp-core = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
+
 [features]
 default = ["std"]
 std = [
