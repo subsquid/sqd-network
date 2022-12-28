@@ -34,6 +34,7 @@ pub use frame_support::{
     construct_runtime, parameter_types,
     traits::{
         ConstU128, ConstU32, ConstU64, ConstU8, KeyOwnerProofSystem, Randomness, StorageInfo,
+        WithdrawReasons,
     },
     weights::{
         constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
@@ -67,6 +68,8 @@ pub type Index = u32;
 
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
+
+pub type Milliseconds = u64;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -274,10 +277,6 @@ impl pallet_sudo::Config for Runtime {
     type Call = Call;
 }
 
-parameter_types! {
-    pub const MinVestedTransfer: Balance = BALANCE_UNIT;
-}
-
 impl pallet_requests::Config for Runtime {
     type Event = Event;
     type Status = requests::Status;
@@ -312,6 +311,21 @@ impl pallet_workers_scheduler::Config for Runtime {
     type PrepareTask = task_preparation::TaskPreparation;
 }
 
+parameter_types! {
+    pub const MinVestedTransfer: u64 = 1000;
+    pub UnvestedFundsAllowedWithdrawReasons: WithdrawReasons =
+        WithdrawReasons::except(WithdrawReasons::TRANSFER | WithdrawReasons::RESERVE);
+}
+
+impl pallet_vesting::Config for Runtime {
+    type Event = Event;
+    type Currency = Balances;
+    type MinVestedTransfer = MinVestedTransfer;
+    type VestingTime = Milliseconds;
+    type UnvestedFundsAllowedWithdrawReasons = UnvestedFundsAllowedWithdrawReasons;
+    type WeightInfo = ();
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime where
@@ -331,6 +345,7 @@ construct_runtime!(
         Worker: pallet_worker,
         DataSource: pallet_data_source,
         WorkersScheduler: pallet_workers_scheduler,
+        Vesting: pallet_vesting,
     }
 );
 

@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 pallet-data-source = { version = "0.1", path = "../pallet-data-source", default-features = false }
 pallet-requests = { version = "0.1", path = "../pallet-requests", default-features = false }
+pallet-vesting = { version = "0.1", path = "../pallet-vesting", default-features = false }
 pallet-worker = { version = "0.1", path = "../pallet-worker", default-features = false }
 pallet-workers-scheduler = { version = "0.1", path = "../pallet-workers-scheduler", default-features = false }
 
@@ -64,6 +65,7 @@ std = [
   "pallet-timestamp/std",
   "pallet-transaction-payment-rpc-runtime-api/std",
   "pallet-transaction-payment/std",
+  "pallet-vesting/std",
   "pallet-worker/std",
   "pallet-workers-scheduler/std",
   "sp-api/std",
@@ -88,6 +90,7 @@ runtime-benchmarks = [
   "pallet-grandpa/runtime-benchmarks",
   "pallet-requests/runtime-benchmarks",
   "pallet-timestamp/runtime-benchmarks",
+  "pallet-vesting/runtime-benchmarks",
   "pallet-worker/runtime-benchmarks",
   "pallet-workers-scheduler/runtime-benchmarks",
   "sp-runtime/runtime-benchmarks",
@@ -105,6 +108,7 @@ try-runtime = [
   "pallet-sudo/try-runtime",
   "pallet-timestamp/try-runtime",
   "pallet-transaction-payment/try-runtime",
+  "pallet-vesting/try-runtime",
   "pallet-worker/try-runtime",
   "pallet-workers-scheduler/try-runtime",
 ]
