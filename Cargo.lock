@@ -4049,6 +4049,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-vesting"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-worker"
 version = "0.1.0"
 dependencies = [
@@ -7116,6 +7131,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-vesting",
  "pallet-worker",
  "pallet-workers-scheduler",
  "parity-scale-codec",
