@@ -80,10 +80,6 @@ Archive is a service that ingests raw on-chain data, stores it into persistent s
 - Archive should get reward for valid work.
 - Archive misbehavior should be punished.
 
-### Become an Archive flow
-
-![image](../arch/become-archive/become_archive.png)
-
 ### Worker (aka Resource Node)
 
 Worker is a part of the network that provides resources for running archives for particular blockchain that are run using dockerized images. In other words, it's a special light client of the network with the following requirements.
