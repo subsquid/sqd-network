@@ -1,0 +1,35 @@
+@startuml pallet-fisherman
+
+collections Runtime
+
+frame PalletWorker {
+  interface WorkerInterface
+}
+
+frame PalletWhead {
+  interface WheadInterface
+}
+
+frame PalletNNBReq {
+  interface NNBReqInterface
+}
+
+
+frame PalletFisherman {
+
+  component CoreLogic
+
+  interface FishermanInterface
+}
+
+FishermanInterface -left- CoreLogic
+
+Runtime -up- FishermanInterface
+
+FishermanInterface -- WheadInterface
+
+FishermanInterface -- NNBReqInterface
+
+FishermanInterface -- WorkerInterface
+
+@enduml

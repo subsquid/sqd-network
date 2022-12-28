@@ -1,0 +1,32 @@
+@startuml pallet-ingester
+
+collections Runtime
+
+cloud IngesterCandidate
+cloud Ingester
+
+frame PalletIngester {
+  component Calls {
+    card register
+    card update_status
+  }
+
+  component Storage {
+    storage VecIngestersId as "Vec<IngesterId>" << Ingesters >>
+    storage MapIngestersStatuses as "HashMap<IngesterId, Status>" << Statuses >>
+  }
+
+  interface IngesterInterface
+}
+
+IngesterInterface -left- Storage
+
+register -- VecIngestersId
+update_status -- MapIngestersStatuses
+
+IngesterCandidate -- register
+Ingester -- update_status
+
+Runtime -up- IngesterInterface
+
+@enduml
