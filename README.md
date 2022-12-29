@@ -22,9 +22,9 @@ Worker is a part of the network that provides resources for executing requests s
 - Worker should use approved (by the network) docker images.
 - There is a range of workers number when it's profitable to run it.
 
-## Workers schedule
+## Workers scheduler
 
-`./crates/pallet-workers-schedule`
+`./crates/pallet-workers-scheduler`
 
 Workers schedule is a part of the network that is responsible for assigning a specific task to the worker for incoming requests from clients. It should choose available suitable worker based on some predefined algorithm. The task is assigned by submitting event.
 
