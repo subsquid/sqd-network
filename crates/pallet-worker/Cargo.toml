@@ -9,6 +9,7 @@ codec = { package = "parity-scale-codec", version = "3.0.0", default-features = 
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 
 # Substrate primitive dependencies
+sp-arithmetic = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
 sp-runtime = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
 sp-std = { default-features = false, git = "https://github.com/paritytech/substrate", branch = "master"}
 
@@ -29,6 +30,7 @@ std = [
 	"frame-support/std",
   "frame-system/std",
   "scale-info/std",
+  "sp-arithmetic/std",
   "sp-runtime/std",
   "sp-std/std",
 ]

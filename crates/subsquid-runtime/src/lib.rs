@@ -25,11 +25,10 @@ use sp_version::RuntimeVersion;
 
 mod data_sources;
 mod requests;
-mod scheduler;
-mod task_preparation;
 mod workers;
 
 // A few exports that help ease life for downstream crates.
+use crate::workers::HardwareSpecs;
 pub use frame_support::{
     construct_runtime, parameter_types,
     traits::{
@@ -277,25 +276,14 @@ impl pallet_sudo::Config for Runtime {
     type Call = Call;
 }
 
-impl pallet_requests::Config for Runtime {
-    type Event = Event;
-    type Status = requests::Status;
-    type NativeEthRequest = requests::NativeEthRequest;
-    type NativeSubstrateRequest = requests::NativeSubstrateRequest;
-    type SubstrateEvmRequest = requests::SubstrateEvmRequest;
-    type RequestId = requests::RequestId;
-    type RequestIdGenerator = requests::RequestIdGenerator;
-    type SchedulerInterface = scheduler::Scheduler;
-    type WeightInfo = ();
-}
-
 impl pallet_worker::Config for Runtime {
     type Event = Event;
-    type Task = workers::Task;
+    type TaskSpec = workers::TaskSpec;
     type TaskId = workers::TaskId;
     type TaskResult = workers::TaskResult;
-    type GetTaskId = workers::GetTaskId;
-    type UpdateRequestStatus = workers::UpdateRequestStatus;
+    type WorkerSpec = HardwareSpecs;
+    type WorkerConstraints = HardwareSpecs;
+    type Randomness = RandomnessCollectiveFlip;
     type WeightInfo = ();
 }
 
@@ -303,12 +291,6 @@ impl pallet_data_source::Config for Runtime {
     type Event = Event;
     type DataSource = data_sources::DataSource;
     type WeightInfo = ();
-}
-
-impl pallet_workers_scheduler::Config for Runtime {
-    type Event = Event;
-    type Request = requests::Request;
-    type PrepareTask = task_preparation::TaskPreparation;
 }
 
 parameter_types! {
@@ -341,10 +323,8 @@ construct_runtime!(
         Balances: pallet_balances,
         TransactionPayment: pallet_transaction_payment,
         Sudo: pallet_sudo,
-        Requests: pallet_requests,
         Worker: pallet_worker,
         DataSource: pallet_data_source,
-        WorkersScheduler: pallet_workers_scheduler,
         Vesting: pallet_vesting,
     }
 );

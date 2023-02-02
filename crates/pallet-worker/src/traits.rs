@@ -1,28 +1,16 @@
 //! Traits that pallet uses.
 
-use sp_runtime::DispatchResult;
+use sp_arithmetic::traits::{BaseArithmetic, Unsigned};
 
-/// An interface to update request status.
-pub trait UpdateRequestStatus {
-    /// The task id type.
-    type TaskId;
-    /// The task result type.
-    type TaskResult;
-
-    /// Update request status.
-    fn update_request_status(
-        task_id: Self::TaskId,
-        task_result: Self::TaskResult,
-    ) -> DispatchResult;
+/// Interface for constraints on workers (e.g. resources)
+pub trait WorkerConstraints<T> {
+    /// Does the worker with given specification meet the constraints?
+    fn worker_suitable(&self, worker_spec: &T) -> bool;
 }
 
-/// An interface to extract task id from task
-pub trait GetTaskId {
-    /// The task type.
-    type Task;
-    /// The task id type.
-    type TaskId;
+/// Arithmetic traits
+pub trait AtLeast64Bit: BaseArithmetic + From<u16> + From<u32> + From<u64> {}
+impl<T: BaseArithmetic + From<u16> + From<u32> + From<u64>> AtLeast64Bit for T {}
 
-    /// Get task id.
-    fn get_id(task: &Self::Task) -> Option<Self::TaskId>;
-}
+pub trait AtLeast64BitUnsigned: AtLeast64Bit + Unsigned {}
+impl<T: AtLeast64Bit + Unsigned> AtLeast64BitUnsigned for T {}
