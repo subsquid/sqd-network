@@ -23,7 +23,7 @@ pub mod pallet {
     #[pallet::config]
     pub trait Config: frame_system::Config {
         /// Event type.
-        type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Task specification type (e.g. docker image and command to run).
         type TaskSpec: Parameter + MaxEncodedLen;
@@ -164,6 +164,7 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
+        #[pallet::call_index(0)]
         #[pallet::weight(T::WeightInfo::register())]
         /// Register the worker in the network.
         pub fn register(
@@ -187,6 +188,7 @@ pub mod pallet {
             Ok(())
         }
 
+        #[pallet::call_index(1)]
         #[pallet::weight(T::WeightInfo::unregister())]
         /// Unregister the worker.
         pub fn unregister(origin: OriginFor<T>) -> DispatchResult {
@@ -207,6 +209,7 @@ pub mod pallet {
             Ok(())
         }
 
+        #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::update_spec())]
         /// Update worker specification (e.g. available hardware resources).
         pub fn update_spec(origin: OriginFor<T>, spec: T::WorkerSpec) -> DispatchResult {
@@ -225,6 +228,7 @@ pub mod pallet {
             Ok(())
         }
 
+        #[pallet::call_index(3)]
         #[pallet::weight(T::WeightInfo::go_online())]
         /// Mark the worker as 'online' (i.e. ready to accept tasks).
         pub fn go_online(origin: OriginFor<T>) -> DispatchResult {
@@ -240,6 +244,7 @@ pub mod pallet {
             Ok(())
         }
 
+        #[pallet::call_index(4)]
         #[pallet::weight(T::WeightInfo::go_offline())]
         /// Mark the worker as 'offline' (i.e. not accepting new tasks).
         /// NOTE: Marking the worker as 'offline' does **not** mean it can go offline instantly.
@@ -257,6 +262,7 @@ pub mod pallet {
             Ok(())
         }
 
+        #[pallet::call_index(5)]
         #[pallet::weight(T::WeightInfo::done())]
         /// Submit the task result.
         pub fn done(
@@ -291,6 +297,7 @@ pub mod pallet {
             Ok(())
         }
 
+        #[pallet::call_index(6)]
         #[pallet::weight(T::WeightInfo::submit_task())]
         /// Submit a new task to be computed. Assign to a random matching worker.
         pub fn submit_task(
@@ -303,6 +310,7 @@ pub mod pallet {
             Self::run_task(worker_id, task_spec, constraints)
         }
 
+        #[pallet::call_index(7)]
         #[pallet::weight(T::WeightInfo::force_run_task())]
         /// Submit a new task to be computed. Assign to a specific worker.
         /// Only callable via root origin.
