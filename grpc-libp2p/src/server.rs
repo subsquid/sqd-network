@@ -31,10 +31,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keypair = Keypair::generate_ed25519();
     let mut transport = P2PTransport::new(keypair);
     transport.listen_on("/ip4/0.0.0.0/tcp/12345".parse().unwrap());
+    let (incoming, _outbound_requests_sender) = transport.run();
     let worker = MyWorker::default();
     Server::builder()
         .add_service(WorkerServer::new(worker))
-        .serve_with_incoming(transport.run())
+        .serve_with_incoming(incoming)
         .await?;
 
     Ok(())
