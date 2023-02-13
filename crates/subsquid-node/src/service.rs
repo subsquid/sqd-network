@@ -1,6 +1,6 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
-use sc_client_api::{BlockBackend, ExecutorProvider};
+use sc_client_api::BlockBackend;
 use sc_consensus_aura::{ImportQueueParams, SlotProportion, StartAuraParams};
 pub use sc_executor::NativeElseWasmExecutor;
 use sc_finality_grandpa::SharedVoterState;
@@ -102,7 +102,7 @@ pub fn new_partial(config: &Configuration) -> Result<FullPartialComponents, Serv
 
     let (grandpa_block_import, grandpa_link) = sc_finality_grandpa::block_import(
         client.clone(),
-        &(client.clone() as Arc<_>),
+        &client,
         select_chain.clone(),
         telemetry.as_ref().map(|x| x.handle()),
     )?;
@@ -110,7 +110,7 @@ pub fn new_partial(config: &Configuration) -> Result<FullPartialComponents, Serv
     let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
 
     let import_queue =
-        sc_consensus_aura::import_queue::<AuraPair, _, _, _, _, _, _>(ImportQueueParams {
+        sc_consensus_aura::import_queue::<AuraPair, _, _, _, _, _>(ImportQueueParams {
             block_import: grandpa_block_import.clone(),
             justification_import: Some(Box::new(grandpa_block_import.clone())),
             client: client.clone(),
@@ -123,15 +123,13 @@ pub fn new_partial(config: &Configuration) -> Result<FullPartialComponents, Serv
 						slot_duration,
 					);
 
-                Ok((timestamp, slot))
+                Ok((slot, timestamp))
             },
             spawner: &task_manager.spawn_essential_handle(),
-            can_author_with: sp_consensus::CanAuthorWithNativeVersion::new(
-                client.executor().clone(),
-            ),
             registry: config.prometheus_registry(),
             check_for_equivocation: Default::default(),
             telemetry: telemetry.as_ref().map(|x| x.handle()),
+            compatibility_mode: Default::default(),
         })?;
 
     Ok(sc_service::PartialComponents {
@@ -171,8 +169,7 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
             Ok(k) => keystore_container.set_remote_keystore(k),
             Err(e) => {
                 return Err(ServiceError::Other(format!(
-                    "Error hooking up remote keystore for {}: {}",
-                    url, e
+                    "Error hooking up remote keystore for {url}: {e}",
                 )))
             }
         };
@@ -198,7 +195,7 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
         Vec::default(),
     ));
 
-    let (network, system_rpc_tx, network_starter) =
+    let (network, system_rpc_tx, tx_handler_controller, network_starter) =
         sc_service::build_network(sc_service::BuildNetworkParams {
             config: &config,
             client: client.clone(),
@@ -250,6 +247,7 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
         system_rpc_tx,
         config,
         telemetry: telemetry.as_mut(),
+        tx_handler_controller,
     })?;
 
     if role.is_authority() {
@@ -261,12 +259,9 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
             telemetry.as_ref().map(|x| x.handle()),
         );
 
-        let can_author_with =
-            sp_consensus::CanAuthorWithNativeVersion::new(client.executor().clone());
-
         let slot_duration = sc_consensus_aura::slot_duration(&*client)?;
 
-        let aura = sc_consensus_aura::start_aura::<AuraPair, _, _, _, _, _, _, _, _, _, _, _>(
+        let aura = sc_consensus_aura::start_aura::<AuraPair, _, _, _, _, _, _, _, _, _, _>(
             StartAuraParams {
                 slot_duration,
                 client,
@@ -282,17 +277,17 @@ pub fn new_full(mut config: Configuration) -> Result<TaskManager, ServiceError> 
 							slot_duration,
 						);
 
-                    Ok((timestamp, slot))
+                    Ok((slot, timestamp))
                 },
                 force_authoring,
                 backoff_authoring_blocks,
                 keystore: keystore_container.sync_keystore(),
-                can_author_with,
                 sync_oracle: network.clone(),
                 justification_sync_link: network.clone(),
                 block_proposal_slot_portion: SlotProportion::new(2f32 / 3f32),
                 max_block_proposal_slot_portion: None,
                 telemetry: telemetry.as_ref().map(|x| x.handle()),
+                compatibility_mode: Default::default(),
             },
         )?;
 

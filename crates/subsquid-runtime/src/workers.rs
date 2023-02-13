@@ -25,8 +25,8 @@ pub struct DockerImage {
     pub digest: H256,
 }
 
-pub const MAX_STDOUT_BYTES: u32 = 100;
-pub const MAX_STDERR_BYTES: u32 = 100;
+pub const MAX_STDOUT_BYTES: u32 = 1024;
+pub const MAX_STDERR_BYTES: u32 = 1024;
 
 pub type ExitCode = u32;
 pub type StdOut = BoundedVec<u8, ConstU32<MAX_STDOUT_BYTES>>;

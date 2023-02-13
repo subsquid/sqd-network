@@ -1,5 +1,4 @@
 use frame_support::weights::Weight;
-use sp_runtime::traits::Zero;
 
 /// Weight functions needed.
 pub trait WeightInfo {
