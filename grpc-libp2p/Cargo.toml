@@ -12,6 +12,7 @@ name = "client"
 path = "src/client.rs"
 
 [dependencies]
+futures = "0.3"
 libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux"] }
 log = "0.4"
 prost = "0.11"
