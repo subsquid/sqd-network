@@ -1,10 +1,13 @@
 use libp2p::identity::Keypair;
+use simple_logger::SimpleLogger;
 
-use grpc_libp2p::P2PTransport;
+use grpc_libp2p::P2PTransportBuilder;
 use tonic::{transport::Server, Request, Response, Status};
 
-use grpc_libp2p::worker_rpc::worker_server::{Worker, WorkerServer};
-use grpc_libp2p::worker_rpc::{HelloReply, HelloRequest};
+use grpc_libp2p::worker_rpc::{
+    worker_server::{Worker, WorkerServer},
+    HelloReply, HelloRequest,
+};
 
 #[derive(Debug, Default)]
 pub struct MyWorker {}
@@ -18,7 +21,7 @@ impl Worker for MyWorker {
         log::info!("Got a request: {request:?}");
 
         let reply = HelloReply {
-            message: format!("Hello {}!", request.into_inner().name).into(),
+            message: format!("Hello {}!", request.into_inner().name),
         };
 
         Ok(Response::new(reply))
@@ -27,11 +30,11 @@ impl Worker for MyWorker {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::init_with_level(log::Level::Debug).unwrap();
+    SimpleLogger::new().env().init().unwrap();
     let keypair = Keypair::generate_ed25519();
-    let mut transport = P2PTransport::new(keypair);
-    transport.listen_on("/ip4/0.0.0.0/tcp/12345".parse().unwrap());
-    let (incoming, _outbound_requests_sender) = transport.run();
+    let mut transport_builder = P2PTransportBuilder::from_keypair(keypair)?;
+    transport_builder.listen_on("/ip4/0.0.0.0/tcp/12345".parse()?)?;
+    let (incoming, _) = transport_builder.run();
     let worker = MyWorker::default();
     Server::builder()
         .add_service(WorkerServer::new(worker))
