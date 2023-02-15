@@ -4,14 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "server"
-path = "src/server.rs"
-
-[[bin]]
-name = "client"
-path = "src/client.rs"
+name = "node"
+path = "src/node.rs"
 
 [dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux"] }
 log = "0.4"
@@ -20,7 +18,7 @@ simple_logger = "4"
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
 tokio-stream = "0.1"
-tokio-util = { version = "0.7", features = ["compat"] }
+tokio-util = { version = "0.7", features = ["compat", "codec"] }
 tonic = "0.8"
 tower = { version = "0.4", features = ["make"] }
 
