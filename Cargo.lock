@@ -2437,6 +2437,8 @@ dependencies = [
 name = "grpc-libp2p"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "clap",
  "futures",
  "libp2p",
  "log",
