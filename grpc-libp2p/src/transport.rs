@@ -1,7 +1,10 @@
+use bimap::BiHashMap;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    fmt::Debug,
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 
 use futures::{
@@ -11,9 +14,12 @@ use futures::{
 
 use libp2p::{
     core::{connection::ConnectionId, upgrade::ReadyUpgrade},
+    identify,
     identity::Keypair,
+    kad::{store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent, QueryId, QueryResult},
     swarm::{
-        behaviour::{ConnectionClosed, ConnectionEstablished, FromSwarm},
+        behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm},
+        dial_opts::{DialOpts, PeerCondition},
         handler::ConnectionEvent,
         ConnectionHandler, ConnectionHandlerEvent, KeepAlive, NegotiatedSubstream,
         NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters, SubstreamProtocol,
@@ -21,6 +27,7 @@ use libp2p::{
     },
     Multiaddr, PeerId, Swarm,
 };
+use libp2p_swarm_derive::NetworkBehaviour;
 
 use tokio::{
     io::ReadBuf,
@@ -31,10 +38,19 @@ use tokio_util::compat::{Compat, FuturesAsyncReadCompatExt};
 
 use tonic::transport::{server::Connected, Uri};
 
-use crate::Error;
 use tower::Service;
 
-pub const PROTOCOL_NAME: &[u8] = b"/grpc/0.0.1";
+use crate::Error;
+
+pub const GRPC_PROTOCOL: &[u8] = b"/grpc/0.0.1";
+pub const SUBSQUID_PROTOCOL: &[u8] = b"/subsquid/0.0.1";
+
+#[derive(NetworkBehaviour)]
+struct WorkerBehaviour {
+    grpc: GrpcBehaviour,
+    identify: identify::Behaviour,
+    kademlia: Kademlia<MemoryStore>,
+}
 
 #[derive(Default)]
 struct GrpcBehaviour {
@@ -42,6 +58,7 @@ struct GrpcBehaviour {
     outbound_streams: VecDeque<P2PConnection>,
     stream_requests: VecDeque<PeerId>,
     connected_peers: HashSet<PeerId>,
+    request_failures: VecDeque<RequestFailure>,
 }
 
 impl GrpcBehaviour {
@@ -54,6 +71,13 @@ impl GrpcBehaviour {
 enum GrpcBehaviourEvent {
     InboundStream(P2PConnection),
     OutboundStream(P2PConnection),
+    RequestFailed(RequestFailure),
+}
+
+#[derive(Debug)]
+struct RequestFailure {
+    peer_id: PeerId,
+    error: Error,
 }
 
 impl NetworkBehaviour for GrpcBehaviour {
@@ -75,6 +99,18 @@ impl NetworkBehaviour for GrpcBehaviour {
                 log::debug!("GrpcBehaviour: connection with {peer_id} closed");
                 self.connected_peers.remove(&peer_id);
             }
+            FromSwarm::DialFailure(DialFailure {
+                peer_id: Some(peer_id),
+                error,
+                ..
+            }) => {
+                log::error!("GrpcBehaviour: dialing peer {peer_id} failed: {error:?}");
+                let failure = RequestFailure {
+                    peer_id,
+                    error: error.into(),
+                };
+                self.request_failures.push_front(failure);
+            }
             _ => {}
         }
     }
@@ -86,12 +122,12 @@ impl NetworkBehaviour for GrpcBehaviour {
         event: GrpcHandlerEvent,
     ) {
         match event {
-            GrpcHandlerEvent::InboundStream(stream) => self
-                .inbound_streams
-                .push_front(P2PConnection::new(peer_id, stream)),
-            GrpcHandlerEvent::OutboundStream(stream) => self
-                .outbound_streams
-                .push_front(P2PConnection::new(peer_id, stream)),
+            GrpcHandlerEvent::InboundStream(stream) => {
+                self.inbound_streams.push_front(P2PConnection::new(peer_id, stream))
+            }
+            GrpcHandlerEvent::OutboundStream(stream) => {
+                self.outbound_streams.push_front(P2PConnection::new(peer_id, stream))
+            }
         }
     }
 
@@ -113,18 +149,32 @@ impl NetworkBehaviour for GrpcBehaviour {
                 GrpcBehaviourEvent::OutboundStream(stream),
             ));
         }
+        if let Some(failure) = self.request_failures.pop_back() {
+            log::trace!("GrpcBehaviour: yielding request failure {failure:?}");
+            return Poll::Ready(NetworkBehaviourAction::GenerateEvent(
+                GrpcBehaviourEvent::RequestFailed(failure),
+            ));
+        }
         if let Some(peer_id) = self.stream_requests.pop_back() {
-            if self.connected_peers.contains(&peer_id) {
+            let action = if self.connected_peers.contains(&peer_id) {
                 log::trace!("GrpcBehaviour: requesting substream for {peer_id}");
-                return Poll::Ready(NetworkBehaviourAction::NotifyHandler {
+                NetworkBehaviourAction::NotifyHandler {
                     peer_id,
                     handler: NotifyHandler::Any,
                     event: RequestStream {},
-                });
+                }
             } else {
                 log::trace!("GrpcBehaviour: peer not connected: {peer_id}");
-                self.stream_requests.push_front(peer_id)
-            }
+                let mut handler = GrpcConnectionHandler::default();
+                // The handler needs to be created already with a pending stream request,
+                // so that it opens a new stream as soon as the connection is established.
+                handler.on_behaviour_event(RequestStream {});
+                NetworkBehaviourAction::Dial {
+                    opts: DialOpts::peer_id(peer_id).condition(PeerCondition::Disconnected).build(),
+                    handler,
+                }
+            };
+            return Poll::Ready(action);
         }
         Poll::Pending
     }
@@ -158,7 +208,7 @@ impl ConnectionHandler for GrpcConnectionHandler {
     type OutboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, Self::InboundOpenInfo> {
-        SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ())
+        SubstreamProtocol::new(ReadyUpgrade::new(GRPC_PROTOCOL), ())
     }
 
     fn connection_keep_alive(&self) -> KeepAlive {
@@ -191,7 +241,7 @@ impl ConnectionHandler for GrpcConnectionHandler {
         if self.requested_streams > 0 {
             log::trace!("GrpcConnectionHandler: requesting substream");
             self.requested_streams -= 1;
-            let protocol = SubstreamProtocol::new(ReadyUpgrade::new(PROTOCOL_NAME), ());
+            let protocol = SubstreamProtocol::new(ReadyUpgrade::new(GRPC_PROTOCOL), ());
             return Poll::Ready(ConnectionHandlerEvent::OutboundSubstreamRequest { protocol });
         }
         Poll::Pending
@@ -231,7 +281,7 @@ impl ConnectionHandler for GrpcConnectionHandler {
 }
 
 pub struct P2PTransportBuilder {
-    swarm: Swarm<GrpcBehaviour>,
+    swarm: Swarm<WorkerBehaviour>,
 }
 
 impl P2PTransportBuilder {
@@ -243,9 +293,23 @@ impl P2PTransportBuilder {
     pub fn from_keypair(keypair: Keypair) -> Result<Self, Error> {
         let local_peer_id = PeerId::from(keypair.public());
         log::info!("Local peer ID: {local_peer_id}");
+
+        let protocol = std::str::from_utf8(SUBSQUID_PROTOCOL).unwrap().to_string();
+        let identify_cfg = identify::Config::new(protocol, keypair.public())
+            .with_interval(Duration::from_secs(60))
+            .with_push_listen_addr_updates(true);
+        let mut kademlia_cfg = KademliaConfig::default();
+        kademlia_cfg.set_protocol_names(vec![SUBSQUID_PROTOCOL.into()]);
+        let store = MemoryStore::new(local_peer_id);
+        let behaviour = WorkerBehaviour {
+            grpc: Default::default(),
+            identify: identify::Behaviour::new(identify_cfg),
+            kademlia: Kademlia::with_config(local_peer_id, store, kademlia_cfg),
+        };
+
         let transport =
             libp2p::tokio_development_transport(keypair).map_err(|_| Error::Transport)?;
-        let behaviour = GrpcBehaviour::default();
+
         let swarm = Swarm::with_tokio_executor(transport, behaviour, local_peer_id);
         Ok(Self { swarm })
     }
@@ -275,29 +339,35 @@ impl P2PTransportBuilder {
 struct P2PTransport {
     inbound_streams_sink: mpsc::Sender<Result<P2PConnection, Error>>,
     request_receiver: Fuse<ReceiverStream<P2PConnectionRequest>>,
-    request_callbacks: HashMap<PeerId, P2PConnectionCallback>,
-    swarm: Swarm<GrpcBehaviour>,
+    request_callbacks: HashMap<PeerId, VecDeque<P2PConnectionCallback>>,
+    pending_queries: BiHashMap<PeerId, QueryId>,
+    swarm: Swarm<WorkerBehaviour>,
 }
 
 impl P2PTransport {
     pub fn new(
         inbound_streams_sink: mpsc::Sender<Result<P2PConnection, Error>>,
         requests_receiver: mpsc::Receiver<P2PConnectionRequest>,
-        swarm: Swarm<GrpcBehaviour>,
+        swarm: Swarm<WorkerBehaviour>,
     ) -> Self {
-        let request_callbacks = HashMap::new();
-        let request_receiver = ReceiverStream::new(requests_receiver).fuse();
         Self {
             inbound_streams_sink,
-            request_receiver,
-            request_callbacks,
+            request_receiver: ReceiverStream::new(requests_receiver).fuse(),
+            request_callbacks: HashMap::new(),
+            pending_queries: BiHashMap::new(),
             swarm,
         }
     }
 
     pub async fn run(mut self) -> Result<(), Error> {
         log::debug!("P2PTransport starting");
+        let mut kad_boostrapped = false;
         loop {
+            if !kad_boostrapped && self.swarm.behaviour_mut().kademlia.bootstrap().is_ok() {
+                log::debug!("Kademlia bootstrapped");
+                kad_boostrapped = true;
+                // FIXME: Wait for bootstrap result
+            }
             futures::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await?,
                 request = self.request_receiver.select_next_some() =>
@@ -306,22 +376,88 @@ impl P2PTransport {
         }
     }
 
-    async fn handle_swarm_event(
+    async fn handle_swarm_event<E: Debug>(
         &mut self,
-        event: SwarmEvent<GrpcBehaviourEvent, Error>,
+        event: SwarmEvent<WorkerBehaviourEvent, E>,
     ) -> Result<(), Error> {
         log::trace!("P2PTransport handling swarm event: {event:?}");
-        let event = match event {
-            SwarmEvent::Behaviour(event) => event,
+        match event {
+            SwarmEvent::Behaviour(WorkerBehaviourEvent::Grpc(event)) => {
+                self.handle_grpc_event(event).await
+            }
+            SwarmEvent::Behaviour(WorkerBehaviourEvent::Identify(event)) => {
+                self.handle_identify_event(event)
+            }
+            SwarmEvent::Behaviour(WorkerBehaviourEvent::Kademlia(event)) => {
+                self.handle_kademlia_event(event).await
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn handle_identify_event(&mut self, event: identify::Event) -> Result<(), Error> {
+        log::debug!("Identify event received: {event:?}");
+        let (peer_id, listen_addrs) = match event {
+            identify::Event::Received { peer_id, info } => (peer_id, info.listen_addrs),
             _ => return Ok(()),
         };
+        let kademlia = &mut self.swarm.behaviour_mut().kademlia;
+        for address in listen_addrs {
+            kademlia.add_address(&peer_id, address);
+        }
+        Ok(())
+    }
+
+    async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> Result<(), Error> {
+        log::debug!("Kademlia event received: {event:?}");
+        let (query_id, result) = match event {
+            KademliaEvent::OutboundQueryProgressed {
+                id,
+                result: QueryResult::GetClosestPeers(result),
+                ..
+            } => (id, result),
+            _ => return Ok(()),
+        };
+        let (peer_id, _) = self
+            .pending_queries
+            .remove_by_right(&query_id)
+            .ok_or(Error::Unexpected("Unknown query"))?;
+
+        if result.is_ok_and(|ok| !ok.peers.is_empty()) {
+            log::debug!("Peer query successful: {peer_id}");
+            let num_requests = self
+                .request_callbacks
+                .get(&peer_id)
+                .map(|queue| queue.len())
+                .unwrap_or_default();
+            // Request as many streams as there are pending requests
+            for _ in 0..num_requests {
+                self.swarm.behaviour_mut().grpc.request_stream(peer_id);
+            }
+        } else {
+            log::debug!("Peer query failed: {peer_id}");
+            // Send error to *all* request callbacks - no stream will be opened if peer cannot
+            // be found in the network.
+            let callbacks = self.request_callbacks.get_mut(&peer_id).unwrap().drain(..);
+            for callback in callbacks {
+                let _ = callback
+                    .call(Err(Error::PeerNotFound(peer_id)))
+                    .map_err(|e| log::warn!("Request callback failed: {e:?}"));
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_grpc_event(&mut self, event: GrpcBehaviourEvent) -> Result<(), Error> {
+        log::debug!("GRPC event received: {event:?}");
         match event {
             GrpcBehaviourEvent::OutboundStream(conn) => {
                 // We don't want to raise errors if the callback fails.
                 // Only missing callback means something is wrong (this should never happen).
                 let _ = self
                     .request_callbacks
-                    .remove(&conn.peer_id)
+                    .get_mut(&conn.peer_id)
+                    .and_then(|queue| queue.pop_back())
                     .ok_or(Error::Unexpected("No callback for connection"))?
                     .call(Ok(conn))
                     .map_err(|e| log::warn!("Request callback failed: {e:?}"));
@@ -334,6 +470,15 @@ impl P2PTransport {
                     .await
                     .map_err(|_| log::warn!("Unhandled inbound stream"));
             }
+            GrpcBehaviourEvent::RequestFailed(failure) => {
+                let _ = self
+                    .request_callbacks
+                    .get_mut(&failure.peer_id)
+                    .and_then(|queue| queue.pop_back())
+                    .ok_or(Error::Unexpected("No callback for connection"))?
+                    .call(Err(failure.error))
+                    .map_err(|e| log::warn!("Request callback failed: {e:?}"));
+            }
         }
         Ok(())
     }
@@ -341,8 +486,20 @@ impl P2PTransport {
     fn handle_connection_request(&mut self, request: P2PConnectionRequest) {
         log::debug!("P2PTransport handling connection request: {request:?}");
         let P2PConnectionRequest { peer_id, callback } = request;
-        self.swarm.behaviour_mut().request_stream(peer_id);
-        self.request_callbacks.insert(peer_id, callback);
+        self.request_callbacks.entry(peer_id).or_default().push_front(callback);
+
+        // If the peer is reachable, we can request a stream. Otherwise, it needs to be found
+        // using Kademlia. However, there's no need to start a new query if one is already
+        // in progress. Peers without listen addresses are also reachable, as long as they're
+        // connected. Hence the is_connected() check first.
+        if self.swarm.is_connected(&peer_id)
+            || !self.swarm.behaviour_mut().addresses_of_peer(&peer_id).is_empty()
+        {
+            self.swarm.behaviour_mut().grpc.request_stream(peer_id);
+        } else if !self.pending_queries.contains_left(&peer_id) {
+            let query_id = self.swarm.behaviour_mut().kademlia.get_closest_peers(peer_id);
+            self.pending_queries.insert(peer_id, query_id);
+        }
     }
 }
 
@@ -400,9 +557,7 @@ impl Service<Uri> for P2PConnector {
                 .send(P2PConnectionRequest { peer_id, callback })
                 .await
                 .map_err(|_| Error::Unexpected("Cannot send connection request"))?;
-            receiver
-                .await
-                .map_err(|_| Error::Unexpected("Connection callback dropped"))?
+            receiver.await.map_err(|_| Error::Unexpected("Connection callback dropped"))?
         })
     }
 }

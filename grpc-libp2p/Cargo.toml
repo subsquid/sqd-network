@@ -9,9 +9,11 @@ path = "src/node.rs"
 
 [dependencies]
 anyhow = "1"
+bimap = "0.6"
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
-libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux"] }
+libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux", "identify", "kad"] }
+libp2p-swarm-derive = "0.31"
 log = "0.4"
 prost = "0.11"
 simple_logger = "4"
