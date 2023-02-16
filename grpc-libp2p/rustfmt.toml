@@ -3,3 +3,4 @@ imports_granularity = "Crate"
 max_width = 100
 fn_call_width = 80
 array_width = 80
+chain_width = 80

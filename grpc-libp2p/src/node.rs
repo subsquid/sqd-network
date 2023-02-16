@@ -35,10 +35,7 @@ async fn make_request(connector: P2PConnector, params: String) -> anyhow::Result
         .next()
         .ok_or_else(|| anyhow::anyhow!("Failed to read peer ID"))?
         .to_string();
-    let name = params
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Failed to read name"))?
-        .to_string();
+    let name = params.next().ok_or_else(|| anyhow::anyhow!("Failed to read name"))?.to_string();
     let message = HelloRequest { name };
 
     // NOTE: The 'libp2p://' prefix is arbitrary, but GRPC will raise InvalidUrl error without it
@@ -56,19 +53,14 @@ async fn make_request(connector: P2PConnector, params: String) -> anyhow::Result
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
-    SimpleLogger::new()
-        .with_level(log::LevelFilter::Info)
-        .env()
-        .init()?;
+    SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
     let cli = Cli::parse();
     let keypair = Keypair::generate_ed25519();
 
     // Prepare transport
     let mut transport_builder = P2PTransportBuilder::from_keypair(keypair)?;
     if let Some(listen_addr) = cli.listen {
-        let listen_addr = listen_addr
-            .unwrap_or("/ip4/127.0.0.1/tcp/12345".to_string())
-            .parse()?;
+        let listen_addr = listen_addr.unwrap_or("/ip4/127.0.0.1/tcp/12345".to_string()).parse()?;
         transport_builder.listen_on(listen_addr)?;
     }
     for dial_addr in cli.dial {
@@ -93,9 +85,7 @@ async fn main() -> anyhow::Result<()> {
         .try_for_each(|line| {
             let connector = connector.clone();
             async move {
-                let _ = make_request(connector, line)
-                    .await
-                    .map_err(|e| log::error!("{e}"));
+                let _ = make_request(connector, line).await.map_err(|e| log::error!("{e}"));
                 Ok(())
             }
         })
