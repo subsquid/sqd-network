@@ -10,9 +10,11 @@ use tonic::{
 };
 
 use grpc_libp2p::{
+    rpc::{
+        api::{worker_client::WorkerClient, worker_server::WorkerServer, HelloRequest},
+        Worker,
+    },
     transport::{P2PConnector, P2PTransportBuilder},
-    worker::Worker,
-    worker_api::{worker_client::WorkerClient, worker_server::WorkerServer, HelloRequest},
 };
 
 #[derive(Parser)]
