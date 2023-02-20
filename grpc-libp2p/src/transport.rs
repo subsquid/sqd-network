@@ -10,13 +10,17 @@ use std::{
 use futures::{
     future::BoxFuture,
     stream::{Fuse, Stream, StreamExt},
+    TryFutureExt,
 };
 
 use libp2p::{
     core::{connection::ConnectionId, upgrade::ReadyUpgrade},
     identify,
     identity::Keypair,
-    kad::{store::MemoryStore, Kademlia, KademliaConfig, KademliaEvent, QueryId, QueryResult},
+    kad::{
+        store::MemoryStore, BootstrapResult, GetClosestPeersResult, Kademlia, KademliaConfig,
+        KademliaEvent, QueryId, QueryResult,
+    },
     swarm::{
         behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm},
         dial_opts::{DialOpts, PeerCondition},
@@ -282,6 +286,7 @@ impl ConnectionHandler for GrpcConnectionHandler {
 
 pub struct P2PTransportBuilder {
     swarm: Swarm<WorkerBehaviour>,
+    bootstrap: bool,
 }
 
 impl P2PTransportBuilder {
@@ -311,7 +316,10 @@ impl P2PTransportBuilder {
             libp2p::tokio_development_transport(keypair).map_err(|_| Error::Transport)?;
 
         let swarm = Swarm::with_tokio_executor(transport, behaviour, local_peer_id);
-        Ok(Self { swarm })
+        Ok(Self {
+            swarm,
+            bootstrap: false,
+        })
     }
 
     pub fn listen_on(&mut self, addr: Multiaddr) -> Result<(), Error> {
@@ -326,12 +334,17 @@ impl P2PTransportBuilder {
         Ok(())
     }
 
+    pub fn bootstrap(&mut self) {
+        log::info!("Bootstrapping kademlia");
+        self.bootstrap = true;
+    }
+
     pub fn run(self) -> (impl Stream<Item = Result<P2PConnection, Error>>, P2PConnector) {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         let (requests_tx, requests_rx) = mpsc::channel(1024);
-        let transport = P2PTransport::new(inbound_tx, requests_rx, self.swarm);
+        let transport = P2PTransport::new(inbound_tx, requests_rx, self.swarm, self.bootstrap);
 
-        tokio::task::spawn(transport.run());
+        tokio::task::spawn(transport.run().map_err(|e| log::error!("Transport error: {e:?}")));
         (ReceiverStream::new(inbound_rx), P2PConnector::new(requests_tx))
     }
 }
@@ -342,6 +355,7 @@ struct P2PTransport {
     request_callbacks: HashMap<PeerId, VecDeque<P2PConnectionCallback>>,
     pending_queries: BiHashMap<PeerId, QueryId>,
     swarm: Swarm<WorkerBehaviour>,
+    bootstrap: bool,
 }
 
 impl P2PTransport {
@@ -349,6 +363,7 @@ impl P2PTransport {
         inbound_streams_sink: mpsc::Sender<Result<P2PConnection, Error>>,
         requests_receiver: mpsc::Receiver<P2PConnectionRequest>,
         swarm: Swarm<WorkerBehaviour>,
+        bootstrap: bool,
     ) -> Self {
         Self {
             inbound_streams_sink,
@@ -356,18 +371,16 @@ impl P2PTransport {
             request_callbacks: HashMap::new(),
             pending_queries: BiHashMap::new(),
             swarm,
+            bootstrap,
         }
     }
 
     pub async fn run(mut self) -> Result<(), Error> {
         log::debug!("P2PTransport starting");
-        let mut kad_boostrapped = false;
+        if self.bootstrap {
+            self.bootstrap_kademlia().await?;
+        }
         loop {
-            if !kad_boostrapped && self.swarm.behaviour_mut().kademlia.bootstrap().is_ok() {
-                log::debug!("Kademlia bootstrapped");
-                kad_boostrapped = true;
-                // FIXME: Wait for bootstrap result
-            }
             futures::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await?,
                 request = self.request_receiver.select_next_some() =>
@@ -376,11 +389,25 @@ impl P2PTransport {
         }
     }
 
+    async fn bootstrap_kademlia(&mut self) -> Result<(), Error> {
+        let mut bootstrap_initiated = false;
+        while self.bootstrap {
+            // Bootstrap cannot be initiated until there are some peers connected
+            if !bootstrap_initiated && self.swarm.behaviour_mut().kademlia.bootstrap().is_ok() {
+                log::debug!("Kademlia bootstrap initiated");
+                bootstrap_initiated = true;
+            }
+            let event = self.swarm.select_next_some().await;
+            self.handle_swarm_event(event).await?;
+        }
+        Ok(())
+    }
+
     async fn handle_swarm_event<E: Debug>(
         &mut self,
         event: SwarmEvent<WorkerBehaviourEvent, E>,
     ) -> Result<(), Error> {
-        log::trace!("P2PTransport handling swarm event: {event:?}");
+        log::debug!("P2PTransport handling swarm event: {event:?}");
         match event {
             SwarmEvent::Behaviour(WorkerBehaviourEvent::Grpc(event)) => {
                 self.handle_grpc_event(event).await
@@ -410,14 +437,26 @@ impl P2PTransport {
 
     async fn handle_kademlia_event(&mut self, event: KademliaEvent) -> Result<(), Error> {
         log::debug!("Kademlia event received: {event:?}");
-        let (query_id, result) = match event {
+        match event {
             KademliaEvent::OutboundQueryProgressed {
                 id,
                 result: QueryResult::GetClosestPeers(result),
                 ..
-            } => (id, result),
-            _ => return Ok(()),
-        };
+            } => self.handle_peer_query(id, result).await,
+            KademliaEvent::OutboundQueryProgressed {
+                result: QueryResult::Bootstrap(result),
+                ..
+            } => self.handle_bootstrap_result(result),
+            _ => Ok(()),
+        }
+    }
+
+    async fn handle_peer_query(
+        &mut self,
+        query_id: QueryId,
+        result: GetClosestPeersResult,
+    ) -> Result<(), Error> {
+        log::debug!("Peer query {query_id:?} result: {result:?}");
         let (peer_id, _) = self
             .pending_queries
             .remove_by_right(&query_id)
@@ -445,6 +484,13 @@ impl P2PTransport {
                     .map_err(|e| log::warn!("Request callback failed: {e:?}"));
             }
         }
+        Ok(())
+    }
+
+    fn handle_bootstrap_result(&mut self, result: BootstrapResult) -> Result<(), Error> {
+        log::debug!("Kademlia bootstrap result: {result:?}");
+        result?;
+        self.bootstrap = false;
         Ok(())
     }
 

@@ -1,6 +1,10 @@
 #![feature(is_some_and)]
 
-use libp2p::{swarm::DialError, PeerId, TransportError};
+use libp2p::{
+    kad::{BootstrapError, NoKnownPeers},
+    swarm::DialError,
+    PeerId, TransportError,
+};
 
 pub mod transport;
 pub mod worker;
@@ -16,6 +20,10 @@ pub enum Error {
     Listen(#[from] TransportError<std::io::Error>),
     #[error("Dialing failed: {0}")]
     Dial(String),
+    #[error("Kademlia bootstrap error: {0:?}")]
+    Bootstrap(#[from] BootstrapError),
+    #[error("{0}")]
+    NoPeers(#[from] NoKnownPeers),
     #[error("Invalid peer ID: {0}")]
     PeerId(String),
     #[error("Peer not found: {0}")]

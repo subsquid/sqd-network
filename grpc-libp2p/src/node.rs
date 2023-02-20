@@ -26,6 +26,12 @@ struct Cli {
     listen: Option<Option<String>>,
     #[arg(short, long, help = "Dial given multiaddr")]
     dial: Vec<String>,
+    #[arg(
+        short,
+        long,
+        help = "Bootstrap kademlia. Required for non-bootnodes to be discoverable."
+    )]
+    bootstrap: bool,
 }
 
 async fn make_request(connector: P2PConnector, params: String) -> anyhow::Result<()> {
@@ -66,6 +72,9 @@ async fn main() -> anyhow::Result<()> {
     for dial_addr in cli.dial {
         let dial_addr = dial_addr.parse()?;
         transport_builder.dial(dial_addr)?;
+    }
+    if cli.bootstrap {
+        transport_builder.bootstrap();
     }
     let (incoming, connector) = transport_builder.run();
 
