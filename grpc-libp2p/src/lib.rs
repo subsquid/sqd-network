@@ -6,11 +6,8 @@ use libp2p::{
     PeerId, TransportError,
 };
 
+pub mod rpc;
 pub mod transport;
-pub mod worker;
-pub mod worker_api {
-    tonic::include_proto!("worker_rpc"); // The string specified here must match the proto package name
-}
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

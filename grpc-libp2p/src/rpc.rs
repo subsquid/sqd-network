@@ -1,5 +1,9 @@
-use crate::worker_api::{worker_server, HelloReply, HelloRequest};
+use api::{worker_server, HelloReply, HelloRequest};
 use tonic::{Request, Response, Status};
+
+pub mod api {
+    tonic::include_proto!("worker_rpc"); // The string specified here must match the proto package name
+}
 
 #[derive(Debug, Default)]
 pub struct Worker {}
