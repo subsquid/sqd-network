@@ -7,10 +7,6 @@ edition = "2021"
 name = "node"
 path = "src/node.rs"
 
-[[bin]]
-name = "worker"
-path = "src/worker.rs"
-
 [dependencies]
 anyhow = "1"
 bimap = "0.6"

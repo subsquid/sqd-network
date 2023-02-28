@@ -1,11 +1,14 @@
 #![feature(is_some_and)]
 
 use cxx::{CxxString, CxxVector, UniquePtr};
+
 use libp2p::{
     kad::{BootstrapError, NoKnownPeers},
     swarm::DialError,
     PeerId, TransportError,
 };
+
+use tokio::sync::mpsc;
 
 pub mod rpc;
 pub mod transport;
@@ -26,6 +29,12 @@ pub enum Error {
     PeerId(String),
     #[error("Peer not found: {0}")]
     PeerNotFound(PeerId),
+    #[error("Null pointer")]
+    NullPointer,
+    #[error("Message write error: {0}")]
+    MessageWrite(std::io::Error),
+    #[error("Message read error: {0}")]
+    MessageRead(std::io::Error),
     #[error("Unexpected error: {0}")]
     Unexpected(&'static str),
 }
@@ -42,12 +51,34 @@ impl From<&DialError> for Error {
     }
 }
 
-pub struct P2PSender {}
+type MsgContent = UniquePtr<CxxVector<u8>>;
+
+#[derive(Debug)]
+pub struct Message {
+    pub peer_id: PeerId,
+    pub content: MsgContent,
+}
+
+impl Message {
+    pub fn new(peer_id: &CxxString, content: MsgContent) -> Self {
+        let peer_id = peer_id.to_string().parse().unwrap();
+        Self { peer_id, content }
+    }
+}
+
+pub struct P2PSender(mpsc::Sender<Message>);
 
 impl P2PSender {
-    pub fn send_message(&mut self, peer_id: &CxxString, msg: UniquePtr<CxxVector<u8>>) {
-        let msg = String::from_utf8_lossy(msg.as_ref().unwrap().as_slice());
-        println!("Sending message '{msg}' to peer {peer_id:?}")
+    pub fn send_message(&mut self, peer_id: &CxxString, msg: MsgContent) {
+        log::debug!("Sending message to peer {peer_id}");
+        let message = Message::new(peer_id, msg);
+        self.0.blocking_send(message).unwrap();
+    }
+}
+
+impl From<mpsc::Sender<Message>> for Box<P2PSender> {
+    fn from(sender: mpsc::Sender<Message>) -> Self {
+        Box::new(P2PSender(sender))
     }
 }
 

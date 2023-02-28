@@ -14,8 +14,7 @@ namespace subsquid {
     };
 
     std::unique_ptr<Buffer> newBuffer(size_t size) {
-        auto buf = std::make_unique<Buffer>();
-        buf->reserve(size);
+        auto buf = std::make_unique<Buffer>(size);
         return buf;
     }
 

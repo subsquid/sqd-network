@@ -1,20 +1,13 @@
 use clap::Parser;
-use futures::TryStreamExt;
+use cxx::let_cxx_string;
+use futures::{stream::FusedStream, StreamExt};
 use libp2p::identity::Keypair;
 use simple_logger::SimpleLogger;
-use tokio::io;
-use tokio_util::codec::{FramedRead, LinesCodec};
-use tonic::{
-    transport::{Endpoint, Server},
-    Request,
-};
 
 use grpc_libp2p::{
-    rpc::{
-        api::{worker_client::WorkerClient, worker_server::WorkerServer, HelloRequest},
-        Worker,
-    },
-    transport::{P2PConnector, P2PTransportBuilder},
+    ffi,
+    transport::{read_messages, P2PTransportBuilder, Router},
+    Message,
 };
 
 #[derive(Parser)]
@@ -34,28 +27,8 @@ struct Cli {
         help = "Bootstrap kademlia. Required for non-bootnodes to be discoverable."
     )]
     bootstrap: bool,
-}
-
-async fn make_request(connector: P2PConnector, params: String) -> anyhow::Result<()> {
-    // The params are expected to be "<peer_id> <whatever>"
-    let mut params = params.split_whitespace();
-    let peer_id = params
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Failed to read peer ID"))?
-        .to_string();
-    let name = params.next().ok_or_else(|| anyhow::anyhow!("Failed to read name"))?.to_string();
-    let message = HelloRequest { name };
-
-    // NOTE: The 'libp2p://' prefix is arbitrary, but GRPC will raise InvalidUrl error without it
-    let channel = Endpoint::try_from(format!("libp2p://{peer_id}"))?
-        .connect_with_connector(connector.clone())
-        .await?;
-    let mut client = WorkerClient::new(channel);
-
-    let request = Request::new(message.clone());
-    let response = client.say_hello(request).await?.into_inner().message;
-    log::info!("Received response: {response}");
-    Ok(())
+    #[arg(short, long, help = "Send messages to given peer", default_value = "")]
+    send_messages: String,
 }
 
 #[tokio::main]
@@ -78,29 +51,22 @@ async fn main() -> anyhow::Result<()> {
     if cli.bootstrap {
         transport_builder.bootstrap();
     }
-    let (incoming, connector) = transport_builder.run();
+    let (incoming_conns, connector) = transport_builder.run();
 
-    // Serve incoming requests in the background
-    let worker = Worker::default();
-    tokio::task::spawn(
-        Server::builder()
-            .add_service(WorkerServer::new(worker))
-            .serve_with_incoming(incoming),
-    );
+    let sender = Router::spawn(connector);
+    let sender = ffi::wrap_sender(sender.into());
 
-    // Read messages from stdin and send to peers
-    let stdin = io::stdin();
-    let reader = FramedRead::new(stdin, LinesCodec::new());
-    reader
-        .map_err(|e| anyhow::anyhow!("Codec error: {e:?}"))
-        .try_for_each(|line| {
-            let connector = connector.clone();
-            async move {
-                let _ = make_request(connector, line).await.map_err(|e| log::error!("{e}"));
-                Ok(())
-            }
-        })
-        .await?;
+    let mut worker = ffi::new_worker();
+    let_cxx_string!(config = cli.send_messages);
+    worker.as_mut().unwrap().configure(&config);
+
+    let mut handler = worker.as_mut().unwrap().start(sender);
+    let mut incoming_msgs = Box::pin(read_messages(incoming_conns).fuse());
+    while !incoming_msgs.is_terminated() {
+        let Message { peer_id, content } = incoming_msgs.select_next_some().await;
+        let_cxx_string!(peer_id = peer_id.to_base58());
+        handler.as_mut().unwrap().on_message_received(&peer_id, content);
+    }
 
     Ok(())
 }

@@ -4,7 +4,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cpp_dst = cmake::Config::new("./sql-archives/worker").build_target("RustBinding").build();
     println!("cargo:rustc-link-search={}/build/src", cpp_dst.display());
-    println!("cargo:rustc-link-lib={}", "RustBinding");
+    println!("cargo:rustc-link-lib=RustBinding");
     println!("cargo:rerun-if-changed=sql-archives/worker");
 
     cxx_build::bridge("src/lib.rs")
