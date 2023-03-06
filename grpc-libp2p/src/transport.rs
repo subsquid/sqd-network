@@ -16,13 +16,19 @@ use futures::{
 };
 
 use libp2p::{
-    core::{connection::ConnectionId, upgrade::ReadyUpgrade},
+    autonat,
+    core::{connection::ConnectionId, transport::OrTransport, upgrade, upgrade::ReadyUpgrade},
+    dcutr,
+    dns::TokioDnsConfig,
     identify,
     identity::Keypair,
     kad::{
         store::MemoryStore, BootstrapResult, GetClosestPeersResult, Kademlia, KademliaConfig,
         KademliaEvent, QueryId, QueryResult,
     },
+    multiaddr::Protocol,
+    noise,
+    relay::v2::client::Client as RelayClient,
     swarm::{
         behaviour::{ConnectionClosed, ConnectionEstablished, DialFailure, FromSwarm},
         dial_opts::{DialOpts, PeerCondition},
@@ -31,7 +37,9 @@ use libp2p::{
         NetworkBehaviour, NetworkBehaviourAction, NotifyHandler, PollParameters, SubstreamProtocol,
         SwarmEvent,
     },
-    Multiaddr, PeerId, Swarm,
+    tcp,
+    yamux::YamuxConfig,
+    Multiaddr, PeerId, Swarm, Transport,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 
@@ -56,6 +64,9 @@ struct WorkerBehaviour {
     grpc: GrpcBehaviour,
     identify: identify::Behaviour,
     kademlia: Kademlia<MemoryStore>,
+    autonat: autonat::Behaviour,
+    relay: RelayClient,
+    dcutr: dcutr::behaviour::Behaviour,
 }
 
 #[derive(Default)]
@@ -308,14 +319,24 @@ impl P2PTransportBuilder {
         let mut kademlia_cfg = KademliaConfig::default();
         kademlia_cfg.set_protocol_names(vec![SUBSQUID_PROTOCOL.into()]);
         let store = MemoryStore::new(local_peer_id);
+        let (relay_transport, relay) = RelayClient::new_transport_and_behaviour(local_peer_id);
         let behaviour = WorkerBehaviour {
             grpc: Default::default(),
             identify: identify::Behaviour::new(identify_cfg),
             kademlia: Kademlia::with_config(local_peer_id, store, kademlia_cfg),
+            autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
+            relay,
+            dcutr: Default::default(),
         };
 
-        let transport =
-            libp2p::tokio_development_transport(keypair).map_err(|_| Error::Transport)?;
+        let tokio_dns_transport =
+            TokioDnsConfig::system(tcp::tokio::Transport::new(tcp::Config::new().nodelay(true)))
+                .unwrap();
+        let transport = OrTransport::new(relay_transport, tokio_dns_transport)
+            .upgrade(upgrade::Version::V1)
+            .authenticate(noise::NoiseAuthenticated::xx(&keypair).unwrap())
+            .multiplex(YamuxConfig::default())
+            .boxed();
 
         let swarm = Swarm::with_tokio_executor(transport, behaviour, local_peer_id);
         Ok(Self {
@@ -339,6 +360,13 @@ impl P2PTransportBuilder {
     pub fn bootstrap(&mut self) {
         log::info!("Bootstrapping kademlia");
         self.bootstrap = true;
+    }
+
+    pub fn add_relay(&mut self, relay_addr: Multiaddr) -> Result<(), Error> {
+        log::info!("Adding relay {relay_addr}");
+        self.swarm.dial(relay_addr.clone())?;
+        self.swarm.listen_on(relay_addr.with(Protocol::P2pCircuit))?;
+        Ok(())
     }
 
     pub fn run(self) -> (impl Stream<Item = Result<P2PConnection, Error>>, P2PConnector) {

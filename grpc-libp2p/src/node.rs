@@ -29,6 +29,8 @@ struct Cli {
     bootstrap: bool,
     #[arg(short, long, help = "Send messages to given peer", default_value = "")]
     send_messages: String,
+    #[arg(short, long, help = "Connect to a relay node")]
+    relay: Vec<String>,
 }
 
 #[tokio::main]
@@ -43,6 +45,10 @@ async fn main() -> anyhow::Result<()> {
     if let Some(listen_addr) = cli.listen {
         let listen_addr = listen_addr.unwrap_or("/ip4/127.0.0.1/tcp/12345".to_string()).parse()?;
         transport_builder.listen_on(listen_addr)?;
+    }
+    for relay_addr in cli.relay {
+        let relay_addr = relay_addr.parse()?;
+        transport_builder.add_relay(relay_addr)?;
     }
     for dial_addr in cli.dial {
         let dial_addr = dial_addr.parse()?;
