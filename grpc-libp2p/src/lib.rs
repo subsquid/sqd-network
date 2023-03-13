@@ -4,6 +4,7 @@ use cxx::{CxxString, CxxVector, UniquePtr};
 
 use libp2p::{
     kad::{BootstrapError, NoKnownPeers},
+    request_response::{InboundFailure, OutboundFailure},
     swarm::DialError,
     PeerId, TransportError,
 };
@@ -35,6 +36,12 @@ pub enum Error {
     MessageWrite(std::io::Error),
     #[error("Message read error: {0}")]
     MessageRead(std::io::Error),
+    #[error("Inbound failure:  {0}")]
+    Inbound(#[from] InboundFailure),
+    #[error("Outbound failure:  {0}")]
+    Outbound(#[from] OutboundFailure),
+    #[error("Query timed out. Could not find peer {0}")]
+    QueryTimeout(PeerId),
     #[error("Unexpected error: {0}")]
     Unexpected(&'static str),
 }
@@ -51,7 +58,7 @@ impl From<&DialError> for Error {
     }
 }
 
-type MsgContent = UniquePtr<CxxVector<u8>>;
+pub type MsgContent = UniquePtr<CxxVector<u8>>;
 
 #[derive(Debug)]
 pub struct Message {

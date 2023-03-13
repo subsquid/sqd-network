@@ -2453,6 +2453,7 @@ name = "grpc-libp2p"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bimap",
  "clap",
  "cmake",
