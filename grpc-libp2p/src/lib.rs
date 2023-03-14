@@ -1,6 +1,5 @@
-#![feature(is_some_and)]
-
-use cxx::{CxxString, CxxVector, UniquePtr};
+use cxx::{let_cxx_string, CxxString, CxxVector, UniquePtr};
+use futures::{stream::FusedStream, StreamExt};
 
 use libp2p::{
     kad::{BootstrapError, NoKnownPeers},
@@ -10,6 +9,7 @@ use libp2p::{
 };
 
 use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
 
 pub mod rpc;
 pub mod transport;
@@ -86,6 +86,26 @@ impl P2PSender {
 impl From<mpsc::Sender<Message>> for Box<P2PSender> {
     fn from(sender: mpsc::Sender<Message>) -> Self {
         Box::new(P2PSender(sender))
+    }
+}
+
+pub async fn run_worker(
+    msg_receiver: mpsc::Receiver<Message>,
+    msg_sender: mpsc::Sender<Message>,
+    config: String,
+) {
+    let sender = ffi::wrap_sender(msg_sender.into());
+
+    let mut worker = ffi::new_worker();
+    let_cxx_string!(config = config);
+    worker.as_mut().unwrap().configure(&config);
+
+    let mut handler = worker.as_mut().unwrap().start(sender);
+    let mut inbound_messages = ReceiverStream::new(msg_receiver).fuse();
+    while !inbound_messages.is_terminated() {
+        let Message { peer_id, content } = inbound_messages.select_next_some().await;
+        let_cxx_string!(peer_id = peer_id.to_base58());
+        handler.as_mut().unwrap().on_message_received(&peer_id, content);
     }
 }
 

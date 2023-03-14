@@ -3,7 +3,7 @@ use bimap::BiHashMap;
 use std::{collections::HashMap, fmt::Debug, time::Duration};
 
 use futures::{
-    stream::{Fuse, FusedStream, StreamExt},
+    stream::{Fuse, StreamExt},
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
 
@@ -45,7 +45,6 @@ pub const SUBSQUID_PROTOCOL: &[u8] = b"/subsquid/0.0.1";
 
 #[derive(NetworkBehaviour)]
 struct WorkerBehaviour {
-    // grpc: GrpcBehaviour,
     identify: identify::Behaviour,
     kademlia: Kademlia<MemoryStore>,
     // autonat: autonat::Behaviour,
@@ -267,9 +266,7 @@ impl P2PTransportBuilder {
         }
     }
 
-    pub async fn run(
-        self,
-    ) -> Result<(impl FusedStream<Item = Message>, mpsc::Sender<Message>), Error> {
+    pub async fn run(self) -> Result<(mpsc::Receiver<Message>, mpsc::Sender<Message>), Error> {
         let mut swarm = Self::build_swarm(self.keypair);
 
         // If relay node not specified explicitly, use first boot node (TODO: random boot node?)
@@ -286,12 +283,14 @@ impl P2PTransportBuilder {
         Self::wait_for_listening(&mut swarm).await;
 
         // Connect to boot nodes
-        for (peer_id, addr) in self.boot_nodes {
-            log::info!("Connecting to boot node {peer_id} at {addr}");
-            swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
-            swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![addr]).build())?;
+        if !self.boot_nodes.is_empty() {
+            for (peer_id, addr) in self.boot_nodes {
+                log::info!("Connecting to boot node {peer_id} at {addr}");
+                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![addr]).build())?;
+            }
+            Self::wait_for_first_connection(&mut swarm).await;
         }
-        Self::wait_for_first_connection(&mut swarm).await;
 
         // Listen for relayed connections
         if let Some(addr) = relay {
@@ -311,7 +310,7 @@ impl P2PTransportBuilder {
         let transport = P2PTransport::new(inbound_tx, outbound_rx, swarm);
 
         tokio::task::spawn(transport.run());
-        Ok((ReceiverStream::new(inbound_rx).fuse(), outbound_tx))
+        Ok((inbound_rx, outbound_tx))
     }
 }
 

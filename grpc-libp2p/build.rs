@@ -1,6 +1,6 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("cargo:rerun-if-changed=proto/worker_rpc.proto");
-    tonic_build::compile_protos("proto/worker_rpc.proto")?;
+    println!("cargo:rerun-if-changed=proto/p2p_transport.proto");
+    tonic_build::compile_protos("proto/p2p_transport.proto")?;
 
     let cpp_dst = cmake::Config::new("./sql-archives/worker").build_target("RustBinding").build();
     println!("cargo:rustc-link-search={}/build/src", cpp_dst.display());
