@@ -7,13 +7,18 @@ edition = "2021"
 name = "node"
 path = "src/node.rs"
 
+[[bin]]
+name = "bootnode"
+path = "src/bootnode.rs"
+
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
 bimap = "0.6"
 clap = { version = "4", features = ["derive"] }
 cxx = "1"
 futures = "0.3"
-libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux", "identify", "kad"] }
+libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux", "identify", "kad", "autonat", "relay", "dcutr", "ping", "request-response"] }
 libp2p-swarm-derive = "0.31"
 log = "0.4"
 prost = "0.11"
