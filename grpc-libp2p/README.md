@@ -23,14 +23,32 @@ Only bootnodes with fixed, publicly known addresses should omit this flag.
 ```shell
 cargo run --bin node -- --dial /ip4/127.0.0.1/tcp/12345 --bootstrap
 ```
-One a node is running, you can use it to send a 'hello world' request by sending
-`<peer_id> <custom_message>` to the process' stdin. If the request was successful,
-a reply should be displayed.
+In order to start sending periodic messages to another node, add the `--send-messages` flag
+and provide the peer ID as argument (*not* the address).
+Messages should appear in the console of the recipient worker.
+
+**Node 1:**
 ```shell
-cargo run --bin node -- --dial /ip4/127.0.0.1/tcp/12345 --bootstrap
-2023-02-20T11:34:44.634Z INFO  [grpc_libp2p::transport] Local peer ID: 12D3KooWBYpBnbQBJC5mtP674YYDYPcXUcTULZcqj3Fn5VGtiisx
-2023-02-20T11:34:44.636Z INFO  [grpc_libp2p::transport] Dialing /ip4/127.0.0.1/tcp/12345
-2023-02-20T11:34:44.636Z INFO  [grpc_libp2p::transport] Bootstrapping kademlia
-12D3KooWCqcSvVS1StJzggyFzs6dGeqcSxxLydB9toYSnPxQW6VJ subsquid
-2023-02-20T11:35:03.626Z INFO  [node] Received response: Hello subsquid!
+cargo run --bin node -- --listen
+2023-03-02T15:12:37.086Z INFO  [grpc_libp2p::transport] Local peer ID: 12D3KooWCFxr6LjpEneszGaogeoxJM3pHMrob4VTajWbMFmxm7Zc
+2023-03-02T15:12:37.091Z INFO  [grpc_libp2p::transport] Listening on /ip4/127.0.0.1/tcp/12345
+[2023-03-02 16:12:37.093] [info] Configure worker config =
+[2023-03-02 16:12:37.093] [info] Start worker
+[2023-03-02 16:12:48.620] [info] Message received from 12D3KooWAscbPWA7VQPGoudjS8Wrrjdr4pqzGo1AHnUjT5k7KiBo: Hello!
+[2023-03-02 16:12:53.105] [info] Message received from 12D3KooWAscbPWA7VQPGoudjS8Wrrjdr4pqzGo1AHnUjT5k7KiBo: Hello!
+...
+```
+
+**Node 2:**
+```shell
+cargo run --bin node -- --dial /ip4/127.0.0.1/tcp/12345 --bootstrap --send-messages 12D3KooWCFxr6LjpEneszGaogeoxJM3pHMrob4VTajWbMFmxm7Zc
+2023-03-02T15:12:48.099Z INFO  [grpc_libp2p::transport] Local peer ID: 12D3KooWAscbPWA7VQPGoudjS8Wrrjdr4pqzGo1AHnUjT5k7KiBo
+2023-03-02T15:12:48.102Z INFO  [grpc_libp2p::transport] Dialing /ip4/127.0.0.1/tcp/12345
+2023-03-02T15:12:48.102Z INFO  [grpc_libp2p::transport] Bootstrapping kademlia
+[2023-03-02 16:12:48.103] [info] Configure worker config = 12D3KooWCFxr6LjpEneszGaogeoxJM3pHMrob4VTajWbMFmxm7Zc
+[2023-03-02 16:12:48.103] [info] Start worker
+[2023-03-02 16:12:48.103] [info] Start sending messages
+[2023-03-02 16:12:48.103] [info] Sending message to worker 12D3KooWCFxr6LjpEneszGaogeoxJM3pHMrob4VTajWbMFmxm7Zc
+[2023-03-02 16:12:53.104] [info] Sending message to worker 12D3KooWCFxr6LjpEneszGaogeoxJM3pHMrob4VTajWbMFmxm7Zc
+...
 ```

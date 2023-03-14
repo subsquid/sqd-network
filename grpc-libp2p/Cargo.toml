@@ -11,6 +11,7 @@ path = "src/node.rs"
 anyhow = "1"
 bimap = "0.6"
 clap = { version = "4", features = ["derive"] }
+cxx = "1"
 futures = "0.3"
 libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux", "identify", "kad"] }
 libp2p-swarm-derive = "0.31"
@@ -26,5 +27,5 @@ tower = { version = "0.4", features = ["make"] }
 
 [build-dependencies]
 tonic-build = "0.8"
-
-
+cmake = "0.1"
+cxx-build = "1"

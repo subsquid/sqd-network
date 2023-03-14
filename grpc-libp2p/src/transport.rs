@@ -8,9 +8,11 @@ use std::{
 };
 
 use futures::{
+    future,
     future::BoxFuture,
-    stream::{Fuse, Stream, StreamExt},
-    TryFutureExt,
+    stream,
+    stream::{Fuse, FusedStream, Stream, StreamExt},
+    FutureExt, TryFutureExt,
 };
 
 use libp2p::{
@@ -34,7 +36,7 @@ use libp2p::{
 use libp2p_swarm_derive::NetworkBehaviour;
 
 use tokio::{
-    io::ReadBuf,
+    io::{AsyncReadExt, AsyncWriteExt, ReadBuf},
     sync::{mpsc, oneshot},
 };
 use tokio_stream::wrappers::ReceiverStream;
@@ -44,7 +46,7 @@ use tonic::transport::{server::Connected, Uri};
 
 use tower::Service;
 
-use crate::Error;
+use crate::{ffi, Error, Message, MsgContent};
 
 pub const GRPC_PROTOCOL: &[u8] = b"/grpc/0.0.1";
 pub const SUBSQUID_PROTOCOL: &[u8] = b"/subsquid/0.0.1";
@@ -581,22 +583,13 @@ impl P2PConnector {
     fn new(request_sender: mpsc::Sender<P2PConnectionRequest>) -> Self {
         Self { request_sender }
     }
-}
 
-impl Service<Uri> for P2PConnector {
-    type Response = P2PConnection;
-    type Error = Error;
-    type Future = BoxFuture<'static, Result<P2PConnection, Error>>;
-
-    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
-    }
-
-    /// Expected URI format: 'whatever://<peer_id>'
-    fn call(&mut self, req: Uri) -> Self::Future {
+    pub fn request_connection(
+        &self,
+        peer_id: PeerId,
+    ) -> BoxFuture<'static, Result<P2PConnection, Error>> {
         let request_sender = self.request_sender.clone();
         Box::pin(async move {
-            let peer_id = peer_id_from_uri(req)?;
             let (sender, receiver) = oneshot::channel();
             let callback = P2PConnectionCallback::new(sender);
             request_sender
@@ -605,6 +598,27 @@ impl Service<Uri> for P2PConnector {
                 .map_err(|_| Error::Unexpected("Cannot send connection request"))?;
             receiver.await.map_err(|_| Error::Unexpected("Connection callback dropped"))?
         })
+    }
+}
+
+impl Service<Uri> for P2PConnector {
+    type Response = P2PConnection;
+    type Error = Error;
+    type Future = future::Either<
+        future::Ready<Result<P2PConnection, Error>>,
+        BoxFuture<'static, Result<P2PConnection, Error>>,
+    >;
+
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    /// Expected URI format: 'whatever://<peer_id>'
+    fn call(&mut self, req: Uri) -> Self::Future {
+        match peer_id_from_uri(req) {
+            Err(e) => future::err(e).left_future(),
+            Ok(peer_id) => self.request_connection(peer_id).right_future(),
+        }
     }
 }
 
@@ -617,8 +631,8 @@ fn peer_id_from_uri(uri: Uri) -> Result<PeerId, Error> {
 
 #[derive(Debug)]
 pub struct P2PConnection {
-    peer_id: PeerId,
-    stream: Compat<NegotiatedSubstream>,
+    pub(crate) peer_id: PeerId,
+    pub(crate) stream: Compat<NegotiatedSubstream>,
 }
 
 impl P2PConnection {
@@ -668,4 +682,168 @@ impl tokio::io::AsyncWrite for P2PConnection {
     ) -> Poll<Result<(), std::io::Error>> {
         Pin::new(&mut self.stream).poll_shutdown(cx)
     }
+}
+
+// This struct wraps byte-based I/O (P2P connection) into a messaged-based one.
+// It is responsible for encoding/decoding messages sent to/received from other peers.
+struct MessageIO {
+    connection: P2PConnection,
+}
+
+impl MessageIO {
+    pub fn new(connection: P2PConnection) -> Self {
+        Self { connection }
+    }
+
+    pub async fn write_msg(&mut self, msg: MsgContent) -> Result<(), Error> {
+        log::debug!("New message to encode: {}", String::from_utf8_lossy(msg.as_slice()));
+        let msg = msg.as_ref().ok_or(Error::NullPointer)?;
+        let msg_len = msg.len() as u32;
+        self.connection.write_u32(msg_len).await.map_err(Error::MessageWrite)?;
+        self.connection.write_all(msg.as_slice()).await.map_err(Error::MessageWrite)
+    }
+
+    pub async fn read_msg(&mut self) -> Result<Option<Message>, Error> {
+        let msg_len = match self.connection.read_u32().await {
+            Ok(msg_len) => msg_len as usize,
+            Err(_) => return Ok(None), // Connection closed
+        };
+        let mut buf = ffi::new_buffer(msg_len);
+        self.connection
+            .read_exact(buf.as_mut().ok_or(Error::NullPointer)?.as_mut_slice())
+            .await
+            .map_err(Error::MessageRead)?;
+        log::debug!("New message decoded: {}", String::from_utf8_lossy(buf.as_slice()));
+        Ok(Some(Message {
+            peer_id: self.connection.peer_id,
+            content: buf,
+        }))
+    }
+
+    pub async fn shutdown(&mut self) {
+        log::debug!("Shutting down connection");
+        self.connection
+            .shutdown()
+            .await
+            .unwrap_or_else(|e| log::error!("Connection shutdown failed: {e:?}"));
+    }
+
+    pub fn into_msg_stream(self) -> impl Stream<Item = Message> + Unpin {
+        Box::pin(stream::unfold(self, |mut codec| async move {
+            match codec.read_msg().await {
+                Ok(Some(msg)) => return Some((msg, codec)),
+                Err(e) => log::error!("Error reading message: {e:?}"),
+                _ => {}
+            }
+            codec.shutdown().await;
+            None
+        }))
+    }
+}
+
+// This struct is responsible for handling outbound messages going to a single peer.
+// It initiates new connections if needed and forwards received messages.
+struct OutboundPeerHandler {
+    msg_receiver: Fuse<ReceiverStream<MsgContent>>,
+    connector: P2PConnector,
+    peer_id: PeerId,
+}
+
+impl OutboundPeerHandler {
+    // Spawn a new handler running in the background and return a channel for communication
+    pub fn spawn(connector: P2PConnector, peer_id: PeerId) -> mpsc::Sender<MsgContent> {
+        let (sender, receiver) = mpsc::channel(1024);
+        let handler = Self::new(receiver, connector, peer_id);
+        tokio::spawn(handler.run());
+        sender
+    }
+
+    pub fn new(
+        msg_receiver: mpsc::Receiver<MsgContent>,
+        connector: P2PConnector,
+        peer_id: PeerId,
+    ) -> Self {
+        Self {
+            msg_receiver: ReceiverStream::new(msg_receiver).fuse(),
+            connector,
+            peer_id,
+        }
+    }
+
+    pub async fn run(mut self) {
+        let peer_id = self.peer_id;
+        log::debug!("Handler for peer {peer_id} starting");
+        let mut codec = match self.connector.request_connection(peer_id).await {
+            Ok(conn) => MessageIO::new(conn),
+            Err(e) => return log::error!("Failed to connect to peer {peer_id}: {e:?}"),
+        }; // TODO: Retry connecting (?)
+
+        while !self.msg_receiver.is_terminated() {
+            let msg = self.msg_receiver.select_next_some().await;
+            codec
+                .write_msg(msg)
+                .await
+                .unwrap_or_else(|e| log::error!("Writing message failed: {e:?}"));
+            // TODO: Re-connect on error (?)
+        }
+        codec.shutdown().await
+    }
+}
+
+// This struct is responsible for routing outbound messages to the appropriate OutboundPeerHandler
+pub struct Router {
+    msg_receiver: Fuse<ReceiverStream<Message>>,
+    peer_channels: HashMap<PeerId, mpsc::Sender<MsgContent>>, // TODO: Limit the number of these (?)
+    connector: P2PConnector,
+}
+
+impl Router {
+    // Spawn a new router running in the background and return a channel for communication
+    pub fn spawn(connector: P2PConnector) -> mpsc::Sender<Message> {
+        log::debug!("Spawning outbound message router");
+        let (sender, receiver) = mpsc::channel(1024);
+        let router = Self::new(receiver, connector);
+        tokio::spawn(router.run());
+        sender
+    }
+
+    pub fn new(msg_receiver: mpsc::Receiver<Message>, connector: P2PConnector) -> Self {
+        Self {
+            msg_receiver: ReceiverStream::new(msg_receiver).fuse(),
+            peer_channels: Default::default(),
+            connector,
+        }
+    }
+
+    pub async fn run(mut self) {
+        while !self.msg_receiver.is_terminated() {
+            let msg = self.msg_receiver.select_next_some().await;
+            self.handle_message(msg).await;
+        }
+    }
+
+    async fn handle_message(&mut self, msg: Message) {
+        let Message { peer_id, content } = msg;
+        log::debug!("Routing message to peer {peer_id}");
+        // Get existing peer handler or spawn a new one, and send the message to it
+        self.peer_channels
+            .entry(peer_id)
+            .or_insert_with(|| OutboundPeerHandler::spawn(self.connector.clone(), peer_id))
+            .send(content)
+            .await
+            .unwrap_or_else(|e| log::error!("Sending message error: {e:?}"));
+    }
+}
+
+// Transform a stream of incoming connections into a stream of incoming messages.
+pub fn read_messages<T>(incoming_conns: T) -> impl Stream<Item = Message>
+where
+    T: Stream<Item = Result<P2PConnection, Error>> + Send + 'static,
+{
+    // TODO: Introduce a limit of concurrently handled connections
+    incoming_conns
+        .filter_map(|res| async move {
+            res.map_err(|e| log::error!("Incoming connection error: {e:?}")).ok()
+        })
+        .flat_map_unordered(None, |conn| MessageIO::new(conn).into_msg_stream())
 }
