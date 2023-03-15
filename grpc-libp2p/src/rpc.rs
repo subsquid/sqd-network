@@ -15,17 +15,35 @@ pub mod api {
     tonic::include_proto!("p2p_transport"); // The string specified here must match the proto package name
 }
 
+pub type MsgContent = Vec<u8>;
+
+impl crate::MsgContent for MsgContent {
+    fn new(size: usize) -> Self {
+        vec![0; size]
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.as_slice()
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.as_mut_slice()
+    }
+}
+
+type Message = crate::Message<MsgContent>;
+
 pub struct P2PTransportServer {
     peer_id: String,
     msg_receiver: Arc<Mutex<BoxStream<'static, Result<api::Message, Status>>>>,
-    msg_sender: mpsc::Sender<crate::Message>,
+    msg_sender: mpsc::Sender<Message>,
 }
 
 impl P2PTransportServer {
     pub fn new(
         peer_id: PeerId,
-        msg_receiver: mpsc::Receiver<crate::Message>,
-        msg_sender: mpsc::Sender<crate::Message>,
+        msg_receiver: mpsc::Receiver<Message>,
+        msg_sender: mpsc::Sender<Message>,
     ) -> Self {
         let msg_receiver = Arc::new(Mutex::new(
             ReceiverStream::new(msg_receiver).map(|msg| Ok(msg.into())).boxed(),
@@ -54,27 +72,21 @@ impl Stream for MsgStream {
     }
 }
 
-impl From<crate::Message> for api::Message {
-    fn from(msg: crate::Message) -> Self {
+impl From<Message> for api::Message {
+    fn from(msg: Message) -> Self {
         let peer_id = msg.peer_id.to_string();
-        let content = msg.content.as_slice().to_vec();
+        let content = msg.content;
         api::Message { peer_id, content }
     }
 }
 
-impl TryFrom<api::Message> for crate::Message {
+impl TryFrom<api::Message> for Message {
     type Error = ParseError;
 
     fn try_from(msg: api::Message) -> Result<Self, Self::Error> {
         let peer_id = msg.peer_id.parse()?;
-        let mut content = crate::ffi::new_buffer(msg.content.len());
-        // FIXME: Unnecessary memory copy. P2PTransport should be more generic
-        content
-            .as_mut()
-            .unwrap()
-            .as_mut_slice()
-            .clone_from_slice(msg.content.as_slice());
-        Ok(crate::Message { peer_id, content })
+        let content = msg.content;
+        Ok(Message { peer_id, content })
     }
 }
 
@@ -118,8 +130,8 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
 
 pub async fn run_server(
     local_peer_id: PeerId,
-    msg_receiver: mpsc::Receiver<crate::Message>,
-    msg_sender: mpsc::Sender<crate::Message>,
+    msg_receiver: mpsc::Receiver<Message>,
+    msg_sender: mpsc::Sender<Message>,
 ) -> anyhow::Result<()> {
     log::info!("Running gRPC server");
     let server = P2PTransportServer::new(local_peer_id, msg_receiver, msg_sender);

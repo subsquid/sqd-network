@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use bimap::BiHashMap;
-use std::{collections::HashMap, fmt::Debug, time::Duration};
+use std::{collections::HashMap, fmt::Debug, marker::PhantomData, time::Duration};
 
 use futures::{
     stream::{Fuse, StreamExt},
@@ -38,19 +38,19 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{ffi, Error, Message, MsgContent};
+use crate::{Error, Message, MsgContent};
 
 pub const GRPC_PROTOCOL: &[u8] = b"/grpc/0.0.1";
 pub const SUBSQUID_PROTOCOL: &[u8] = b"/subsquid/0.0.1";
 
 #[derive(NetworkBehaviour)]
-struct WorkerBehaviour {
+struct Behaviour<T: MsgContent> {
     identify: identify::Behaviour,
     kademlia: Kademlia<MemoryStore>,
     // autonat: autonat::Behaviour,
     relay: RelayClient,
     dcutr: dcutr::behaviour::Behaviour,
-    request: RequestResponse<MessageCodec>,
+    request: RequestResponse<MessageCodec<T>>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,13 +62,30 @@ impl ProtocolName for WorkerProtocol {
     }
 }
 
-#[derive(Debug, Clone)]
-struct MessageCodec();
+struct MessageCodec<T: MsgContent> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: MsgContent> Default for MessageCodec<T> {
+    fn default() -> Self {
+        Self {
+            _phantom: Default::default(),
+        }
+    }
+}
+
+impl<T: MsgContent> Clone for MessageCodec<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: MsgContent> Copy for MessageCodec<T> {}
 
 #[async_trait]
-impl RequestResponseCodec for MessageCodec {
+impl<M: MsgContent> RequestResponseCodec for MessageCodec<M> {
     type Protocol = WorkerProtocol;
-    type Request = MsgContent;
+    type Request = M;
     type Response = ();
 
     async fn read_request<T>(
@@ -83,14 +100,10 @@ impl RequestResponseCodec for MessageCodec {
         io.read_exact(&mut buf).await?;
         let msg_len = usize::from_be_bytes(buf);
 
-        let mut buf = ffi::new_buffer(msg_len);
-        let buf_slice = buf
-            .as_mut()
-            .expect("Newly created buffer should never be a null pointer")
-            .as_mut_slice();
-        io.read_exact(buf_slice).await?;
-        log::debug!("New message decoded: {}", String::from_utf8_lossy(buf.as_slice()));
-        Ok(buf)
+        let mut msg = M::new(msg_len);
+        io.read_exact(msg.as_mut_slice()).await?;
+        log::debug!("New message decoded: {}", String::from_utf8_lossy(msg.as_slice()));
+        Ok(msg)
     }
 
     async fn read_response<T>(
@@ -113,10 +126,11 @@ impl RequestResponseCodec for MessageCodec {
     where
         T: futures::AsyncWrite + Unpin + Send,
     {
-        log::debug!("New message to encode: {}", String::from_utf8_lossy(req.as_slice()));
+        let req = req.as_slice();
+        log::debug!("New message to encode: {}", String::from_utf8_lossy(req));
         let msg_len = req.len().to_be_bytes();
         io.write_all(&msg_len).await?;
-        io.write_all(req.as_slice()).await
+        io.write_all(req).await
     }
 
     async fn write_response<T>(
@@ -178,13 +192,13 @@ impl P2PTransportBuilder {
         self.bootstrap = bootstrap;
     }
 
-    fn build_swarm(keypair: Keypair) -> Swarm<WorkerBehaviour> {
+    fn build_swarm<T: MsgContent>(keypair: Keypair) -> Swarm<Behaviour<T>> {
         let local_peer_id = PeerId::from(keypair.public());
         log::info!("Local peer ID: {local_peer_id}");
 
         let protocol = std::str::from_utf8(SUBSQUID_PROTOCOL).unwrap().to_string();
         let (relay_transport, relay) = RelayClient::new_transport_and_behaviour(local_peer_id);
-        let behaviour = WorkerBehaviour {
+        let behaviour = Behaviour {
             relay,
             identify: identify::Behaviour::new(
                 identify::Config::new(protocol, keypair.public())
@@ -198,7 +212,7 @@ impl P2PTransportBuilder {
             ),
             dcutr: Default::default(),
             request: RequestResponse::new(
-                MessageCodec(),
+                MessageCodec::default(),
                 vec![(WorkerProtocol(), ProtocolSupport::Full)],
                 Default::default(),
             ),
@@ -216,7 +230,7 @@ impl P2PTransportBuilder {
         Swarm::with_tokio_executor(transport, behaviour, local_peer_id)
     }
 
-    async fn wait_for_listening(swarm: &mut Swarm<WorkerBehaviour>) {
+    async fn wait_for_listening<T: MsgContent>(swarm: &mut Swarm<Behaviour<T>>) {
         // There is no easy way to wait for *all* listen addresses to be ready (e.g. counting
         // events doesn't work, because 0.0.0.0 addr will generate as many events, as there are
         // available network interfaces). Assuming 1 second should be enough in most cases.
@@ -233,32 +247,32 @@ impl P2PTransportBuilder {
         .await;
     }
 
-    async fn wait_for_first_connection(swarm: &mut Swarm<WorkerBehaviour>) {
+    async fn wait_for_first_connection<T: MsgContent>(swarm: &mut Swarm<Behaviour<T>>) {
         loop {
             match swarm.next().await.unwrap() {
                 SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                     log::info!("Connection established with {peer_id}");
                     break;
                 }
-                SwarmEvent::Behaviour(WorkerBehaviourEvent::Kademlia(_)) => {}
+                SwarmEvent::Behaviour(BehaviourEvent::Kademlia(_)) => {}
                 e => log::warn!("Unexpected swarm event: {e:?}"),
             }
         }
     }
 
-    async fn wait_for_identify(swarm: &mut Swarm<WorkerBehaviour>) {
+    async fn wait_for_identify<T: MsgContent>(swarm: &mut Swarm<Behaviour<T>>) {
         let mut received = false;
         let mut sent = false;
         while !(received && sent) {
             match swarm.next().await.unwrap() {
-                SwarmEvent::Behaviour(WorkerBehaviourEvent::Identify(identify::Event::Sent {
+                SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Sent {
                     ..
                 })) => {
                     sent = true;
                 }
-                SwarmEvent::Behaviour(WorkerBehaviourEvent::Identify(
-                    identify::Event::Received { .. },
-                )) => {
+                SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
+                    ..
+                })) => {
                     received = true;
                 }
                 event => log::debug!("{:?}", event),
@@ -266,7 +280,9 @@ impl P2PTransportBuilder {
         }
     }
 
-    pub async fn run(self) -> Result<(mpsc::Receiver<Message>, mpsc::Sender<Message>), Error> {
+    pub async fn run<T: MsgContent>(
+        self,
+    ) -> Result<(mpsc::Receiver<Message<T>>, mpsc::Sender<Message<T>>), Error> {
         let mut swarm = Self::build_swarm(self.keypair);
 
         // If relay node not specified explicitly, use first boot node (TODO: random boot node?)
@@ -314,19 +330,19 @@ impl P2PTransportBuilder {
     }
 }
 
-struct P2PTransport {
-    inbound_msg_sender: mpsc::Sender<Message>,
-    outbound_msg_receiver: Fuse<ReceiverStream<Message>>,
+struct P2PTransport<T: MsgContent> {
+    inbound_msg_sender: mpsc::Sender<Message<T>>,
+    outbound_msg_receiver: Fuse<ReceiverStream<Message<T>>>,
     pending_queries: BiHashMap<PeerId, QueryId>,
-    pending_messages: HashMap<PeerId, Vec<MsgContent>>,
-    swarm: Swarm<WorkerBehaviour>,
+    pending_messages: HashMap<PeerId, Vec<T>>,
+    swarm: Swarm<Behaviour<T>>,
 }
 
-impl P2PTransport {
+impl<T: MsgContent> P2PTransport<T> {
     pub fn new(
-        inbound_msg_sender: mpsc::Sender<Message>,
-        outbound_msg_receiver: mpsc::Receiver<Message>,
-        swarm: Swarm<WorkerBehaviour>,
+        inbound_msg_sender: mpsc::Sender<Message<T>>,
+        outbound_msg_receiver: mpsc::Receiver<Message<T>>,
+        swarm: Swarm<Behaviour<T>>,
     ) -> Self {
         Self {
             inbound_msg_sender,
@@ -355,12 +371,12 @@ impl P2PTransport {
             || !self.swarm.behaviour_mut().addresses_of_peer(peer_id).is_empty()
     }
 
-    fn send_msg(&mut self, peer_id: &PeerId, content: MsgContent) {
+    fn send_msg(&mut self, peer_id: &PeerId, content: T) {
         log::debug!("Sending message to peer {peer_id}");
         self.swarm.behaviour_mut().request.send_request(peer_id, content);
     }
 
-    fn handle_outbound_msg(&mut self, msg: Message) {
+    fn handle_outbound_msg(&mut self, msg: Message<T>) {
         log::debug!("Handling outbound msg: {msg:?}");
         let Message { peer_id, content } = msg;
         // Send the message right away if possible.
@@ -387,17 +403,17 @@ impl P2PTransport {
 
     async fn handle_swarm_event<E: Debug>(
         &mut self,
-        event: SwarmEvent<WorkerBehaviourEvent, E>,
+        event: SwarmEvent<BehaviourEvent<T>, E>,
     ) -> Result<(), Error> {
         log::debug!("P2PTransport handling swarm event: {event:?}");
         match event {
-            SwarmEvent::Behaviour(WorkerBehaviourEvent::Request(event)) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Request(event)) => {
                 self.handle_request_event(event).await
             }
-            SwarmEvent::Behaviour(WorkerBehaviourEvent::Identify(event)) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => {
                 self.handle_identify_event(event)
             }
-            SwarmEvent::Behaviour(WorkerBehaviourEvent::Kademlia(event)) => {
+            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
                 self.handle_kademlia_event(event)
             }
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
@@ -410,7 +426,7 @@ impl P2PTransport {
 
     async fn handle_request_event(
         &mut self,
-        event: RequestResponseEvent<MsgContent, ()>,
+        event: RequestResponseEvent<T, ()>,
     ) -> Result<(), Error> {
         log::debug!("Request-Response event received: {event:?}");
         let (peer_id, content, channel) = match event {

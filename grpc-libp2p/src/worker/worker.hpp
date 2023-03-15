@@ -2,7 +2,7 @@
 #include <memory>
 #include <vector>
 #include "grpc-libp2p/sql-archives/worker/src/rust_binding.hpp"
-#include "grpc-libp2p/src/lib.rs.h"
+#include "grpc-libp2p/src/worker.rs.h"
 #include "rust/cxx.h"
 
 

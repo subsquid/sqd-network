@@ -3,7 +3,7 @@ use libp2p::{identity::Keypair, Multiaddr, PeerId};
 use simple_logger::SimpleLogger;
 use std::str::FromStr;
 
-use grpc_libp2p::{rpc::run_server, run_worker, transport::P2PTransportBuilder};
+use grpc_libp2p::{rpc, transport::P2PTransportBuilder, worker};
 
 #[derive(Parser)]
 #[command(version, author)]
@@ -92,11 +92,16 @@ async fn main() -> anyhow::Result<()> {
     }
     transport_builder.boot_nodes(cli.boot_nodes.into_iter().map(|node| (node.0, node.1)));
     transport_builder.bootstrap(cli.bootstrap);
-    let (msg_receiver, msg_sender) = transport_builder.run().await?;
 
     match cli.mode {
-        Mode::Worker => run_worker(msg_receiver, msg_sender, cli.send_messages).await,
-        Mode::Grpc => run_server(local_peer_id, msg_receiver, msg_sender).await?,
+        Mode::Worker => {
+            let (msg_receiver, msg_sender) = transport_builder.run().await?;
+            worker::run_worker(msg_receiver, msg_sender, cli.send_messages).await
+        }
+        Mode::Grpc => {
+            let (msg_receiver, msg_sender) = transport_builder.run().await?;
+            rpc::run_server(local_peer_id, msg_receiver, msg_sender).await?
+        }
     }
 
     Ok(())

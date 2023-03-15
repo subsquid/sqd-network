@@ -7,7 +7,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rustc-link-lib=RustBinding");
     println!("cargo:rerun-if-changed=sql-archives/worker");
 
-    cxx_build::bridge("src/lib.rs")
+    cxx_build::bridge("src/worker.rs")
         .file("src/worker/worker.cpp")
         .flag_if_supported("-std=c++20")
         .compile("worker");
