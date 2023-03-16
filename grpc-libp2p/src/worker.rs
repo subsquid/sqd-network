@@ -1,5 +1,6 @@
 use cxx::{let_cxx_string, CxxString, CxxVector, UniquePtr};
 use futures::{stream::FusedStream, StreamExt};
+use libp2p::PeerId;
 use std::ops::Deref;
 
 use tokio::sync::mpsc;
@@ -47,17 +48,20 @@ impl From<mpsc::Sender<Message>> for Box<P2PSender> {
 }
 
 pub async fn run_worker(
+    local_peer_id: PeerId,
     msg_receiver: mpsc::Receiver<Message>,
     msg_sender: mpsc::Sender<Message>,
     config: String,
 ) {
+    let_cxx_string!(peer_id = local_peer_id.to_string());
+
     let sender = ffi::wrap_sender(msg_sender.into());
 
     let mut worker = ffi::new_worker();
     let_cxx_string!(config = config);
     worker.as_mut().unwrap().configure(&config);
 
-    let mut handler = worker.as_mut().unwrap().start(sender);
+    let mut handler = worker.as_mut().unwrap().start(sender, &peer_id);
     let mut inbound_messages = ReceiverStream::new(msg_receiver).fuse();
     while !inbound_messages.is_terminated() {
         let Message { peer_id, content } = inbound_messages.select_next_some().await;
@@ -100,6 +104,7 @@ pub mod ffi {
         fn start(
             self: Pin<&mut Worker>,
             sender: UniquePtr<MessageSender>,
+            peer_id: &CxxString,
         ) -> UniquePtr<MessageReceiver>;
         fn stop(self: Pin<&mut Worker>);
 

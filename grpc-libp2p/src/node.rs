@@ -3,7 +3,11 @@ use libp2p::{identity::Keypair, Multiaddr, PeerId};
 use simple_logger::SimpleLogger;
 use std::str::FromStr;
 
-use grpc_libp2p::{rpc, transport::P2PTransportBuilder, worker};
+#[cfg(feature = "rpc")]
+use grpc_libp2p::rpc;
+use grpc_libp2p::transport::P2PTransportBuilder;
+#[cfg(feature = "worker")]
+use grpc_libp2p::worker;
 
 #[derive(Parser)]
 #[command(version, author)]
@@ -36,7 +40,7 @@ struct Cli {
 #[derive(Debug, Clone)]
 enum Mode {
     Worker,
-    Grpc,
+    Rpc,
 }
 
 impl FromStr for Mode {
@@ -45,7 +49,7 @@ impl FromStr for Mode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "worker" => Ok(Self::Worker),
-            "grpc" => Ok(Self::Grpc),
+            "rpc" => Ok(Self::Rpc),
             _ => Err("Invalid mode"),
         }
     }
@@ -80,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     let keypair = Keypair::generate_ed25519();
     let local_peer_id = keypair.public().to_peer_id();
+    log::info!("Local peer ID: {local_peer_id}");
 
     // Prepare transport
     let mut transport_builder = P2PTransportBuilder::from_keypair(keypair);
@@ -94,15 +99,21 @@ async fn main() -> anyhow::Result<()> {
     transport_builder.bootstrap(cli.bootstrap);
 
     match cli.mode {
+        #[cfg(feature = "worker")]
         Mode::Worker => {
             let (msg_receiver, msg_sender) = transport_builder.run().await?;
-            worker::run_worker(msg_receiver, msg_sender, cli.send_messages).await
+            worker::run_worker(local_peer_id, msg_receiver, msg_sender, cli.send_messages).await;
+            Ok(())
         }
-        Mode::Grpc => {
+        #[cfg(feature = "rpc")]
+        Mode::Rpc => {
             let (msg_receiver, msg_sender) = transport_builder.run().await?;
-            rpc::run_server(local_peer_id, msg_receiver, msg_sender).await?
+            rpc::run_server(local_peer_id, msg_receiver, msg_sender).await?;
+            Ok(())
         }
+        #[allow(unreachable_patterns)]
+        _ => anyhow::bail!(
+            "Unsupported mode. Did you enable the appropriate feature during compilation?"
+        ),
     }
-
-    Ok(())
 }

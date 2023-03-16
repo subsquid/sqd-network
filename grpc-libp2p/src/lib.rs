@@ -6,8 +6,10 @@ use libp2p::{
 };
 use std::fmt::Debug;
 
+#[cfg(feature = "rpc")]
 pub mod rpc;
 pub mod transport;
+#[cfg(feature = "worker")]
 pub mod worker;
 
 #[derive(thiserror::Error, Debug)]

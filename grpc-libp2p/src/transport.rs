@@ -194,7 +194,6 @@ impl P2PTransportBuilder {
 
     fn build_swarm<T: MsgContent>(keypair: Keypair) -> Swarm<Behaviour<T>> {
         let local_peer_id = PeerId::from(keypair.public());
-        log::info!("Local peer ID: {local_peer_id}");
 
         let protocol = std::str::from_utf8(SUBSQUID_PROTOCOL).unwrap().to_string();
         let (relay_transport, relay) = RelayClient::new_transport_and_behaviour(local_peer_id);

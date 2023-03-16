@@ -12,12 +12,29 @@ RUN apt install -y -V libarrow-dataset-dev
 RUN apt install -y -V openjdk-17-jdk-headless
 RUN apt install -y -V protobuf-compiler
 RUN apt install -y -V cmake
-RUN rustup toolchain install nightly-2023-02-01
-
-WORKDIR /usr/src/myapp
+WORKDIR /usr/src
 COPY . .
-RUN cargo +nightly-2023-02-01 install --path .
 
-FROM debian:bookworm-slim
-COPY --from=builder /usr/local/cargo/bin/bootnode /usr/local/bin/bootnode
+FROM builder as bootnode-builder
+
+RUN cargo build --release --bin bootnode
+
+FROM debian:bookworm-slim as bootnode
+COPY --from=bootnode-builder /usr/src/target/release/bootnode /usr/local/bin/bootnode
 CMD ["bootnode"]
+
+FROM builder as worker-builder
+
+RUN cargo build --release --features worker --bin node
+
+FROM debian:bookworm-slim as worker
+COPY --from=worker-builder /usr/src/target/release/node /usr/local/bin/node
+CMD ["node"]
+
+FROM builder as rpc-node-builder
+
+RUN cargo build --release --features rpc --bin node
+
+FROM debian:bookworm-slim as rpc-node
+COPY --from=rpc-node-builder /usr/src/target/release/node /usr/local/bin/node
+CMD ["node"]
