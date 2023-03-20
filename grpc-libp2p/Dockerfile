@@ -1,4 +1,4 @@
-FROM rust:1.67-bookworm as builder
+FROM ubuntu:22.04 as builder
 
 RUN apt update
 RUN apt install -y -V build-essential cmake gdb clang-format \
@@ -12,6 +12,9 @@ RUN apt install -y -V libarrow-dataset-dev
 RUN apt install -y -V openjdk-17-jdk-headless
 RUN apt install -y -V protobuf-compiler
 RUN apt install -y -V cmake
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain 1.67.0 -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 WORKDIR /usr/src
 COPY . .
 
