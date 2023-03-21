@@ -137,7 +137,7 @@ pub async fn run_server(
     let server = P2PTransportServer::new(local_peer_id, msg_receiver, msg_sender);
     Server::builder()
         .add_service(api::p2p_transport_server::P2pTransportServer::new(server))
-        .serve("127.0.0.1:50051".to_socket_addrs().unwrap().next().unwrap())
+        .serve("0.0.0.0:50051".to_socket_addrs().unwrap().next().unwrap())
         .await?;
     Ok(())
 }

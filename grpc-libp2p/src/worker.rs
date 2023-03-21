@@ -37,7 +37,10 @@ impl P2PSender {
     pub fn send_message(&mut self, peer_id: &CxxString, msg: MsgContent) {
         log::debug!("Sending message to peer {peer_id}");
         let message = Message::new(peer_id, msg);
-        self.0.blocking_send(message).unwrap();
+        // FIXME: blocking_send fails for echo worker because it's called from
+        //        the same thread as onMessageReceived (i.e. in async context)
+        // self.0.blocking_send(message).unwrap();
+        self.0.try_send(message).unwrap();
     }
 }
 

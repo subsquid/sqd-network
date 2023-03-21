@@ -1,7 +1,10 @@
 use clap::Parser;
-use libp2p::{identity::Keypair, Multiaddr, PeerId};
+use libp2p::{
+    identity::{ed25519, Keypair},
+    Multiaddr, PeerId,
+};
 use simple_logger::SimpleLogger;
-use std::str::FromStr;
+use std::{fs, path::PathBuf, str::FromStr};
 
 #[cfg(feature = "rpc")]
 use grpc_libp2p::rpc;
@@ -26,13 +29,10 @@ struct Cli {
         help = "Connect to relay. If not specified, one of the boot nodes is used."
     )]
     relay: Option<String>,
-    #[arg(
-        long,
-        help = "Bootstrap kademlia. Required for non-bootnodes to be discoverable."
-    )]
+    #[arg(long, help = "Bootstrap kademlia. Makes node discoverable.")]
     bootstrap: bool,
-    #[arg(short, long, help = "Send messages to given peer", default_value = "")]
-    send_messages: String,
+    #[arg(short, long, help = "File with encoded network key")]
+    key: Option<PathBuf>,
     #[arg(short, long, help = "Mode of operation ('worker' or 'grpc')")]
     mode: Mode,
 }
@@ -77,12 +77,32 @@ impl FromStr for BootNode {
     }
 }
 
+fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
+    let path = match path {
+        Some(path) => path,
+        None => return Ok(Keypair::generate_ed25519()),
+    };
+    if path.is_file() {
+        log::info!("Reading key from {}", path.display());
+        let mut content = fs::read(&path)?;
+        let keypair = ed25519::Keypair::decode(content.as_mut_slice())?;
+        Ok(Keypair::Ed25519(keypair))
+    } else if path.exists() {
+        anyhow::bail!("Path exists and is not a file")
+    } else {
+        log::info!("Generating new key and saving into {}", path.display());
+        let keypair = ed25519::Keypair::generate();
+        fs::write(&path, keypair.encode())?;
+        Ok(Keypair::Ed25519(keypair))
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
     SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
     let cli = Cli::parse();
-    let keypair = Keypair::generate_ed25519();
+    let keypair = get_keypair(cli.key)?;
     let local_peer_id = keypair.public().to_peer_id();
     log::info!("Local peer ID: {local_peer_id}");
 
@@ -102,7 +122,7 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(feature = "worker")]
         Mode::Worker => {
             let (msg_receiver, msg_sender) = transport_builder.run().await?;
-            worker::run_worker(local_peer_id, msg_receiver, msg_sender, cli.send_messages).await;
+            worker::run_worker(local_peer_id, msg_receiver, msg_sender, "".to_string()).await;
             Ok(())
         }
         #[cfg(feature = "rpc")]

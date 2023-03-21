@@ -11,6 +11,10 @@ path = "src/node.rs"
 name = "bootnode"
 path = "src/bootnode.rs"
 
+[[bin]]
+name = "grpc-client"
+path = "src/grpc-client.rs"
+
 [features]
 rpc = ["prost", "tonic", "tonic-build", "tower"]
 worker = ["cmake", "cxx", "cxx-build"]
