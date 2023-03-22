@@ -11,26 +11,42 @@ path = "src/node.rs"
 name = "bootnode"
 path = "src/bootnode.rs"
 
+[[bin]]
+name = "grpc-client"
+path = "src/grpc-client.rs"
+
+[features]
+rpc = ["prost", "tonic", "tonic-build", "tower"]
+worker = ["cmake", "cxx", "cxx-build"]
+
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
 bimap = "0.6"
 clap = { version = "4", features = ["derive"] }
-cxx = "1"
+
 futures = "0.3"
 libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux", "identify", "kad", "autonat", "relay", "dcutr", "ping", "request-response"] }
 libp2p-swarm-derive = "0.31"
 log = "0.4"
-prost = "0.11"
 simple_logger = "4"
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync"] }
-tokio-stream = "0.1"
+tokio-stream = { version  = "0.1", features = ["sync"] }
 tokio-util = { version = "0.7", features = ["compat", "codec"] }
-tonic = "0.8"
-tower = { version = "0.4", features = ["make"] }
+
+# Worker
+cxx = {version = "1", optional = true }
+
+# RPC
+prost = { version = "0.11", optional = true }
+tonic = { version = "0.8", optional = true }
+tower = { version = "0.4", features = ["make"], optional = true }
 
 [build-dependencies]
-tonic-build = "0.8"
-cmake = "0.1"
-cxx-build = "1"
+# Worker
+cmake = { version = "0.1", optional = true}
+cxx-build = { version =  "1", optional = true}
+
+# RPC
+tonic-build = {version = "0.8", optional = true}

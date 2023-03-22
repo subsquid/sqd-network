@@ -1,11 +1,16 @@
 use clap::Parser;
-use cxx::let_cxx_string;
-use futures::{stream::FusedStream, StreamExt};
-use libp2p::{identity::Keypair, Multiaddr, PeerId};
+use libp2p::{
+    identity::{ed25519, Keypair},
+    Multiaddr, PeerId,
+};
 use simple_logger::SimpleLogger;
-use std::str::FromStr;
+use std::{fs, path::PathBuf, str::FromStr};
 
-use grpc_libp2p::{ffi, transport::P2PTransportBuilder, Message};
+#[cfg(feature = "rpc")]
+use grpc_libp2p::rpc;
+use grpc_libp2p::transport::P2PTransportBuilder;
+#[cfg(feature = "worker")]
+use grpc_libp2p::worker;
 
 #[derive(Parser)]
 #[command(version, author)]
@@ -13,18 +18,41 @@ struct Cli {
     #[arg(
         short,
         long,
-        help = "Listen on given multiaddr (default: /ip4/127.0.0.1/tcp/12345)"
+        help = "Listen on given multiaddr (default: /ip4/0.0.0.0/tcp/0)"
     )]
     listen: Option<Option<String>>,
     #[arg(long, help = "Connect to boot node '<peer_id> <address>'")]
     boot_nodes: Vec<BootNode>,
     #[arg(
+        short,
         long,
-        help = "Bootstrap kademlia. Required for non-bootnodes to be discoverable."
+        help = "Connect to relay. If not specified, one of the boot nodes is used."
     )]
+    relay: Option<String>,
+    #[arg(long, help = "Bootstrap kademlia. Makes node discoverable.")]
     bootstrap: bool,
-    #[arg(short, long, help = "Send messages to given peer", default_value = "")]
-    send_messages: String,
+    #[arg(short, long, help = "File with encoded network key")]
+    key: Option<PathBuf>,
+    #[arg(short, long, help = "Mode of operation ('worker' or 'grpc')")]
+    mode: Mode,
+}
+
+#[derive(Debug, Clone)]
+enum Mode {
+    Worker,
+    Rpc,
+}
+
+impl FromStr for Mode {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "worker" => Ok(Self::Worker),
+            "rpc" => Ok(Self::Rpc),
+            _ => Err("Invalid mode"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -49,35 +77,63 @@ impl FromStr for BootNode {
     }
 }
 
+fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
+    let path = match path {
+        Some(path) => path,
+        None => return Ok(Keypair::generate_ed25519()),
+    };
+    if path.is_file() {
+        log::info!("Reading key from {}", path.display());
+        let mut content = fs::read(&path)?;
+        let keypair = ed25519::Keypair::decode(content.as_mut_slice())?;
+        Ok(Keypair::Ed25519(keypair))
+    } else if path.exists() {
+        anyhow::bail!("Path exists and is not a file")
+    } else {
+        log::info!("Generating new key and saving into {}", path.display());
+        let keypair = ed25519::Keypair::generate();
+        fs::write(&path, keypair.encode())?;
+        Ok(Keypair::Ed25519(keypair))
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
     SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
     let cli = Cli::parse();
-    let keypair = Keypair::generate_ed25519();
+    let keypair = get_keypair(cli.key)?;
+    let local_peer_id = keypair.public().to_peer_id();
+    log::info!("Local peer ID: {local_peer_id}");
 
     // Prepare transport
     let mut transport_builder = P2PTransportBuilder::from_keypair(keypair);
     if let Some(listen_addr) = cli.listen {
-        let listen_addr = listen_addr.unwrap_or("/ip4/127.0.0.1/tcp/12345".to_string()).parse()?;
+        let listen_addr = listen_addr.unwrap_or("/ip4/0.0.0.0/tcp/0".to_string()).parse()?;
         transport_builder.listen_on(std::iter::once(listen_addr));
+    }
+    if let Some(relay_addr) = cli.relay {
+        transport_builder.relay(relay_addr.parse()?);
     }
     transport_builder.boot_nodes(cli.boot_nodes.into_iter().map(|node| (node.0, node.1)));
     transport_builder.bootstrap(cli.bootstrap);
-    let (mut inbound_messages, sender) = transport_builder.run().await?;
 
-    let sender = ffi::wrap_sender(sender.into());
-
-    let mut worker = ffi::new_worker();
-    let_cxx_string!(config = cli.send_messages);
-    worker.as_mut().unwrap().configure(&config);
-
-    let mut handler = worker.as_mut().unwrap().start(sender);
-    while !inbound_messages.is_terminated() {
-        let Message { peer_id, content } = inbound_messages.select_next_some().await;
-        let_cxx_string!(peer_id = peer_id.to_base58());
-        handler.as_mut().unwrap().on_message_received(&peer_id, content);
+    match cli.mode {
+        #[cfg(feature = "worker")]
+        Mode::Worker => {
+            let (msg_receiver, msg_sender) = transport_builder.run().await?;
+            worker::run_worker(local_peer_id, msg_receiver, msg_sender, "".to_string()).await;
+            Ok(())
+        }
+        #[cfg(feature = "rpc")]
+        Mode::Rpc => {
+            let (msg_receiver, msg_sender) = transport_builder.run().await?;
+            rpc::run_server(local_peer_id, msg_receiver, msg_sender).await?;
+            Ok(())
+        }
+        #[allow(unreachable_patterns)]
+        _ => anyhow::bail!(
+            "Unsupported mode. Did you enable the appropriate feature during compilation?"
+        ),
     }
-
-    Ok(())
 }

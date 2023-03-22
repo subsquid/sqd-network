@@ -1,0 +1,20 @@
+syntax = "proto3";
+package p2p_transport;
+
+service P2PTransport {
+  rpc LocalPeerId(Empty) returns (PeerId);
+  rpc GetMessages(Empty) returns (stream Message);
+  rpc SendMessage(Message) returns (Empty);
+}
+
+message Empty {}
+
+message PeerId {
+  string peer_id = 1;
+}
+
+message Message {
+  string peer_id = 1;
+  bytes content = 2;
+}
+
