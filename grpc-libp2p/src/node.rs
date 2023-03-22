@@ -21,7 +21,7 @@ struct Cli {
         help = "Listen on given multiaddr (default: /ip4/0.0.0.0/tcp/0)"
     )]
     listen: Option<Option<String>>,
-    #[arg(long, help = "Connect to boot node '<peer_id> <address>'")]
+    #[arg(long, help = "Connect to boot node '<peer_id> <address>'.")]
     boot_nodes: Vec<BootNode>,
     #[arg(
         short,
@@ -29,11 +29,11 @@ struct Cli {
         help = "Connect to relay. If not specified, one of the boot nodes is used."
     )]
     relay: Option<String>,
-    #[arg(long, help = "Bootstrap kademlia. Makes node discoverable.")]
+    #[arg(long, help = "Bootstrap kademlia. Makes node discoverable by others.")]
     bootstrap: bool,
-    #[arg(short, long, help = "File with encoded network key")]
+    #[arg(short, long, help = "Load key from file or generate and save to file.")]
     key: Option<PathBuf>,
-    #[arg(short, long, help = "Mode of operation ('worker' or 'grpc')")]
+    #[arg(short, long, help = "Mode of operation ('worker' or 'rpc')")]
     mode: Mode,
 }
 
