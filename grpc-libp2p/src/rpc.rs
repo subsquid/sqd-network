@@ -15,23 +15,7 @@ pub mod api {
     tonic::include_proto!("p2p_transport"); // The string specified here must match the proto package name
 }
 
-pub type MsgContent = Vec<u8>;
-
-impl crate::MsgContent for MsgContent {
-    fn new(size: usize) -> Self {
-        vec![0; size]
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        self.as_slice()
-    }
-
-    fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.as_mut_slice()
-    }
-}
-
-type Message = crate::Message<MsgContent>;
+type Message = crate::Message<Vec<u8>>;
 
 pub struct P2PTransportServer {
     peer_id: String,

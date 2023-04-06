@@ -2,13 +2,17 @@ use libp2p::{
     kad::{BootstrapError, NoKnownPeers},
     request_response::{InboundFailure, OutboundFailure},
     swarm::DialError,
-    PeerId, TransportError,
+    TransportError,
 };
-use std::fmt::Debug;
 
+pub use libp2p::PeerId;
+pub use message::{Message, MsgContent};
+
+mod message;
 #[cfg(feature = "rpc")]
 pub mod rpc;
 pub mod transport;
+pub mod util;
 #[cfg(feature = "worker")]
 pub mod worker;
 
@@ -54,16 +58,4 @@ impl From<&DialError> for Error {
     fn from(err: &DialError) -> Self {
         Self::Dial(format!("{err:?}"))
     }
-}
-
-pub trait MsgContent: Sized + Send + Debug + 'static {
-    fn new(size: usize) -> Self;
-    fn as_slice(&self) -> &[u8];
-    fn as_mut_slice(&mut self) -> &mut [u8];
-}
-
-#[derive(Debug)]
-pub struct Message<T: MsgContent> {
-    pub peer_id: PeerId,
-    pub content: T,
 }

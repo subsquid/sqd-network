@@ -38,7 +38,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{Error, Message, MsgContent};
+use crate::{util::BootNode, Error, Message, MsgContent};
 
 pub const GRPC_PROTOCOL: &[u8] = b"/grpc/0.0.1";
 pub const SUBSQUID_PROTOCOL: &[u8] = b"/subsquid/0.0.1";
@@ -149,7 +149,7 @@ impl<M: MsgContent> RequestResponseCodec for MessageCodec<M> {
 pub struct P2PTransportBuilder {
     keypair: Keypair,
     listen_addrs: Vec<Multiaddr>,
-    boot_nodes: Vec<(PeerId, Multiaddr)>,
+    boot_nodes: Vec<BootNode>,
     relay: Option<Multiaddr>,
     bootstrap: bool,
 }
@@ -180,7 +180,7 @@ impl P2PTransportBuilder {
         self.listen_addrs.extend(addrs.into_iter())
     }
 
-    pub fn boot_nodes<I: IntoIterator<Item = (PeerId, Multiaddr)>>(&mut self, nodes: I) {
+    pub fn boot_nodes<I: IntoIterator<Item = BootNode>>(&mut self, nodes: I) {
         self.boot_nodes.extend(nodes.into_iter())
     }
 
@@ -282,13 +282,14 @@ impl P2PTransportBuilder {
     pub async fn run<T: MsgContent>(
         self,
     ) -> Result<(mpsc::Receiver<Message<T>>, mpsc::Sender<Message<T>>), Error> {
+        log::info!("Local peer ID: {}", self.keypair.public().to_peer_id());
         let mut swarm = Self::build_swarm(self.keypair);
 
         // If relay node not specified explicitly, use first boot node (TODO: random boot node?)
         let relay = self.relay.or_else(|| {
             self.boot_nodes
                 .first()
-                .map(|(peer_id, addr)| addr.clone().with(Protocol::P2p((*peer_id).into())))
+                .map(|node| node.address.clone().with(Protocol::P2p((node.peer_id).into())))
         });
 
         // Listen on provided addresses
@@ -299,10 +300,10 @@ impl P2PTransportBuilder {
 
         // Connect to boot nodes
         if !self.boot_nodes.is_empty() {
-            for (peer_id, addr) in self.boot_nodes {
-                log::info!("Connecting to boot node {peer_id} at {addr}");
-                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
-                swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![addr]).build())?;
+            for BootNode { peer_id, address } in self.boot_nodes {
+                log::info!("Connecting to boot node {peer_id} at {address}");
+                swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
+                swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
             }
             Self::wait_for_first_connection(&mut swarm).await;
         }

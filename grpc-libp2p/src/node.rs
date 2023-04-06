@@ -1,16 +1,15 @@
 use clap::Parser;
-use libp2p::{
-    identity::{ed25519, Keypair},
-    Multiaddr, PeerId,
-};
 use simple_logger::SimpleLogger;
-use std::{fs, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
 #[cfg(feature = "rpc")]
 use grpc_libp2p::rpc;
-use grpc_libp2p::transport::P2PTransportBuilder;
 #[cfg(feature = "worker")]
 use grpc_libp2p::worker;
+use grpc_libp2p::{
+    transport::P2PTransportBuilder,
+    util::{get_keypair, BootNode},
+};
 
 #[derive(Parser)]
 #[command(version, author)]
@@ -55,54 +54,12 @@ impl FromStr for Mode {
     }
 }
 
-#[derive(Debug, Clone)]
-struct BootNode(PeerId, Multiaddr);
-
-impl FromStr for BootNode {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.split_whitespace();
-        let peer_id = parts
-            .next()
-            .ok_or("Boot node peer ID missing")?
-            .parse()
-            .map_err(|_| "Invalid peer ID")?;
-        let address = parts
-            .next()
-            .ok_or("Boot node address missing")?
-            .parse()
-            .map_err(|_| "Invalid address")?;
-        Ok(Self(peer_id, address))
-    }
-}
-
-fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
-    let path = match path {
-        Some(path) => path,
-        None => return Ok(Keypair::generate_ed25519()),
-    };
-    if path.is_file() {
-        log::info!("Reading key from {}", path.display());
-        let mut content = fs::read(&path)?;
-        let keypair = ed25519::Keypair::decode(content.as_mut_slice())?;
-        Ok(Keypair::Ed25519(keypair))
-    } else if path.exists() {
-        anyhow::bail!("Path exists and is not a file")
-    } else {
-        log::info!("Generating new key and saving into {}", path.display());
-        let keypair = ed25519::Keypair::generate();
-        fs::write(&path, keypair.encode())?;
-        Ok(Keypair::Ed25519(keypair))
-    }
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
     SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
     let cli = Cli::parse();
-    let keypair = get_keypair(cli.key)?;
+    let keypair = get_keypair(cli.key).await?;
     let local_peer_id = keypair.public().to_peer_id();
     log::info!("Local peer ID: {local_peer_id}");
 
@@ -115,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(relay_addr) = cli.relay {
         transport_builder.relay(relay_addr.parse()?);
     }
-    transport_builder.boot_nodes(cli.boot_nodes.into_iter().map(|node| (node.0, node.1)));
+    transport_builder.boot_nodes(cli.boot_nodes);
     transport_builder.bootstrap(cli.bootstrap);
 
     match cli.mode {
