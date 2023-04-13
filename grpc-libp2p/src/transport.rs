@@ -25,7 +25,7 @@ use libp2p::{
         ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseEvent,
         RequestResponseMessage,
     },
-    swarm::{dial_opts::DialOpts, NetworkBehaviour, SwarmEvent},
+    swarm::{dial_opts::DialOpts, NetworkBehaviour as NB, SwarmEvent},
     tcp,
     yamux::YamuxConfig,
     Multiaddr,
