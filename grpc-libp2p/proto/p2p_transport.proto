@@ -5,6 +5,7 @@ service P2PTransport {
   rpc LocalPeerId(Empty) returns (PeerId);
   rpc GetMessages(Empty) returns (stream Message);
   rpc SendMessage(Message) returns (Empty);
+  rpc ToggleSubscription(Subscription) returns (Empty);
 }
 
 message Empty {}
@@ -14,7 +15,14 @@ message PeerId {
 }
 
 message Message {
-  string peer_id = 1;
-  bytes content = 2;
+  // None for outgoing broadcast messages, Some for others
+  optional string peer_id = 1;
+  // None for direct messages, Some for broadcast messages
+  optional string topic = 2;
+  bytes content = 3;
 }
 
+message Subscription {
+  string topic = 1;
+  bool subscribed = 2;
+}

@@ -1,6 +1,7 @@
 use futures::{stream::BoxStream, Stream, StreamExt};
 use libp2p::{core::ParseError, PeerId};
 use std::{
+    fmt::Display,
     net::ToSocketAddrs,
     ops::DerefMut,
     pin::Pin,
@@ -21,6 +22,7 @@ pub struct P2PTransportServer {
     peer_id: String,
     msg_receiver: Arc<Mutex<BoxStream<'static, Result<api::Message, Status>>>>,
     msg_sender: mpsc::Sender<Message>,
+    subscription_sender: mpsc::Sender<(String, bool)>,
 }
 
 impl P2PTransportServer {
@@ -28,6 +30,7 @@ impl P2PTransportServer {
         peer_id: PeerId,
         msg_receiver: mpsc::Receiver<Message>,
         msg_sender: mpsc::Sender<Message>,
+        subscription_sender: mpsc::Sender<(String, bool)>,
     ) -> Self {
         let msg_receiver = Arc::new(Mutex::new(
             ReceiverStream::new(msg_receiver).map(|msg| Ok(msg.into())).boxed(),
@@ -36,6 +39,7 @@ impl P2PTransportServer {
             peer_id: peer_id.to_string(),
             msg_receiver,
             msg_sender,
+            subscription_sender,
         }
     }
 }
@@ -58,9 +62,11 @@ impl Stream for MsgStream {
 
 impl From<Message> for api::Message {
     fn from(msg: Message) -> Self {
-        let peer_id = msg.peer_id.to_string();
-        let content = msg.content;
-        api::Message { peer_id, content }
+        api::Message {
+            peer_id: msg.peer_id.map(|x| x.to_string()),
+            content: msg.content,
+            topic: msg.topic,
+        }
     }
 }
 
@@ -68,9 +74,15 @@ impl TryFrom<api::Message> for Message {
     type Error = ParseError;
 
     fn try_from(msg: api::Message) -> Result<Self, Self::Error> {
-        let peer_id = msg.peer_id.parse()?;
-        let content = msg.content;
-        Ok(Message { peer_id, content })
+        let peer_id = match msg.peer_id {
+            Some(peer_id) => Some(peer_id.parse()?),
+            None => None,
+        };
+        Ok(Message {
+            peer_id,
+            topic: msg.topic,
+            content: msg.content,
+        })
     }
 }
 
@@ -110,18 +122,32 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
             Err(e) => Err(Status::internal(e.to_string())),
         }
     }
+
+    async fn toggle_subscription(
+        &self,
+        request: Request<api::Subscription>,
+    ) -> Result<Response<api::Empty>, Status> {
+        let api::Subscription { topic, subscribed } = request.into_inner();
+        match self.subscription_sender.send((topic, subscribed)).await {
+            Ok(_) => Ok(Response::new(api::Empty {})),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
+    }
 }
 
-pub async fn run_server(
+pub async fn run_server<T: ToSocketAddrs + Display>(
     local_peer_id: PeerId,
+    listen_addr: T,
     msg_receiver: mpsc::Receiver<Message>,
     msg_sender: mpsc::Sender<Message>,
+    subscription_sender: mpsc::Sender<(String, bool)>,
 ) -> anyhow::Result<()> {
-    log::info!("Running gRPC server");
-    let server = P2PTransportServer::new(local_peer_id, msg_receiver, msg_sender);
+    log::info!("Running gRPC server on address(es): {listen_addr}");
+    let server =
+        P2PTransportServer::new(local_peer_id, msg_receiver, msg_sender, subscription_sender);
     Server::builder()
         .add_service(api::p2p_transport_server::P2pTransportServer::new(server))
-        .serve("0.0.0.0:50051".to_socket_addrs().unwrap().next().unwrap())
+        .serve(listen_addr.to_socket_addrs().unwrap().next().unwrap())
         .await?;
     Ok(())
 }

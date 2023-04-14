@@ -7,11 +7,13 @@ use futures::{
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
 
+use libp2p::gossipsub::{GossipsubEvent, TopicHash};
 use libp2p::{
     // autonat,
     core::{transport::OrTransport, upgrade, ProtocolName},
     dcutr,
     dns::TokioDnsConfig,
+    gossipsub::{Gossipsub, MessageAuthenticity, Sha256Topic},
     identify,
     identity::Keypair,
     kad::{
@@ -40,6 +42,10 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{util::BootNode, Error, Message, MsgContent};
 
+type InboundMsgReceiver<T> = mpsc::Receiver<Message<T>>;
+type OutboundMsgSender<T> = mpsc::Sender<Message<T>>;
+type SubscriptionSender = mpsc::Sender<(String, bool)>;
+
 pub const GRPC_PROTOCOL: &[u8] = b"/grpc/0.0.1";
 pub const SUBSQUID_PROTOCOL: &[u8] = b"/subsquid/0.0.1";
 
@@ -51,6 +57,7 @@ struct Behaviour<T: MsgContent> {
     relay: RelayClient,
     dcutr: dcutr::behaviour::Behaviour,
     request: RequestResponse<MessageCodec<T>>,
+    gossipsub: Gossipsub,
 }
 
 #[derive(Debug, Clone)]
@@ -197,6 +204,16 @@ impl P2PTransportBuilder {
 
         let protocol = std::str::from_utf8(SUBSQUID_PROTOCOL).unwrap().to_string();
         let (relay_transport, relay) = RelayClient::new_transport_and_behaviour(local_peer_id);
+
+        let tcp_transport =
+            TokioDnsConfig::system(tcp::tokio::Transport::new(tcp::Config::new().nodelay(true)))
+                .unwrap();
+        let transport = OrTransport::new(relay_transport, tcp_transport)
+            .upgrade(upgrade::Version::V1)
+            .authenticate(noise::NoiseAuthenticated::xx(&keypair).unwrap())
+            .multiplex(YamuxConfig::default())
+            .boxed();
+
         let behaviour = Behaviour {
             relay,
             identify: identify::Behaviour::new(
@@ -215,16 +232,9 @@ impl P2PTransportBuilder {
                 vec![(WorkerProtocol(), ProtocolSupport::Full)],
                 Default::default(),
             ),
+            gossipsub: Gossipsub::new(MessageAuthenticity::Signed(keypair), Default::default())
+                .unwrap(),
         };
-
-        let tcp_transport =
-            TokioDnsConfig::system(tcp::tokio::Transport::new(tcp::Config::new().nodelay(true)))
-                .unwrap();
-        let transport = OrTransport::new(relay_transport, tcp_transport)
-            .upgrade(upgrade::Version::V1)
-            .authenticate(noise::NoiseAuthenticated::xx(&keypair).unwrap())
-            .multiplex(YamuxConfig::default())
-            .boxed();
 
         Swarm::with_tokio_executor(transport, behaviour, local_peer_id)
     }
@@ -281,7 +291,7 @@ impl P2PTransportBuilder {
 
     pub async fn run<T: MsgContent>(
         self,
-    ) -> Result<(mpsc::Receiver<Message<T>>, mpsc::Sender<Message<T>>), Error> {
+    ) -> Result<(InboundMsgReceiver<T>, OutboundMsgSender<T>, SubscriptionSender), Error> {
         log::info!("Local peer ID: {}", self.keypair.public().to_peer_id());
         let mut swarm = Self::build_swarm(self.keypair);
 
@@ -323,18 +333,21 @@ impl P2PTransportBuilder {
 
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         let (outbound_tx, outbound_rx) = mpsc::channel(1024);
-        let transport = P2PTransport::new(inbound_tx, outbound_rx, swarm);
+        let (subscription_tx, subscription_rx) = mpsc::channel(1024);
+        let transport = P2PTransport::new(inbound_tx, outbound_rx, subscription_rx, swarm);
 
         tokio::task::spawn(transport.run());
-        Ok((inbound_rx, outbound_tx))
+        Ok((inbound_rx, outbound_tx, subscription_tx))
     }
 }
 
 struct P2PTransport<T: MsgContent> {
     inbound_msg_sender: mpsc::Sender<Message<T>>,
     outbound_msg_receiver: Fuse<ReceiverStream<Message<T>>>,
+    subscription_receiver: Fuse<ReceiverStream<(String, bool)>>,
     pending_queries: BiHashMap<PeerId, QueryId>,
     pending_messages: HashMap<PeerId, Vec<T>>,
+    subscribed_topics: HashMap<TopicHash, String>,
     swarm: Swarm<Behaviour<T>>,
 }
 
@@ -342,13 +355,16 @@ impl<T: MsgContent> P2PTransport<T> {
     pub fn new(
         inbound_msg_sender: mpsc::Sender<Message<T>>,
         outbound_msg_receiver: mpsc::Receiver<Message<T>>,
+        subscription_receiver: mpsc::Receiver<(String, bool)>,
         swarm: Swarm<Behaviour<T>>,
     ) -> Self {
         Self {
             inbound_msg_sender,
             outbound_msg_receiver: ReceiverStream::new(outbound_msg_receiver).fuse(),
+            subscription_receiver: ReceiverStream::new(subscription_receiver).fuse(),
             pending_queries: BiHashMap::new(),
             pending_messages: HashMap::new(),
+            subscribed_topics: HashMap::new(),
             swarm,
         }
     }
@@ -361,7 +377,9 @@ impl<T: MsgContent> P2PTransport<T> {
                     log::error!("Error handling swarm event: {e}")
                 }),
                 msg = self.outbound_msg_receiver.select_next_some() =>
-                    self.handle_outbound_msg(msg)
+                    self.handle_outbound_msg(msg),
+                (topic, subscribe) = self.subscription_receiver.select_next_some() =>
+                    self.handle_subscription(topic, subscribe),
             }
         }
     }
@@ -376,9 +394,61 @@ impl<T: MsgContent> P2PTransport<T> {
         self.swarm.behaviour_mut().request.send_request(peer_id, content);
     }
 
+    fn broadcast_msg(&mut self, topic: String, content: T) {
+        log::debug!("Broadcasting message with topic '{topic}'");
+        let topic = Sha256Topic::new(topic).hash();
+        let data = content.to_vec();
+        if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+            log::error!("Error broadcasting message: {e:?}");
+        }
+    }
+
+    fn subscribe(&mut self, topic: String) {
+        log::debug!("Subscribing to topic {topic}");
+        let topic = Sha256Topic::new(topic);
+        let topic_hash = topic.hash();
+        if !self.subscribed_topics.contains_key(&topic_hash) {
+            if let Err(e) = self.swarm.behaviour_mut().gossipsub.subscribe(&topic) {
+                return log::error!("Subscribing failed: {e:?}");
+            }
+            self.subscribed_topics.insert(topic_hash, topic.to_string());
+        }
+    }
+
+    fn unsubscribe(&mut self, topic: String) {
+        log::debug!("Unsubscribing from topic {topic}");
+        let topic = Sha256Topic::new(topic);
+        let topic_hash = topic.hash();
+        if self.subscribed_topics.remove(&topic_hash).is_some() {
+            if let Err(e) = self.swarm.behaviour_mut().gossipsub.unsubscribe(&topic) {
+                log::error!("Unsubscribing failed: {e:?}");
+            }
+        }
+    }
+
+    fn handle_subscription(&mut self, topic: String, subscribe: bool) {
+        if subscribe {
+            self.subscribe(topic)
+        } else {
+            self.unsubscribe(topic)
+        }
+    }
+
     fn handle_outbound_msg(&mut self, msg: Message<T>) {
         log::debug!("Handling outbound msg: {msg:?}");
-        let Message { peer_id, content } = msg;
+        let Message {
+            peer_id,
+            content,
+            topic,
+        } = msg;
+        if let Some(topic) = topic {
+            return self.broadcast_msg(topic, content);
+        }
+        let peer_id = match peer_id {
+            Some(peer_id) => peer_id,
+            None => return log::error!("Cannot send message with neither peer_id nor topic"),
+        };
+
         // Send the message right away if possible.
         if self.can_send_msg(&peer_id) {
             self.send_msg(&peer_id, content)
@@ -407,6 +477,9 @@ impl<T: MsgContent> P2PTransport<T> {
     ) -> Result<(), Error> {
         log::debug!("P2PTransport handling swarm event: {event:?}");
         match event {
+            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
+                self.handle_gossipsub_event(event).await
+            }
             SwarmEvent::Behaviour(BehaviourEvent::Request(event)) => {
                 self.handle_request_event(event).await
             }
@@ -422,6 +495,30 @@ impl<T: MsgContent> P2PTransport<T> {
             }
             _ => Ok(()),
         }
+    }
+
+    async fn handle_gossipsub_event(&mut self, event: GossipsubEvent) -> Result<(), Error> {
+        log::debug!("Gossipsub event received: {event:?}");
+        let msg = match event {
+            GossipsubEvent::Message { message, .. } => message,
+            _ => return Ok(()),
+        };
+        if msg.source.is_none() {
+            return Ok(log::warn!("Dropping anonymous message"));
+        };
+        let topic = match self.subscribed_topics.get(&msg.topic) {
+            Some(topic) => topic,
+            None => return Ok(log::warn!("Dropping message with unknown topic")),
+        };
+        let msg = Message {
+            peer_id: msg.source,
+            content: T::from_vec(msg.data),
+            topic: Some(topic.to_owned()),
+        };
+        self.inbound_msg_sender
+            .send(msg)
+            .await
+            .map_err(|_| Error::Unexpected("Inbound messages sink closed"))
     }
 
     async fn handle_request_event(
@@ -441,9 +538,13 @@ impl<T: MsgContent> P2PTransport<T> {
             RequestResponseEvent::OutboundFailure { error, .. } => return Err(error)?,
             _ => return Ok(()),
         };
-        // Sending response just to emitting errors
+        // Send response just to prevent errors being emitted
         let _ = self.swarm.behaviour_mut().request.send_response(channel, ());
-        let message = Message { peer_id, content };
+        let message = Message {
+            peer_id: Some(peer_id),
+            topic: None,
+            content,
+        };
         self.inbound_msg_sender
             .send(message)
             .await

@@ -34,6 +34,12 @@ struct Cli {
     key: Option<PathBuf>,
     #[arg(short, long, help = "Mode of operation ('worker' or 'rpc')")]
     mode: Mode,
+    #[arg(
+        long,
+        default_value = "0.0.0.0:50051",
+        help = "Listen address for the rpc server"
+    )]
+    rpc_listen_addr: String,
 }
 
 #[derive(Debug, Clone)]
@@ -78,14 +84,21 @@ async fn main() -> anyhow::Result<()> {
     match cli.mode {
         #[cfg(feature = "worker")]
         Mode::Worker => {
-            let (msg_receiver, msg_sender) = transport_builder.run().await?;
+            let (msg_receiver, msg_sender, _) = transport_builder.run().await?;
             worker::run_worker(local_peer_id, msg_receiver, msg_sender, "".to_string()).await;
             Ok(())
         }
         #[cfg(feature = "rpc")]
         Mode::Rpc => {
-            let (msg_receiver, msg_sender) = transport_builder.run().await?;
-            rpc::run_server(local_peer_id, msg_receiver, msg_sender).await?;
+            let (msg_receiver, msg_sender, subscription_sender) = transport_builder.run().await?;
+            rpc::run_server(
+                local_peer_id,
+                cli.rpc_listen_addr,
+                msg_receiver,
+                msg_sender,
+                subscription_sender,
+            )
+            .await?;
             Ok(())
         }
         #[allow(unreachable_patterns)]
