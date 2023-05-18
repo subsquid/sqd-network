@@ -2502,33 +2502,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "grpc-libp2p"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bimap",
- "clap",
- "cmake",
- "cxx",
- "cxx-build",
- "futures",
- "libp2p",
- "libp2p-swarm-derive",
- "log",
- "prost",
- "simple_logger",
- "snow",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tonic",
- "tonic-build",
- "tower",
-]
-
-[[package]]
 name = "h2"
 version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8028,6 +8001,33 @@ dependencies = [
  "tokio",
  "url",
  "webrtc-util",
+]
+
+[[package]]
+name = "subsquid-network-transport"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bimap",
+ "clap",
+ "cmake",
+ "cxx",
+ "cxx-build",
+ "futures",
+ "libp2p",
+ "libp2p-swarm-derive",
+ "log",
+ "prost",
+ "simple_logger",
+ "snow",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tonic",
+ "tonic-build",
+ "tower",
 ]
 
 [[package]]

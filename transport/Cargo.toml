@@ -1,5 +1,5 @@
 [package]
-name = "grpc-libp2p"
+name = "subsquid-network-transport"
 version = "0.1.0"
 edition = "2021"
 

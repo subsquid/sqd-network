@@ -3,10 +3,10 @@ use simple_logger::SimpleLogger;
 use std::{path::PathBuf, str::FromStr};
 
 #[cfg(feature = "rpc")]
-use grpc_libp2p::rpc;
+use subsquid_network_transport::rpc;
 #[cfg(feature = "worker")]
-use grpc_libp2p::worker;
-use grpc_libp2p::{
+use subsquid_network_transport::worker;
+use subsquid_network_transport::{
     transport::P2PTransportBuilder,
     util::{get_keypair, BootNode},
 };

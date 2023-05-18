@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::time::Instant;
 use tokio_stream::StreamExt;
 
-use grpc_libp2p::rpc::api::{
+use subsquid_network_transport::rpc::api::{
     p2p_transport_client::P2pTransportClient, Empty, Message, Subscription,
 };
 

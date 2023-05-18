@@ -1,2 +1,2 @@
 [workspace]
-members = ["crates/*", "grpc-libp2p"]
+members = ["crates/*", "transport"]
