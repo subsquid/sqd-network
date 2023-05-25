@@ -1,7 +1,7 @@
+use clap::Parser;
 use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
     identify,
-    identity::Keypair,
     kad::{store::MemoryStore, Kademlia},
     relay::v2::relay::Relay,
     swarm::SwarmEvent,
@@ -9,7 +9,22 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use simple_logger::SimpleLogger;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
+use subsquid_network_transport::util::get_keypair;
+
+#[derive(Parser)]
+#[command(version, author)]
+struct Cli {
+    #[arg(
+        short,
+        long,
+        help = "Listening address",
+        default_value = "/ip4/0.0.0.0/tcp/0"
+    )]
+    listen_addr: String,
+    #[arg(short, long, help = "Load key from file or generate and save to file.")]
+    key: Option<PathBuf>,
+}
 
 #[derive(NetworkBehaviour)]
 struct Behaviour {
@@ -23,9 +38,9 @@ struct Behaviour {
 async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
     SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
-    let args: Vec<String> = std::env::args().collect();
-    let listen_addr = args[1].parse()?;
-    let keypair = Keypair::generate_ed25519();
+    let cli = Cli::parse();
+    let listen_addr = cli.listen_addr.parse()?;
+    let keypair = get_keypair(cli.key).await?;
     let local_peer_id = PeerId::from(keypair.public());
     log::info!("Local peer ID: {local_peer_id}");
 
@@ -49,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the swarm
     let mut swarm = Swarm::with_tokio_executor(transport, behaviour, local_peer_id);
+    log::info!("Listening on {listen_addr}");
     swarm.listen_on(listen_addr)?;
     while !swarm.is_terminated() {
         let event = swarm.select_next_some().await;
