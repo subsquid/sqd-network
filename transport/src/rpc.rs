@@ -10,11 +10,15 @@ use std::{
 };
 use tokio::sync::{mpsc, Mutex, OwnedMutexGuard};
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{async_trait, transport::Server, Request, Response, Status};
+use tonic::{
+    async_trait, codec::CompressionEncoding, transport::Server, Request, Response, Status,
+};
 
 pub mod api {
     tonic::include_proto!("p2p_transport"); // The string specified here must match the proto package name
 }
+
+const MAX_MESSAGE_SIZE: usize = 20 * 1024 * 1024; // 20 MiB
 
 type Message = crate::Message<Vec<u8>>;
 
@@ -145,8 +149,13 @@ pub async fn run_server<T: ToSocketAddrs + Display>(
     log::info!("Running gRPC server on address(es): {listen_addr}");
     let server =
         P2PTransportServer::new(local_peer_id, msg_receiver, msg_sender, subscription_sender);
+    let server = api::p2p_transport_server::P2pTransportServer::new(server)
+        .max_decoding_message_size(MAX_MESSAGE_SIZE)
+        .max_encoding_message_size(MAX_MESSAGE_SIZE)
+        .accept_compressed(CompressionEncoding::Gzip)
+        .send_compressed(CompressionEncoding::Gzip);
     Server::builder()
-        .add_service(api::p2p_transport_server::P2pTransportServer::new(server))
+        .add_service(server)
         .serve(listen_addr.to_socket_addrs().unwrap().next().unwrap())
         .await?;
     Ok(())
