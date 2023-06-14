@@ -1,6 +1,7 @@
 use clap::Parser;
 use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
+    gossipsub::{Gossipsub, MessageAuthenticity},
     identify,
     kad::{store::MemoryStore, Kademlia},
     relay::v2::relay::Relay,
@@ -32,6 +33,7 @@ struct Behaviour {
     kademlia: Kademlia<MemoryStore>,
     // autonat: autonat::Behaviour,
     relay: Relay,
+    gossipsub: Gossipsub,
 }
 
 #[tokio::main]
@@ -58,8 +60,9 @@ async fn main() -> anyhow::Result<()> {
         ),
         // autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
         relay: Relay::new(local_peer_id, Default::default()),
+        gossipsub: Gossipsub::new(MessageAuthenticity::Signed(keypair.clone()), Default::default())
+            .unwrap(),
     };
-    // let behaviour = Relay::new(local_peer_id, Default::default());
     let transport = libp2p::tokio_development_transport(keypair)?;
 
     // Start the swarm
