@@ -18,7 +18,8 @@ pub mod api {
     tonic::include_proto!("p2p_transport"); // The string specified here must match the proto package name
 }
 
-const MAX_MESSAGE_SIZE: usize = 20 * 1024 * 1024; // 20 MiB
+// This is the maximum *decompressed* size of the message
+const MAX_MESSAGE_SIZE: usize = 100 * 1024 * 1024; // 100 MiB
 
 type Message = crate::Message<Vec<u8>>;
 
