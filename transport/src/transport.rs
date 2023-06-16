@@ -1,13 +1,17 @@
 use async_trait::async_trait;
 use bimap::BiHashMap;
-use std::{collections::HashMap, fmt::Debug, marker::PhantomData, time::Duration};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    fmt::Debug,
+    marker::PhantomData,
+    time::Duration,
+};
 
 use futures::{
     stream::{Fuse, StreamExt},
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
 
-use libp2p::gossipsub::{GossipsubEvent, TopicHash};
 use libp2p::{
     // autonat,
     core::{transport::OrTransport, upgrade, ProtocolName},
@@ -34,6 +38,10 @@ use libp2p::{
     PeerId,
     Swarm,
     Transport,
+};
+use libp2p::{
+    gossipsub::{GossipsubEvent, TopicHash},
+    request_response::RequestResponseConfig,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 
@@ -214,6 +222,8 @@ impl P2PTransportBuilder {
             .multiplex(YamuxConfig::default())
             .boxed();
 
+        let mut request_config = RequestResponseConfig::default();
+        request_config.set_request_timeout(Duration::from_secs(60));
         let behaviour = Behaviour {
             relay,
             identify: identify::Behaviour::new(
@@ -230,7 +240,7 @@ impl P2PTransportBuilder {
             request: RequestResponse::new(
                 MessageCodec::default(),
                 vec![(WorkerProtocol(), ProtocolSupport::Full)],
-                Default::default(),
+                request_config,
             ),
             gossipsub: Gossipsub::new(MessageAuthenticity::Signed(keypair), Default::default())
                 .unwrap(),
@@ -407,11 +417,11 @@ impl<T: MsgContent> P2PTransport<T> {
         log::debug!("Subscribing to topic {topic}");
         let topic = Sha256Topic::new(topic);
         let topic_hash = topic.hash();
-        if !self.subscribed_topics.contains_key(&topic_hash) {
+        if let Entry::Vacant(e) = self.subscribed_topics.entry(topic_hash) {
             if let Err(e) = self.swarm.behaviour_mut().gossipsub.subscribe(&topic) {
                 return log::error!("Subscribing failed: {e:?}");
             }
-            self.subscribed_topics.insert(topic_hash, topic.to_string());
+            e.insert(topic.to_string());
         }
     }
 
