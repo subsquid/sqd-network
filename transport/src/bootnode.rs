@@ -1,3 +1,5 @@
+use std::{path::PathBuf, time::Duration};
+
 use clap::Parser;
 use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
@@ -10,7 +12,7 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use simple_logger::SimpleLogger;
-use std::{path::PathBuf, time::Duration};
+
 use subsquid_network_transport::util::get_keypair;
 
 #[derive(Parser)]
@@ -19,11 +21,17 @@ struct Cli {
     #[arg(
         short,
         long,
+        env,
         help = "Listening address",
         default_value = "/ip4/0.0.0.0/tcp/0"
     )]
     listen_addr: String,
-    #[arg(short, long, help = "Load key from file or generate and save to file.")]
+    #[arg(
+        short,
+        long,
+        env = "KEY_PATH",
+        help = "Load key from file or generate and save to file."
+    )]
     key: Option<PathBuf>,
 }
 

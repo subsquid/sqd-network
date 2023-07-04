@@ -1,6 +1,7 @@
+use std::{path::PathBuf, str::FromStr};
+
 use clap::Parser;
 use simple_logger::SimpleLogger;
-use std::{path::PathBuf, str::FromStr};
 
 #[cfg(feature = "rpc")]
 use subsquid_network_transport::rpc;
@@ -17,25 +18,42 @@ struct Cli {
     #[arg(
         short,
         long,
+        env = "P2P_LISTEN_ADDR",
         help = "Listen on given multiaddr (default: /ip4/0.0.0.0/tcp/0)"
     )]
     listen: Option<Option<String>>,
-    #[arg(long, help = "Connect to boot node '<peer_id> <address>'.")]
+    #[arg(long, env, help = "Connect to boot node '<peer_id> <address>'.")]
     boot_nodes: Vec<BootNode>,
     #[arg(
         short,
         long,
+        env = "RELAY_ADDR",
         help = "Connect to relay. If not specified, one of the boot nodes is used."
     )]
     relay: Option<String>,
-    #[arg(long, help = "Bootstrap kademlia. Makes node discoverable by others.")]
+    #[arg(
+        long,
+        env,
+        help = "Bootstrap kademlia. Makes node discoverable by others."
+    )]
     bootstrap: bool,
-    #[arg(short, long, help = "Load key from file or generate and save to file.")]
+    #[arg(
+        short,
+        long,
+        env = "KEY_PATH",
+        help = "Load key from file or generate and save to file."
+    )]
     key: Option<PathBuf>,
-    #[arg(short, long, help = "Mode of operation ('worker' or 'rpc')")]
+    #[arg(
+        short,
+        long,
+        default_value = "rpc",
+        help = "Mode of operation ('worker' or 'rpc')"
+    )]
     mode: Mode,
     #[arg(
         long,
+        env,
         default_value = "0.0.0.0:50051",
         help = "Listen address for the rpc server"
     )]
