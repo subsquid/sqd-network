@@ -1,3 +1,4 @@
+pub use libp2p::PeerId;
 use libp2p::{
     kad::{BootstrapError, NoKnownPeers},
     request_response::{InboundFailure, OutboundFailure},
@@ -5,7 +6,6 @@ use libp2p::{
     TransportError,
 };
 
-pub use libp2p::PeerId;
 pub use message::{Message, MsgContent};
 
 mod message;
@@ -44,6 +44,8 @@ pub enum Error {
     Outbound(#[from] OutboundFailure),
     #[error("Query timed out. Could not find peer {0}")]
     QueryTimeout(PeerId),
+    #[error("No available relay")]
+    NoRelay,
     #[error("Unexpected error: {0}")]
     Unexpected(&'static str),
 }

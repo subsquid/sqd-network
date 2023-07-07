@@ -1,6 +1,7 @@
+use std::{path::PathBuf, str::FromStr};
+
 use clap::Parser;
 use simple_logger::SimpleLogger;
-use std::{path::PathBuf, str::FromStr};
 
 #[cfg(feature = "rpc")]
 use subsquid_network_transport::rpc;
@@ -17,25 +18,48 @@ struct Cli {
     #[arg(
         short,
         long,
+        env = "P2P_LISTEN_ADDR",
         help = "Listen on given multiaddr (default: /ip4/0.0.0.0/tcp/0)"
     )]
     listen: Option<Option<String>>,
-    #[arg(long, help = "Connect to boot node '<peer_id> <address>'.")]
-    boot_nodes: Vec<BootNode>,
+    #[arg(
+    long,
+    env,
+    help = "Connect to boot node '<peer_id> <address>'.",
+    value_delimiter = ',',
+    num_args = 1..,
+    )]
+    pub boot_nodes: Vec<BootNode>,
     #[arg(
         short,
         long,
-        help = "Connect to relay. If not specified, one of the boot nodes is used."
+        env = "RELAY",
+        help = "Connect to relay. If address not specified, one of the boot nodes is used."
     )]
-    relay: Option<String>,
-    #[arg(long, help = "Bootstrap kademlia. Makes node discoverable by others.")]
+    relay: Option<Option<String>>,
+    #[arg(
+        long,
+        env,
+        help = "Bootstrap kademlia. Makes node discoverable by others."
+    )]
     bootstrap: bool,
-    #[arg(short, long, help = "Load key from file or generate and save to file.")]
+    #[arg(
+        short,
+        long,
+        env = "KEY_PATH",
+        help = "Load key from file or generate and save to file."
+    )]
     key: Option<PathBuf>,
-    #[arg(short, long, help = "Mode of operation ('worker' or 'rpc')")]
+    #[arg(
+        short,
+        long,
+        default_value = "rpc",
+        help = "Mode of operation ('worker' or 'rpc')"
+    )]
     mode: Mode,
     #[arg(
         long,
+        env,
         default_value = "0.0.0.0:50051",
         help = "Listen address for the rpc server"
     )]
@@ -75,8 +99,10 @@ async fn main() -> anyhow::Result<()> {
         let listen_addr = listen_addr.unwrap_or("/ip4/0.0.0.0/tcp/0".to_string()).parse()?;
         transport_builder.listen_on(std::iter::once(listen_addr));
     }
-    if let Some(relay_addr) = cli.relay {
-        transport_builder.relay(relay_addr.parse()?);
+    match cli.relay {
+        Some(Some(addr)) => transport_builder.relay_addr(addr.parse()?),
+        Some(None) => transport_builder.relay(true),
+        _ => {}
     }
     transport_builder.boot_nodes(cli.boot_nodes);
     transport_builder.bootstrap(cli.bootstrap);
