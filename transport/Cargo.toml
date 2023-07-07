@@ -29,6 +29,7 @@ futures = "0.3"
 libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux", "identify", "kad", "autonat", "relay", "dcutr", "ping", "request-response", "gossipsub"] }
 libp2p-swarm-derive = "0.31"
 log = "0.4"
+rand = "0.8"
 simple_logger = "4"
 snow = "^0.9.1"
 thiserror = "1"

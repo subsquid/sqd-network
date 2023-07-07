@@ -7,13 +7,13 @@ use libp2p::{
     identify,
     kad::{store::MemoryStore, Kademlia},
     relay::v2::relay::Relay,
-    swarm::SwarmEvent,
+    swarm::{dial_opts::DialOpts, SwarmEvent},
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use simple_logger::SimpleLogger;
 
-use subsquid_network_transport::util::get_keypair;
+use subsquid_network_transport::util::{get_keypair, BootNode};
 
 #[derive(Parser)]
 #[command(version, author)]
@@ -33,6 +33,12 @@ struct Cli {
         help = "Load key from file or generate and save to file."
     )]
     key: Option<PathBuf>,
+    #[arg(
+        long,
+        env,
+        help = "Connect to another boot node '<peer_id> <address>'."
+    )]
+    boot_nodes: Vec<BootNode>,
 }
 
 #[derive(NetworkBehaviour)]
@@ -77,6 +83,18 @@ async fn main() -> anyhow::Result<()> {
     let mut swarm = Swarm::with_tokio_executor(transport, behaviour, local_peer_id);
     log::info!("Listening on {listen_addr}");
     swarm.listen_on(listen_addr)?;
+
+    // Connect to other boot nodes
+    for BootNode { peer_id, address } in cli.boot_nodes {
+        log::info!("Connecting to boot node {peer_id} at {address}");
+        swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
+        swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
+    }
+
+    if let Err(_) = swarm.behaviour_mut().kademlia.bootstrap() {
+        log::warn!("No peers connected. Cannot bootstrap kademlia.")
+    }
+
     while !swarm.is_terminated() {
         let event = swarm.select_next_some().await;
         log::debug!("Swarm event: {event:?}");

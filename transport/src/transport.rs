@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-use bimap::BiHashMap;
 use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::Debug,
@@ -7,11 +5,12 @@ use std::{
     time::Duration,
 };
 
+use async_trait::async_trait;
+use bimap::BiHashMap;
 use futures::{
     stream::{Fuse, StreamExt},
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
-
 use libp2p::{
     // autonat,
     core::{transport::OrTransport, upgrade, ProtocolName},
@@ -44,7 +43,7 @@ use libp2p::{
     request_response::RequestResponseConfig,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
-
+use rand::prelude::SliceRandom;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -165,7 +164,8 @@ pub struct P2PTransportBuilder {
     keypair: Keypair,
     listen_addrs: Vec<Multiaddr>,
     boot_nodes: Vec<BootNode>,
-    relay: Option<Multiaddr>,
+    relay_addr: Option<Multiaddr>,
+    relay: bool,
     bootstrap: bool,
 }
 
@@ -186,7 +186,8 @@ impl P2PTransportBuilder {
             keypair,
             listen_addrs: vec![],
             boot_nodes: vec![],
-            relay: None,
+            relay_addr: None,
+            relay: false,
             bootstrap: true,
         }
     }
@@ -199,8 +200,13 @@ impl P2PTransportBuilder {
         self.boot_nodes.extend(nodes.into_iter())
     }
 
-    pub fn relay(&mut self, addr: Multiaddr) {
-        self.relay = Some(addr);
+    pub fn relay_addr(&mut self, addr: Multiaddr) {
+        self.relay_addr = Some(addr);
+        self.relay = true;
+    }
+
+    pub fn relay(&mut self, relay: bool) {
+        self.relay = relay;
     }
 
     pub fn bootstrap(&mut self, bootstrap: bool) {
@@ -305,10 +311,10 @@ impl P2PTransportBuilder {
         log::info!("Local peer ID: {}", self.keypair.public().to_peer_id());
         let mut swarm = Self::build_swarm(self.keypair);
 
-        // If relay node not specified explicitly, use first boot node (TODO: random boot node?)
-        let relay = self.relay.or_else(|| {
+        // If relay node not specified explicitly, use random boot node
+        let relay_addr = self.relay_addr.or_else(|| {
             self.boot_nodes
-                .first()
+                .choose(&mut rand::thread_rng())
                 .map(|node| node.address.clone().with(Protocol::P2p((node.peer_id).into())))
         });
 
@@ -328,11 +334,12 @@ impl P2PTransportBuilder {
             Self::wait_for_first_connection(&mut swarm).await;
         }
 
-        // Listen for relayed connections
-        if let Some(addr) = relay {
+        // Connect to relay and listen for relayed connections
+        if self.relay {
+            let addr = relay_addr.ok_or(Error::NoRelay)?;
             log::info!("Connecting to relay {addr}");
             swarm.dial(addr.clone())?;
-            Self::wait_for_identify(&mut swarm).await; // TODO: Is this really needed?
+            Self::wait_for_identify(&mut swarm).await;
             swarm.listen_on(addr.with(Protocol::P2pCircuit))?;
         }
 
