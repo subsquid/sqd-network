@@ -85,7 +85,8 @@ async fn main() -> anyhow::Result<()> {
     swarm.listen_on(listen_addr)?;
 
     // Connect to other boot nodes
-    for BootNode { peer_id, address } in cli.boot_nodes {
+    let other_nodes: Vec<BootNode> = cli.boot_nodes.iter().filter(|node| node.peer_id != local_peer_id).collect();
+    for BootNode { peer_id, address } in other_nodes {
         log::info!("Connecting to boot node {peer_id} at {address}");
         swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
         swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
