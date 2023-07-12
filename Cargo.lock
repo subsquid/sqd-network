@@ -8007,8 +8007,8 @@ dependencies = [
 name = "subsquid-network-transport"
 version = "0.1.0"
 dependencies = [
- "anyhow",
- "async-trait",
+  "anyhow",
+  "async-trait",
   "bimap",
   "clap",
   "cmake",
