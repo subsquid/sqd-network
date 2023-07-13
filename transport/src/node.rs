@@ -1,4 +1,4 @@
-use std::{path::PathBuf, str::FromStr};
+use std::str::FromStr;
 
 use clap::Parser;
 use simple_logger::SimpleLogger;
@@ -7,29 +7,14 @@ use simple_logger::SimpleLogger;
 use subsquid_network_transport::rpc;
 #[cfg(feature = "worker")]
 use subsquid_network_transport::worker;
-use subsquid_network_transport::{
-    transport::P2PTransportBuilder,
-    util::{get_keypair, BootNode},
-};
+use subsquid_network_transport::{cli::TransportArgs, transport::P2PTransportBuilder};
 
 #[derive(Parser)]
 #[command(version, author)]
 struct Cli {
-    #[arg(
-        short,
-        long,
-        env = "P2P_LISTEN_ADDR",
-        help = "Listen on given multiaddr (default: /ip4/0.0.0.0/tcp/0)"
-    )]
-    listen: Option<Option<String>>,
-    #[arg(
-    long,
-    env,
-    help = "Connect to boot node '<peer_id> <address>'.",
-    value_delimiter = ',',
-    num_args = 1..,
-    )]
-    pub boot_nodes: Vec<BootNode>,
+    #[command(flatten)]
+    transport: TransportArgs,
+
     #[arg(
         short,
         long,
@@ -37,19 +22,7 @@ struct Cli {
         help = "Connect to relay. If address not specified, one of the boot nodes is used."
     )]
     relay: Option<Option<String>>,
-    #[arg(
-        long,
-        env,
-        help = "Bootstrap kademlia. Makes node discoverable by others."
-    )]
-    bootstrap: bool,
-    #[arg(
-        short,
-        long,
-        env = "KEY_PATH",
-        help = "Load key from file or generate and save to file."
-    )]
-    key: Option<PathBuf>,
+
     #[arg(
         short,
         long,
@@ -57,6 +30,7 @@ struct Cli {
         help = "Mode of operation ('worker' or 'rpc')"
     )]
     mode: Mode,
+
     #[arg(
         long,
         env,
@@ -89,23 +63,16 @@ async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
     SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
     let cli = Cli::parse();
-    let keypair = get_keypair(cli.key).await?;
-    let local_peer_id = keypair.public().to_peer_id();
-    log::info!("Local peer ID: {local_peer_id}");
 
     // Prepare transport
-    let mut transport_builder = P2PTransportBuilder::from_keypair(keypair);
-    if let Some(listen_addr) = cli.listen {
-        let listen_addr = listen_addr.unwrap_or("/ip4/0.0.0.0/tcp/0".to_string()).parse()?;
-        transport_builder.listen_on(std::iter::once(listen_addr));
-    }
+    let mut transport_builder = P2PTransportBuilder::from_cli(cli.transport).await?;
     match cli.relay {
         Some(Some(addr)) => transport_builder.relay_addr(addr.parse()?),
         Some(None) => transport_builder.relay(true),
         _ => {}
     }
-    transport_builder.boot_nodes(cli.boot_nodes);
-    transport_builder.bootstrap(cli.bootstrap);
+    let local_peer_id = transport_builder.local_peer_id();
+    log::info!("Local peer ID: {local_peer_id}");
 
     match cli.mode {
         #[cfg(feature = "worker")]

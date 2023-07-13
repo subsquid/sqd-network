@@ -41,13 +41,18 @@ use libp2p::{
 use libp2p::{
     gossipsub::{GossipsubEvent, TopicHash},
     request_response::RequestResponseConfig,
+    swarm::AddressScore,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use rand::prelude::SliceRandom;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{util::BootNode, Error, Message, MsgContent};
+use crate::{
+    cli::{BootNode, TransportArgs},
+    util::get_keypair,
+    Error, Message, MsgContent,
+};
 
 type InboundMsgReceiver<T> = mpsc::Receiver<Message<T>>;
 type OutboundMsgSender<T> = mpsc::Sender<Message<T>>;
@@ -163,6 +168,7 @@ impl<M: MsgContent> RequestResponseCodec for MessageCodec<M> {
 pub struct P2PTransportBuilder {
     keypair: Keypair,
     listen_addrs: Vec<Multiaddr>,
+    public_addrs: Vec<Multiaddr>,
     boot_nodes: Vec<BootNode>,
     relay_addr: Option<Multiaddr>,
     relay: bool,
@@ -185,6 +191,7 @@ impl P2PTransportBuilder {
         Self {
             keypair,
             listen_addrs: vec![],
+            public_addrs: vec![],
             boot_nodes: vec![],
             relay_addr: None,
             relay: false,
@@ -192,8 +199,25 @@ impl P2PTransportBuilder {
         }
     }
 
+    pub async fn from_cli(args: TransportArgs) -> anyhow::Result<Self> {
+        let keypair = get_keypair(args.key).await?;
+        Ok(Self {
+            keypair,
+            listen_addrs: vec![args.p2p_listen_addr],
+            public_addrs: args.p2p_public_addrs,
+            boot_nodes: args.boot_nodes,
+            relay_addr: None,
+            relay: false,
+            bootstrap: args.bootstrap,
+        })
+    }
+
     pub fn listen_on<I: IntoIterator<Item = Multiaddr>>(&mut self, addrs: I) {
         self.listen_addrs.extend(addrs.into_iter())
+    }
+
+    pub fn public_addrs<I: IntoIterator<Item = Multiaddr>>(&mut self, addrs: I) {
+        self.public_addrs.extend(addrs.into_iter())
     }
 
     pub fn boot_nodes<I: IntoIterator<Item = BootNode>>(&mut self, nodes: I) {
@@ -211,6 +235,10 @@ impl P2PTransportBuilder {
 
     pub fn bootstrap(&mut self, bootstrap: bool) {
         self.bootstrap = bootstrap;
+    }
+
+    pub fn local_peer_id(&self) -> PeerId {
+        PeerId::from(self.keypair.public())
     }
 
     fn build_swarm<T: MsgContent>(keypair: Keypair) -> Swarm<Behaviour<T>> {
@@ -323,6 +351,11 @@ impl P2PTransportBuilder {
             swarm.listen_on(addr)?;
         }
         Self::wait_for_listening(&mut swarm).await;
+
+        // Register public addresses
+        for addr in self.public_addrs {
+            swarm.add_external_address(addr, AddressScore::Infinite);
+        }
 
         // Connect to boot nodes
         if !self.boot_nodes.is_empty() {

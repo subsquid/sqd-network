@@ -1,8 +1,5 @@
-use libp2p::{
-    identity::{ed25519, Keypair},
-    Multiaddr, PeerId,
-};
-use std::{path::PathBuf, str::FromStr};
+use libp2p::identity::{ed25519, Keypair};
+use std::path::PathBuf;
 
 /// Load key from file or generate and save to file.
 pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
@@ -26,30 +23,5 @@ pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
             tokio::fs::write(&path, keypair.encode()).await?;
             Ok(Keypair::Ed25519(keypair))
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BootNode {
-    pub peer_id: PeerId,
-    pub address: Multiaddr,
-}
-
-impl FromStr for BootNode {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.split_whitespace();
-        let peer_id = parts
-            .next()
-            .ok_or("Boot node peer ID missing")?
-            .parse()
-            .map_err(|_| "Invalid peer ID")?;
-        let address = parts
-            .next()
-            .ok_or("Boot node address missing")?
-            .parse()
-            .map_err(|_| "Invalid address")?;
-        Ok(Self { peer_id, address })
     }
 }

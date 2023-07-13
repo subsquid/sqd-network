@@ -1,13 +1,14 @@
-pub use libp2p::PeerId;
 use libp2p::{
     kad::{BootstrapError, NoKnownPeers},
     request_response::{InboundFailure, OutboundFailure},
     swarm::DialError,
     TransportError,
 };
+pub use libp2p::{Multiaddr, PeerId};
 
 pub use message::{Message, MsgContent};
 
+pub mod cli;
 mod message;
 #[cfg(feature = "rpc")]
 pub mod rpc;
