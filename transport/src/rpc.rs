@@ -1,5 +1,5 @@
 use futures::{stream::BoxStream, Stream, StreamExt};
-use libp2p::{identity::ParseError, PeerId};
+use libp2p::identity::{Keypair, ParseError};
 use std::{
     fmt::Display,
     net::ToSocketAddrs,
@@ -22,7 +22,7 @@ const MAX_MESSAGE_SIZE: usize = 100 * 1024 * 1024; // 100 MiB
 type Message = crate::Message<Vec<u8>>;
 
 pub struct P2PTransportServer {
-    peer_id: String,
+    keypair: Keypair,
     msg_receiver: Arc<Mutex<BoxStream<'static, Result<api::Message, Status>>>>,
     msg_sender: mpsc::Sender<Message>,
     subscription_sender: mpsc::Sender<api::Subscription>,
@@ -30,7 +30,7 @@ pub struct P2PTransportServer {
 
 impl P2PTransportServer {
     pub fn new(
-        peer_id: PeerId,
+        keypair: Keypair,
         msg_receiver: mpsc::Receiver<Message>,
         msg_sender: mpsc::Sender<Message>,
         subscription_sender: mpsc::Sender<api::Subscription>,
@@ -39,7 +39,7 @@ impl P2PTransportServer {
             ReceiverStream::new(msg_receiver).map(|msg| Ok(msg.into())).boxed(),
         ));
         Self {
-            peer_id: peer_id.to_string(),
+            keypair,
             msg_receiver,
             msg_sender,
             subscription_sender,
@@ -98,7 +98,7 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
         _request: Request<api::Empty>,
     ) -> Result<Response<api::PeerId>, Status> {
         Ok(Response::new(api::PeerId {
-            peer_id: self.peer_id.clone(),
+            peer_id: self.keypair.public().to_peer_id().to_string(),
         }))
     }
 
@@ -136,18 +136,25 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
             Err(e) => Err(Status::internal(e.to_string())),
         }
     }
+
+    async fn sign(&self, request: Request<api::Bytes>) -> Result<Response<api::Bytes>, Status> {
+        let api::Bytes { bytes } = request.into_inner();
+        match self.keypair.sign(&bytes) {
+            Ok(bytes) => Ok(Response::new(api::Bytes { bytes })),
+            Err(e) => Err(Status::internal(e.to_string())),
+        }
+    }
 }
 
 pub async fn run_server<T: ToSocketAddrs + Display>(
-    local_peer_id: PeerId,
+    keypair: Keypair,
     listen_addr: T,
     msg_receiver: mpsc::Receiver<Message>,
     msg_sender: mpsc::Sender<Message>,
     subscription_sender: mpsc::Sender<api::Subscription>,
 ) -> anyhow::Result<()> {
     log::info!("Running gRPC server on address(es): {listen_addr}");
-    let server =
-        P2PTransportServer::new(local_peer_id, msg_receiver, msg_sender, subscription_sender);
+    let server = P2PTransportServer::new(keypair, msg_receiver, msg_sender, subscription_sender);
     let server = api::p2p_transport_server::P2pTransportServer::new(server)
         .max_decoding_message_size(MAX_MESSAGE_SIZE)
         .max_encoding_message_size(MAX_MESSAGE_SIZE);

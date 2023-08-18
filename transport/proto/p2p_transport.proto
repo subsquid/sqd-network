@@ -6,6 +6,7 @@ service P2PTransport {
   rpc GetMessages(Empty) returns (stream Message);
   rpc SendMessage(Message) returns (Empty);
   rpc ToggleSubscription(Subscription) returns (Empty);
+  rpc Sign(Bytes) returns (Bytes);
 }
 
 message Empty {}
@@ -26,4 +27,8 @@ message Subscription {
   string topic = 1;
   bool subscribed = 2;
   bool allow_unordered = 3;
+}
+
+message Bytes {
+  bytes bytes = 1;
 }

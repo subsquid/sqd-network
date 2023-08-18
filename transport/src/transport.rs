@@ -17,7 +17,9 @@ use libp2p::{
     core::{transport::OrTransport, upgrade},
     dcutr,
     dns::TokioDnsConfig,
-    gossipsub::{self, MessageAcceptance, MessageAuthenticity, Sha256Topic, TopicHash},
+    gossipsub::{
+        self, MessageAcceptance, MessageAuthenticity, PublishError, Sha256Topic, TopicHash,
+    },
     identify,
     identity::Keypair,
     kad::{
@@ -230,7 +232,11 @@ impl P2PTransportBuilder {
     }
 
     pub fn local_peer_id(&self) -> PeerId {
-        PeerId::from(self.keypair.public())
+        self.keypair.public().to_peer_id()
+    }
+
+    pub fn keypair(&self) -> Keypair {
+        self.keypair.clone()
     }
 
     fn build_swarm<T: MsgContent>(keypair: Keypair, private_node: bool) -> Swarm<Behaviour<T>> {
@@ -474,7 +480,10 @@ impl<T: MsgContent> P2PTransport<T> {
         let topic = Sha256Topic::new(topic).hash();
         let data = content.to_vec();
         if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
-            log::error!("Error broadcasting message: {e:?}");
+            match e {
+                PublishError::InsufficientPeers => (), // Nobody listening, not an actual error
+                e => log::error!("Error broadcasting message: {e:?}"),
+            }
         }
     }
 
