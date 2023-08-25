@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use clap::Parser;
-use simple_logger::SimpleLogger;
+use env_logger::Env;
 
 #[cfg(feature = "rpc")]
 use subsquid_network_transport::rpc;
@@ -61,7 +61,7 @@ impl FromStr for Mode {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
-    SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
 
     // Prepare transport

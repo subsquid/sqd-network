@@ -25,13 +25,13 @@ anyhow = "1"
 async-trait = "0.1"
 bimap = "0.6"
 clap = { version = "4", features = ["derive", "env"] }
+env_logger = "0.10"
 futures = "0.3"
 futures-core = "0.3"
 libp2p = { version = "0.52", features = ["autonat", "dns", "tcp", "tokio", "websocket", "noise", "yamux", "identify", "kad", "autonat", "relay", "dcutr", "ping", "request-response", "gossipsub"] }
 libp2p-swarm-derive = "0.33"
 log = "0.4"
 rand = "0.8"
-simple_logger = "4"
 snow = "^0.9.1"
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "sync"] }

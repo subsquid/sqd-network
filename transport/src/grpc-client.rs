@@ -1,6 +1,7 @@
-use clap::Parser;
-use simple_logger::SimpleLogger;
 use std::time::Duration;
+
+use clap::Parser;
+use env_logger::Env;
 use tokio::time::Instant;
 use tokio_stream::StreamExt;
 
@@ -25,7 +26,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
 
     let mut client = P2pTransportClient::connect(cli.server_addr).await?;

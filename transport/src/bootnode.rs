@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use clap::Parser;
+use env_logger::Env;
 use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
     autonat,
@@ -12,10 +13,11 @@ use libp2p::{
     PeerId,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
-use simple_logger::SimpleLogger;
-use subsquid_network_transport::cli::{BootNode, TransportArgs};
 
-use subsquid_network_transport::util::{addr_is_reachable, get_keypair};
+use subsquid_network_transport::{
+    cli::{BootNode, TransportArgs},
+    util::{addr_is_reachable, get_keypair},
+};
 
 #[derive(Parser)]
 #[command(version, author)]
@@ -36,7 +38,7 @@ struct Behaviour {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
-    SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let cli = Cli::parse().transport;
     let keypair = get_keypair(cli.key).await?;
     let local_peer_id = PeerId::from(keypair.public());
