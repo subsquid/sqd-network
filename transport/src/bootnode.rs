@@ -14,7 +14,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use simple_logger::SimpleLogger;
 use subsquid_network_transport::cli::{BootNode, TransportArgs};
 
-use subsquid_network_transport::util::get_keypair;
+use subsquid_network_transport::util::{addr_is_reachable, get_keypair};
 
 #[derive(Parser)]
 #[command(version, author)]
@@ -90,9 +90,9 @@ async fn main() -> anyhow::Result<()> {
             info: identify::Info { listen_addrs, .. },
         })) = event
         {
-            for addr in listen_addrs {
+            listen_addrs.into_iter().filter(addr_is_reachable).for_each(|addr| {
                 swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
-            }
+            });
         }
     }
 

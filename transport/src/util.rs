@@ -1,4 +1,8 @@
-use libp2p::identity::{ed25519, Keypair};
+use libp2p::{
+    identity::{ed25519, Keypair},
+    multiaddr::Protocol,
+    Multiaddr,
+};
 use std::path::PathBuf;
 
 /// Load key from file or generate and save to file.
@@ -23,5 +27,15 @@ pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
             tokio::fs::write(&path, keypair.encode()).await?;
             Ok(Keypair::Ed25519(keypair))
         }
+    }
+}
+
+pub fn addr_is_reachable(addr: &Multiaddr) -> bool {
+    match addr.iter().next() {
+        Some(Protocol::Ip4(addr)) => {
+            !(addr.is_loopback() || addr.is_private() || addr.is_link_local())
+        }
+        Some(Protocol::Ip6(addr)) => !addr.is_loopback(),
+        _ => false,
     }
 }

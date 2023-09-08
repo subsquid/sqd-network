@@ -50,7 +50,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
     cli::{BootNode, TransportArgs},
-    util::get_keypair,
+    util::{addr_is_reachable, get_keypair},
     Error, Message, MsgContent,
 };
 
@@ -608,10 +608,9 @@ impl<T: MsgContent> P2PTransport<T> {
             _ => return Ok(()),
         };
         let kademlia = &mut self.swarm.behaviour_mut().kademlia;
-        for address in listen_addrs {
-            // TODO: Filter out private network addresses
-            kademlia.add_address(&peer_id, address);
-        }
+        listen_addrs.into_iter().filter(addr_is_reachable).for_each(|addr| {
+            kademlia.add_address(&peer_id, addr);
+        });
         Ok(())
     }
 
