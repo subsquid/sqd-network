@@ -26,8 +26,9 @@ async-trait = "0.1"
 bimap = "0.6"
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
-libp2p = { version = "0.50", features = ["dns", "tcp", "tokio", "websocket", "noise", "mplex", "yamux", "identify", "kad", "autonat", "relay", "dcutr", "ping", "request-response", "gossipsub"] }
-libp2p-swarm-derive = "0.31"
+futures-core = "0.3"
+libp2p = { version = "0.52", features = ["autonat", "dns", "tcp", "tokio", "websocket", "noise", "yamux", "identify", "kad", "autonat", "relay", "dcutr", "ping", "request-response", "gossipsub"] }
+libp2p-swarm-derive = "0.33"
 log = "0.4"
 rand = "0.8"
 simple_logger = "4"
@@ -41,14 +42,14 @@ tokio-util = { version = "0.7", features = ["compat", "codec"] }
 cxx = {version = "1", optional = true }
 
 # RPC
-prost = { version = "0.11", optional = true }
-tonic = { version = "0.9", features = ["gzip"], optional = true }
+prost = { version = "0.12", optional = true }
+tonic = { version = "0.10", features = ["gzip"], optional = true }
 tower = { version = "0.4", features = ["make"], optional = true }
 
 [build-dependencies]
 # Worker
-cmake = { version = "0.1", optional = true}
-cxx-build = { version =  "1", optional = true}
+cmake = { version = "0.1", optional = true }
+cxx-build = { version =  "1", optional = true }
 
 # RPC
-tonic-build = {version = "0.9", optional = true}
+tonic-build = {version = "0.9", optional = true }

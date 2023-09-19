@@ -1,5 +1,5 @@
 use futures::{stream::BoxStream, Stream, StreamExt};
-use libp2p::{core::ParseError, PeerId};
+use libp2p::{identity::ParseError, PeerId};
 use std::{
     fmt::Display,
     net::ToSocketAddrs,

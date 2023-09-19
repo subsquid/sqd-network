@@ -15,8 +15,8 @@ pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
         Ok(meta) if meta.is_file() => {
             log::info!("Reading key from {}", path.display());
             let mut content = tokio::fs::read(&path).await?;
-            let keypair = ed25519::Keypair::decode(content.as_mut_slice())?;
-            Ok(Keypair::Ed25519(keypair))
+            let keypair = ed25519::Keypair::try_from_bytes(content.as_mut_slice())?;
+            Ok(keypair.try_into()?)
         }
         Ok(_) => {
             anyhow::bail!("Path exists and is not a file")
@@ -24,8 +24,8 @@ pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
         Err(_) => {
             log::info!("Generating new key and saving into {}", path.display());
             let keypair = ed25519::Keypair::generate();
-            tokio::fs::write(&path, keypair.encode()).await?;
-            Ok(Keypair::Ed25519(keypair))
+            tokio::fs::write(&path, keypair.to_bytes()).await?;
+            Ok(keypair.try_into()?)
         }
     }
 }

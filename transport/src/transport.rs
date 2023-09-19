@@ -12,11 +12,12 @@ use futures::{
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
 use libp2p::{
-    // autonat,
-    core::{transport::OrTransport, upgrade, ProtocolName},
+    autonat,
+    autonat::NatStatus,
+    core::{transport::OrTransport, upgrade},
     dcutr,
     dns::TokioDnsConfig,
-    gossipsub::{Gossipsub, MessageAuthenticity, Sha256Topic},
+    gossipsub::{self, MessageAuthenticity, Sha256Topic, TopicHash},
     identify,
     identity::Keypair,
     kad::{
@@ -24,24 +25,12 @@ use libp2p::{
         QueryId, QueryResult,
     },
     multiaddr::Protocol,
-    noise,
-    relay::v2::client::Client as RelayClient,
-    request_response::{
-        ProtocolSupport, RequestResponse, RequestResponseCodec, RequestResponseEvent,
-        RequestResponseMessage,
-    },
-    swarm::{dial_opts::DialOpts, NetworkBehaviour as NB, SwarmEvent},
-    tcp,
-    yamux::YamuxConfig,
-    Multiaddr,
-    PeerId,
-    Swarm,
-    Transport,
-};
-use libp2p::{
-    gossipsub::{GossipsubEvent, TopicHash},
-    request_response::RequestResponseConfig,
-    swarm::AddressScore,
+    noise, relay,
+    relay::client::Behaviour as RelayClient,
+    request_response,
+    request_response::ProtocolSupport,
+    swarm::{dial_opts::DialOpts, SwarmBuilder, SwarmEvent},
+    tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use rand::prelude::SliceRandom;
@@ -58,27 +47,21 @@ type InboundMsgReceiver<T> = mpsc::Receiver<Message<T>>;
 type OutboundMsgSender<T> = mpsc::Sender<Message<T>>;
 type SubscriptionSender = mpsc::Sender<(String, bool)>;
 
-pub const GRPC_PROTOCOL: &[u8] = b"/grpc/0.0.1";
-pub const SUBSQUID_PROTOCOL: &[u8] = b"/subsquid/0.0.1";
+pub const SUBSQUID_PROTOCOL: &str = "/subsquid/0.0.1";
+const WORKER_PROTOCOL: &str = "/subsquid-worker/0.0.1";
 
 #[derive(NetworkBehaviour)]
-struct Behaviour<T: MsgContent> {
+struct Behaviour<T>
+where
+    T: MsgContent,
+{
     identify: identify::Behaviour,
     kademlia: Kademlia<MemoryStore>,
-    // autonat: autonat::Behaviour,
+    autonat: autonat::Behaviour,
     relay: RelayClient,
-    dcutr: dcutr::behaviour::Behaviour,
-    request: RequestResponse<MessageCodec<T>>,
-    gossipsub: Gossipsub,
-}
-
-#[derive(Debug, Clone)]
-struct WorkerProtocol();
-
-impl ProtocolName for WorkerProtocol {
-    fn protocol_name(&self) -> &[u8] {
-        "/subsquid-worker/0.0.1".as_bytes()
-    }
+    dcutr: dcutr::Behaviour,
+    request: request_response::Behaviour<MessageCodec<T>>,
+    gossipsub: gossipsub::Behaviour,
 }
 
 struct MessageCodec<T: MsgContent> {
@@ -102,8 +85,8 @@ impl<T: MsgContent> Clone for MessageCodec<T> {
 impl<T: MsgContent> Copy for MessageCodec<T> {}
 
 #[async_trait]
-impl<M: MsgContent> RequestResponseCodec for MessageCodec<M> {
-    type Protocol = WorkerProtocol;
+impl<M: MsgContent> request_response::Codec for MessageCodec<M> {
+    type Protocol = &'static str;
     type Request = M;
     type Response = ();
 
@@ -173,6 +156,7 @@ pub struct P2PTransportBuilder {
     relay_addr: Option<Multiaddr>,
     relay: bool,
     bootstrap: bool,
+    allow_private: bool,
 }
 
 impl Default for P2PTransportBuilder {
@@ -196,6 +180,7 @@ impl P2PTransportBuilder {
             relay_addr: None,
             relay: false,
             bootstrap: true,
+            allow_private: true,
         }
     }
 
@@ -209,19 +194,20 @@ impl P2PTransportBuilder {
             relay_addr: None,
             relay: false,
             bootstrap: args.bootstrap,
+            allow_private: args.allow_private,
         })
     }
 
     pub fn listen_on<I: IntoIterator<Item = Multiaddr>>(&mut self, addrs: I) {
-        self.listen_addrs.extend(addrs.into_iter())
+        self.listen_addrs.extend(addrs)
     }
 
     pub fn public_addrs<I: IntoIterator<Item = Multiaddr>>(&mut self, addrs: I) {
-        self.public_addrs.extend(addrs.into_iter())
+        self.public_addrs.extend(addrs)
     }
 
     pub fn boot_nodes<I: IntoIterator<Item = BootNode>>(&mut self, nodes: I) {
-        self.boot_nodes.extend(nodes.into_iter())
+        self.boot_nodes.extend(nodes)
     }
 
     pub fn relay_addr(&mut self, addr: Multiaddr) {
@@ -237,6 +223,10 @@ impl P2PTransportBuilder {
         self.bootstrap = bootstrap;
     }
 
+    pub fn allow_private(&mut self, allow: bool) {
+        self.allow_private = allow;
+    }
+
     pub fn local_peer_id(&self) -> PeerId {
         PeerId::from(self.keypair.public())
     }
@@ -244,19 +234,19 @@ impl P2PTransportBuilder {
     fn build_swarm<T: MsgContent>(keypair: Keypair) -> Swarm<Behaviour<T>> {
         let local_peer_id = PeerId::from(keypair.public());
 
-        let protocol = std::str::from_utf8(SUBSQUID_PROTOCOL).unwrap().to_string();
-        let (relay_transport, relay) = RelayClient::new_transport_and_behaviour(local_peer_id);
+        let protocol = SUBSQUID_PROTOCOL.to_string();
+        let (relay_transport, relay) = relay::client::new(local_peer_id);
 
         let tcp_transport =
             TokioDnsConfig::system(tcp::tokio::Transport::new(tcp::Config::new().nodelay(true)))
                 .unwrap();
         let transport = OrTransport::new(relay_transport, tcp_transport)
             .upgrade(upgrade::Version::V1)
-            .authenticate(noise::NoiseAuthenticated::xx(&keypair).unwrap())
-            .multiplex(YamuxConfig::default())
+            .authenticate(noise::Config::new(&keypair).unwrap())
+            .multiplex(yamux::Config::default())
             .boxed();
 
-        let mut request_config = RequestResponseConfig::default();
+        let mut request_config = request_response::Config::default();
         request_config.set_request_timeout(Duration::from_secs(60));
         let behaviour = Behaviour {
             relay,
@@ -270,17 +260,20 @@ impl P2PTransportBuilder {
                 MemoryStore::new(local_peer_id),
                 Default::default(),
             ),
-            dcutr: Default::default(),
-            request: RequestResponse::new(
-                MessageCodec::default(),
-                vec![(WorkerProtocol(), ProtocolSupport::Full)],
+            autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
+            dcutr: dcutr::Behaviour::new(local_peer_id),
+            request: request_response::Behaviour::new(
+                vec![(WORKER_PROTOCOL, ProtocolSupport::Full)],
                 request_config,
             ),
-            gossipsub: Gossipsub::new(MessageAuthenticity::Signed(keypair), Default::default())
-                .unwrap(),
+            gossipsub: gossipsub::Behaviour::new(
+                MessageAuthenticity::Signed(keypair),
+                Default::default(),
+            )
+            .unwrap(),
         };
 
-        Swarm::with_tokio_executor(transport, behaviour, local_peer_id)
+        SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build()
     }
 
     async fn wait_for_listening<T: MsgContent>(swarm: &mut Swarm<Behaviour<T>>) {
@@ -343,7 +336,7 @@ impl P2PTransportBuilder {
         let relay_addr = self.relay_addr.or_else(|| {
             self.boot_nodes
                 .choose(&mut rand::thread_rng())
-                .map(|node| node.address.clone().with(Protocol::P2p((node.peer_id).into())))
+                .map(|node| node.address.clone().with(Protocol::P2p(node.peer_id)))
         });
 
         // Listen on provided addresses
@@ -354,7 +347,7 @@ impl P2PTransportBuilder {
 
         // Register public addresses
         for addr in self.public_addrs {
-            swarm.add_external_address(addr, AddressScore::Infinite);
+            swarm.add_external_address(addr);
         }
 
         // Connect to boot nodes
@@ -384,7 +377,8 @@ impl P2PTransportBuilder {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         let (outbound_tx, outbound_rx) = mpsc::channel(1024);
         let (subscription_tx, subscription_rx) = mpsc::channel(1024);
-        let transport = P2PTransport::new(inbound_tx, outbound_rx, subscription_rx, swarm);
+        let transport =
+            P2PTransport::new(inbound_tx, outbound_rx, subscription_rx, swarm, self.allow_private);
 
         tokio::task::spawn(transport.run());
         Ok((inbound_rx, outbound_tx, subscription_tx))
@@ -399,6 +393,8 @@ struct P2PTransport<T: MsgContent> {
     pending_messages: HashMap<PeerId, Vec<T>>,
     subscribed_topics: HashMap<TopicHash, String>,
     swarm: Swarm<Behaviour<T>>,
+    allow_private: bool,
+    running: bool,
 }
 
 impl<T: MsgContent> P2PTransport<T> {
@@ -407,6 +403,7 @@ impl<T: MsgContent> P2PTransport<T> {
         outbound_msg_receiver: mpsc::Receiver<Message<T>>,
         subscription_receiver: mpsc::Receiver<(String, bool)>,
         swarm: Swarm<Behaviour<T>>,
+        allow_private: bool,
     ) -> Self {
         Self {
             inbound_msg_sender,
@@ -416,12 +413,14 @@ impl<T: MsgContent> P2PTransport<T> {
             pending_messages: HashMap::new(),
             subscribed_topics: HashMap::new(),
             swarm,
+            allow_private,
+            running: true,
         }
     }
 
     pub async fn run(mut self) {
-        log::debug!("P2PTransport starting");
-        loop {
+        log::info!("P2PTransport starting");
+        while self.running {
             futures::select! {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await.unwrap_or_else(|e| {
                     log::error!("Error handling swarm event: {e}")
@@ -432,11 +431,17 @@ impl<T: MsgContent> P2PTransport<T> {
                     self.handle_subscription(topic, subscribe),
             }
         }
+        log::info!("Shutting down P2P transport");
     }
 
     fn can_send_msg(&mut self, peer_id: &PeerId) -> bool {
         self.swarm.is_connected(peer_id)
-            || !self.swarm.behaviour_mut().addresses_of_peer(peer_id).is_empty()
+            || self
+                .swarm
+                .behaviour_mut()
+                .kademlia
+                .kbucket(*peer_id)
+                .is_some_and(|x| !x.is_empty())
     }
 
     fn send_msg(&mut self, peer_id: &PeerId, content: T) {
@@ -539,6 +544,9 @@ impl<T: MsgContent> P2PTransport<T> {
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
                 self.handle_kademlia_event(event)
             }
+            SwarmEvent::Behaviour(BehaviourEvent::Autonat(event)) => {
+                Ok(self.handle_autonat_event(event))
+            }
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 self.send_pending_messages(&peer_id);
                 Ok(())
@@ -547,10 +555,10 @@ impl<T: MsgContent> P2PTransport<T> {
         }
     }
 
-    async fn handle_gossipsub_event(&mut self, event: GossipsubEvent) -> Result<(), Error> {
+    async fn handle_gossipsub_event(&mut self, event: gossipsub::Event) -> Result<(), Error> {
         log::debug!("Gossipsub event received: {event:?}");
         let msg = match event {
-            GossipsubEvent::Message { message, .. } => message,
+            gossipsub::Event::Message { message, .. } => message,
             _ => return Ok(()),
         };
         if msg.source.is_none() {
@@ -573,19 +581,19 @@ impl<T: MsgContent> P2PTransport<T> {
 
     async fn handle_request_event(
         &mut self,
-        event: RequestResponseEvent<T, ()>,
+        event: request_response::Event<T, ()>,
     ) -> Result<(), Error> {
         log::debug!("Request-Response event received: {event:?}");
         let (peer_id, content, channel) = match event {
-            RequestResponseEvent::Message {
+            request_response::Event::Message {
                 peer,
                 message:
-                    RequestResponseMessage::Request {
+                    request_response::Message::Request {
                         request, channel, ..
                     },
             } => (peer, request, channel),
-            RequestResponseEvent::InboundFailure { error, .. } => return Err(error)?,
-            RequestResponseEvent::OutboundFailure { error, .. } => return Err(error)?,
+            request_response::Event::InboundFailure { error, .. } => return Err(error)?,
+            request_response::Event::OutboundFailure { error, .. } => return Err(error)?,
             _ => return Ok(()),
         };
         // Send response just to prevent errors being emitted
@@ -654,5 +662,18 @@ impl<T: MsgContent> P2PTransport<T> {
         self.pending_messages
             .remove(peer_id)
             .map(|messages| messages.into_iter().map(|msg| self.send_msg(peer_id, msg)));
+    }
+
+    fn handle_autonat_event(&mut self, event: autonat::Event) {
+        match event {
+            autonat::Event::StatusChanged {
+                new: NatStatus::Private,
+                ..
+            } if !self.allow_private => {
+                log::error!("Node is not publicly reachable!");
+                self.running = false;
+            }
+            _ => {}
+        }
     }
 }

@@ -3,12 +3,13 @@ use std::time::Duration;
 use clap::Parser;
 use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
-    gossipsub::{Gossipsub, MessageAuthenticity},
+    autonat,
+    gossipsub::{self, MessageAuthenticity},
     identify,
     kad::{store::MemoryStore, Kademlia},
-    relay::v2::relay::Relay,
-    swarm::{dial_opts::DialOpts, AddressScore, SwarmEvent},
-    PeerId, Swarm,
+    relay,
+    swarm::{dial_opts::DialOpts, SwarmBuilder, SwarmEvent},
+    PeerId,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use simple_logger::SimpleLogger;
@@ -27,9 +28,9 @@ struct Cli {
 struct Behaviour {
     identify: identify::Behaviour,
     kademlia: Kademlia<MemoryStore>,
-    // autonat: autonat::Behaviour,
-    relay: Relay,
-    gossipsub: Gossipsub,
+    autonat: autonat::Behaviour,
+    relay: relay::Behaviour,
+    gossipsub: gossipsub::Behaviour,
 }
 
 #[tokio::main]
@@ -53,20 +54,23 @@ async fn main() -> anyhow::Result<()> {
             MemoryStore::new(local_peer_id),
             Default::default(),
         ),
-        // autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
-        relay: Relay::new(local_peer_id, Default::default()),
-        gossipsub: Gossipsub::new(MessageAuthenticity::Signed(keypair.clone()), Default::default())
-            .unwrap(),
+        autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
+        relay: relay::Behaviour::new(local_peer_id, Default::default()),
+        gossipsub: gossipsub::Behaviour::new(
+            MessageAuthenticity::Signed(keypair.clone()),
+            Default::default(),
+        )
+        .unwrap(),
     };
     let transport = libp2p::tokio_development_transport(keypair)?;
 
     // Start the swarm
-    let mut swarm = Swarm::with_tokio_executor(transport, behaviour, local_peer_id);
+    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
     log::info!("Listening on {}", cli.p2p_listen_addr);
     swarm.listen_on(cli.p2p_listen_addr)?;
     for public_addr in cli.p2p_public_addrs {
         log::info!("Adding public address {public_addr}");
-        swarm.add_external_address(public_addr, AddressScore::Infinite);
+        swarm.add_external_address(public_addr);
     }
 
     // Connect to other boot nodes
