@@ -34,8 +34,8 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use rand::prelude::SliceRandom;
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::{sync::mpsc, time::interval};
+use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 
 use crate::{
     cli::{BootNode, TransportArgs},
@@ -49,6 +49,7 @@ type SubscriptionSender = mpsc::Sender<(String, bool)>;
 
 pub const SUBSQUID_PROTOCOL: &str = "/subsquid/0.0.1";
 const WORKER_PROTOCOL: &str = "/subsquid-worker/0.0.1";
+const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(300);
 
 #[derive(NetworkBehaviour)]
 struct Behaviour<T>
@@ -355,6 +356,7 @@ impl P2PTransportBuilder {
             for BootNode { peer_id, address } in self.boot_nodes {
                 log::info!("Connecting to boot node {peer_id} at {address}");
                 swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
+                swarm.behaviour_mut().autonat.add_server(peer_id, Some(address.clone()));
                 swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
             }
             Self::wait_for_first_connection(&mut swarm).await;
@@ -369,16 +371,17 @@ impl P2PTransportBuilder {
             swarm.listen_on(addr.with(Protocol::P2pCircuit))?;
         }
 
-        if self.bootstrap {
-            log::info!("Bootstrapping kademlia");
-            swarm.behaviour_mut().kademlia.bootstrap()?;
-        }
-
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         let (outbound_tx, outbound_rx) = mpsc::channel(1024);
         let (subscription_tx, subscription_rx) = mpsc::channel(1024);
-        let transport =
-            P2PTransport::new(inbound_tx, outbound_rx, subscription_rx, swarm, self.allow_private);
+        let transport = P2PTransport::new(
+            inbound_tx,
+            outbound_rx,
+            subscription_rx,
+            swarm,
+            self.allow_private,
+            self.bootstrap,
+        );
 
         tokio::task::spawn(transport.run());
         Ok((inbound_rx, outbound_tx, subscription_tx))
@@ -394,6 +397,7 @@ struct P2PTransport<T: MsgContent> {
     subscribed_topics: HashMap<TopicHash, String>,
     swarm: Swarm<Behaviour<T>>,
     allow_private: bool,
+    bootstrap: bool,
     running: bool,
 }
 
@@ -404,6 +408,7 @@ impl<T: MsgContent> P2PTransport<T> {
         subscription_receiver: mpsc::Receiver<(String, bool)>,
         swarm: Swarm<Behaviour<T>>,
         allow_private: bool,
+        bootstrap: bool,
     ) -> Self {
         Self {
             inbound_msg_sender,
@@ -414,14 +419,17 @@ impl<T: MsgContent> P2PTransport<T> {
             subscribed_topics: HashMap::new(),
             swarm,
             allow_private,
+            bootstrap,
             running: true,
         }
     }
 
     pub async fn run(mut self) {
         log::info!("P2PTransport starting");
+        let mut bootstrap_timer = IntervalStream::new(interval(BOOTSTRAP_INTERVAL)).fuse();
         while self.running {
             futures::select! {
+                _ = bootstrap_timer.select_next_some() => self.bootstrap(),
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await.unwrap_or_else(|e| {
                     log::error!("Error handling swarm event: {e}")
                 }),
@@ -432,6 +440,16 @@ impl<T: MsgContent> P2PTransport<T> {
             }
         }
         log::info!("Shutting down P2P transport");
+    }
+
+    fn bootstrap(&mut self) {
+        if self.bootstrap {
+            log::info!("Bootstrapping kademlia");
+            if let Err(e) = self.swarm.behaviour_mut().kademlia.bootstrap() {
+                log::error!("Cannot bootstrap kademlia: {e:?}");
+                self.running = false;
+            }
+        }
     }
 
     fn can_send_msg(&mut self, peer_id: &PeerId) -> bool {
@@ -530,7 +548,7 @@ impl<T: MsgContent> P2PTransport<T> {
         &mut self,
         event: SwarmEvent<BehaviourEvent<T>, E>,
     ) -> Result<(), Error> {
-        log::debug!("P2PTransport handling swarm event: {event:?}");
+        log::trace!("P2PTransport handling swarm event: {event:?}");
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
                 self.handle_gossipsub_event(event).await
@@ -665,6 +683,7 @@ impl<T: MsgContent> P2PTransport<T> {
     }
 
     fn handle_autonat_event(&mut self, event: autonat::Event) {
+        log::debug!("AutoNAT event received: {event:?}");
         match event {
             autonat::Event::StatusChanged {
                 new: NatStatus::Private,
