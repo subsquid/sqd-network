@@ -4,11 +4,10 @@ use clap::Parser;
 use env_logger::Env;
 use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
-    autonat,
     gossipsub::{self, MessageAuthenticity},
     identify,
     kad::{store::MemoryStore, Kademlia},
-    relay,
+    ping, relay,
     swarm::{dial_opts::DialOpts, SwarmBuilder, SwarmEvent},
     PeerId,
 };
@@ -30,9 +29,9 @@ struct Cli {
 struct Behaviour {
     identify: identify::Behaviour,
     kademlia: Kademlia<MemoryStore>,
-    autonat: autonat::Behaviour,
     relay: relay::Behaviour,
     gossipsub: gossipsub::Behaviour,
+    ping: ping::Behaviour,
 }
 
 #[tokio::main]
@@ -56,13 +55,13 @@ async fn main() -> anyhow::Result<()> {
             MemoryStore::new(local_peer_id),
             Default::default(),
         ),
-        autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
         relay: relay::Behaviour::new(local_peer_id, Default::default()),
         gossipsub: gossipsub::Behaviour::new(
             MessageAuthenticity::Signed(keypair.clone()),
             Default::default(),
         )
         .unwrap(),
+        ping: ping::Behaviour::new(Default::default()),
     };
     let transport = libp2p::tokio_development_transport(keypair)?;
 

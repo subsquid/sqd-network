@@ -46,7 +46,7 @@ pub struct TransportArgs {
         env,
         help = "Allow running a private node (i.e. without public IP address)."
     )]
-    pub allow_private: bool,
+    pub private_node: bool,
 }
 
 #[derive(Debug, Clone)]
