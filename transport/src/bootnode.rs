@@ -6,7 +6,7 @@ use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
     gossipsub::{self, MessageAuthenticity},
     identify,
-    kad::{store::MemoryStore, Kademlia},
+    kad::{store::MemoryStore, Kademlia, Mode},
     ping, relay,
     swarm::{dial_opts::DialOpts, SwarmBuilder, SwarmEvent},
     PeerId,
@@ -73,6 +73,8 @@ async fn main() -> anyhow::Result<()> {
         log::info!("Adding public address {public_addr}");
         swarm.add_external_address(public_addr);
     }
+
+    swarm.behaviour_mut().kademlia.set_mode(Some(Mode::Server));
 
     // Connect to other boot nodes
     for BootNode { peer_id, address } in
