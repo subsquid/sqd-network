@@ -1,8 +1,9 @@
-use libp2p::PeerId;
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
 };
+
+use crate::PeerId;
 
 pub trait MsgContent: Sized + Send + Debug + 'static {
     fn new(size: usize) -> Self;

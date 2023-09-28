@@ -63,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
             let sub = Subscription {
                 topic,
                 subscribed: true,
+                allow_unordered: false,
             };
             client.toggle_subscription(sub).await?;
         }

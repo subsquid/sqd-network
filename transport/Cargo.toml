@@ -14,10 +14,8 @@ path = "src/bootnode.rs"
 [[bin]]
 name = "grpc-client"
 path = "src/grpc-client.rs"
-required-features = ["rpc"]
 
 [features]
-rpc = ["prost", "tonic", "tonic-build", "tower"]
 worker = ["cmake", "cxx", "cxx-build"]
 
 [dependencies]
@@ -42,9 +40,9 @@ tokio-util = { version = "0.7", features = ["compat", "codec"] }
 cxx = {version = "1", optional = true }
 
 # RPC
-prost = { version = "0.12", optional = true }
-tonic = { version = "0.10", features = ["gzip"], optional = true }
-tower = { version = "0.4", features = ["make"], optional = true }
+prost = "0.12"
+tonic = { version = "0.10", features = ["gzip"] }
+tower = { version = "0.4", features = ["make"] }
 
 [build-dependencies]
 # Worker
@@ -52,4 +50,4 @@ cmake = { version = "0.1", optional = true }
 cxx-build = { version =  "1", optional = true }
 
 # RPC
-tonic-build = {version = "0.9", optional = true }
+tonic-build = "0.10"

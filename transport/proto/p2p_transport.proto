@@ -25,4 +25,5 @@ message Message {
 message Subscription {
   string topic = 1;
   bool subscribed = 2;
+  bool allow_unordered = 3;
 }

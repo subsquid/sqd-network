@@ -40,12 +40,12 @@ use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use crate::{
     cli::{BootNode, TransportArgs},
     util::{addr_is_reachable, get_keypair},
-    Error, Message, MsgContent,
+    Error, Message, MsgContent, Subscription,
 };
 
 type InboundMsgReceiver<T> = mpsc::Receiver<Message<T>>;
 type OutboundMsgSender<T> = mpsc::Sender<Message<T>>;
-type SubscriptionSender = mpsc::Sender<(String, bool)>;
+type SubscriptionSender = mpsc::Sender<Subscription>;
 
 pub const SUBSQUID_PROTOCOL: &str = "/subsquid/0.0.1";
 const WORKER_PROTOCOL: &str = "/subsquid-worker/0.0.1";
@@ -281,6 +281,7 @@ impl P2PTransportBuilder {
         SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build()
     }
 
+    #[allow(clippy::needless_pass_by_ref_mut)]
     async fn wait_for_listening<T: MsgContent>(swarm: &mut Swarm<Behaviour<T>>) {
         // There is no easy way to wait for *all* listen addresses to be ready (e.g. counting
         // events doesn't work, because 0.0.0.0 addr will generate as many events, as there are
@@ -374,9 +375,9 @@ impl P2PTransportBuilder {
             swarm.listen_on(addr.with(Protocol::P2pCircuit))?;
         }
 
-        let (inbound_tx, inbound_rx) = mpsc::channel(1024);
-        let (outbound_tx, outbound_rx) = mpsc::channel(1024);
-        let (subscription_tx, subscription_rx) = mpsc::channel(1024);
+        let (inbound_tx, inbound_rx) = mpsc::channel(100);
+        let (outbound_tx, outbound_rx) = mpsc::channel(100);
+        let (subscription_tx, subscription_rx) = mpsc::channel(100);
         let transport =
             P2PTransport::new(inbound_tx, outbound_rx, subscription_rx, swarm, self.bootstrap);
 
@@ -388,10 +389,11 @@ impl P2PTransportBuilder {
 struct P2PTransport<T: MsgContent> {
     inbound_msg_sender: mpsc::Sender<Message<T>>,
     outbound_msg_receiver: Fuse<ReceiverStream<Message<T>>>,
-    subscription_receiver: Fuse<ReceiverStream<(String, bool)>>,
+    subscription_receiver: Fuse<ReceiverStream<Subscription>>,
     pending_queries: BiHashMap<PeerId, QueryId>,
     pending_messages: HashMap<PeerId, Vec<T>>,
-    subscribed_topics: HashMap<TopicHash, String>,
+    subscribed_topics: HashMap<TopicHash, (String, bool)>, // hash -> (topic, allow_unordered)
+    sequence_numbers: HashMap<(TopicHash, PeerId), u64>,
     swarm: Swarm<Behaviour<T>>,
     bootstrap: bool,
     running: bool,
@@ -401,7 +403,7 @@ impl<T: MsgContent> P2PTransport<T> {
     pub fn new(
         inbound_msg_sender: mpsc::Sender<Message<T>>,
         outbound_msg_receiver: mpsc::Receiver<Message<T>>,
-        subscription_receiver: mpsc::Receiver<(String, bool)>,
+        subscription_receiver: mpsc::Receiver<Subscription>,
         swarm: Swarm<Behaviour<T>>,
         bootstrap: bool,
     ) -> Self {
@@ -412,6 +414,7 @@ impl<T: MsgContent> P2PTransport<T> {
             pending_queries: BiHashMap::new(),
             pending_messages: HashMap::new(),
             subscribed_topics: HashMap::new(),
+            sequence_numbers: HashMap::new(),
             swarm,
             bootstrap,
             running: true,
@@ -429,8 +432,8 @@ impl<T: MsgContent> P2PTransport<T> {
                 }),
                 msg = self.outbound_msg_receiver.select_next_some() =>
                     self.handle_outbound_msg(msg),
-                (topic, subscribe) = self.subscription_receiver.select_next_some() =>
-                    self.handle_subscription(topic, subscribe),
+                subscription = self.subscription_receiver.select_next_some() =>
+                    self.handle_subscription(subscription),
             }
         }
         log::info!("Shutting down P2P transport");
@@ -470,7 +473,7 @@ impl<T: MsgContent> P2PTransport<T> {
         }
     }
 
-    fn subscribe(&mut self, topic: String) {
+    fn subscribe(&mut self, topic: String, allow_unordered: bool) {
         log::debug!("Subscribing to topic {topic}");
         let topic = Sha256Topic::new(topic);
         let topic_hash = topic.hash();
@@ -478,7 +481,7 @@ impl<T: MsgContent> P2PTransport<T> {
             if let Err(e) = self.swarm.behaviour_mut().gossipsub.subscribe(&topic) {
                 return log::error!("Subscribing failed: {e:?}");
             }
-            e.insert(topic.to_string());
+            e.insert((topic.to_string(), allow_unordered));
         }
     }
 
@@ -491,13 +494,15 @@ impl<T: MsgContent> P2PTransport<T> {
                 log::error!("Unsubscribing failed: {e:?}");
             }
         }
+        self.sequence_numbers.retain(|(t, _), _| t != &topic_hash);
     }
 
-    fn handle_subscription(&mut self, topic: String, subscribe: bool) {
-        if subscribe {
-            self.subscribe(topic)
+    fn handle_subscription(&mut self, subscription: Subscription) {
+        log::debug!("Handling subscription: {subscription:?}");
+        if subscription.subscribed {
+            self.subscribe(subscription.topic, subscription.allow_unordered)
         } else {
-            self.unsubscribe(topic)
+            self.unsubscribe(subscription.topic)
         }
     }
 
@@ -556,7 +561,8 @@ impl<T: MsgContent> P2PTransport<T> {
                 self.handle_kademlia_event(event)
             }
             SwarmEvent::Behaviour(BehaviourEvent::Autonat(event)) => {
-                Ok(self.handle_autonat_event(event))
+                self.handle_autonat_event(event);
+                Ok(())
             }
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 self.send_pending_messages(&peer_id);
@@ -572,15 +578,27 @@ impl<T: MsgContent> P2PTransport<T> {
             gossipsub::Event::Message { message, .. } => message,
             _ => return Ok(()),
         };
-        if msg.source.is_none() {
-            return Ok(log::warn!("Dropping anonymous message"));
+        let source = match msg.source {
+            Some(peer_id) => peer_id,
+            None => return Ok(log::warn!("Dropping anonymous message")),
         };
-        let topic = match self.subscribed_topics.get(&msg.topic) {
-            Some(topic) => topic,
+        let (topic, allow_unordered) = match self.subscribed_topics.get(&msg.topic) {
+            Some(x) => x,
             None => return Ok(log::warn!("Dropping message with unknown topic")),
         };
+        if !allow_unordered {
+            let key = (msg.topic, source);
+            let last_seq_no = self.sequence_numbers.get(&key).copied().unwrap_or_default();
+            match msg.sequence_number {
+                Some(seq_no) if seq_no > last_seq_no => {
+                    self.sequence_numbers.insert(key, seq_no);
+                }
+                _ => return Ok(log::debug!("Dropping message with old sequence number")),
+            }
+        }
+
         let msg = Message {
-            peer_id: msg.source,
+            peer_id: Some(source),
             content: T::from_vec(msg.data),
             topic: Some(topic.to_owned()),
         };
@@ -603,8 +621,12 @@ impl<T: MsgContent> P2PTransport<T> {
                         request, channel, ..
                     },
             } => (peer, request, channel),
-            request_response::Event::InboundFailure { error, .. } => return Err(error)?,
-            request_response::Event::OutboundFailure { error, .. } => return Err(error)?,
+            request_response::Event::InboundFailure { error, peer, .. } => {
+                return Err(Error::Inbound { error, peer })
+            }
+            request_response::Event::OutboundFailure { error, peer, .. } => {
+                return Err(Error::Outbound { error, peer })
+            }
             _ => return Ok(()),
         };
         // Send response just to prevent errors being emitted
@@ -678,16 +700,13 @@ impl<T: MsgContent> P2PTransport<T> {
     fn handle_autonat_event(&mut self, event: autonat::Event) {
         log::debug!("AutoNAT event received: {event:?}");
         let autonat = self.swarm.behaviour().autonat.as_ref();
-        match (event, autonat) {
-            (autonat::Event::OutboundProbe(_), Some(autonat)) => {
-                let status = autonat.nat_status();
-                let confidence = autonat.confidence();
-                if matches!(status, NatStatus::Private) && confidence > 0 {
-                    log::error!("Node is not publicly reachable!");
-                    self.running = false;
-                }
+        if let (autonat::Event::OutboundProbe(_), Some(autonat)) = (event, autonat) {
+            let status = autonat.nat_status();
+            let confidence = autonat.confidence();
+            if matches!(status, NatStatus::Private) && confidence > 0 {
+                log::error!("Node is not publicly reachable!");
+                self.running = false;
             }
-            _ => {}
         }
     }
 }

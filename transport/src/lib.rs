@@ -7,10 +7,10 @@ use libp2p::{
 pub use libp2p::{Multiaddr, PeerId};
 
 pub use message::{Message, MsgContent};
+pub use rpc::api::Subscription;
 
 pub mod cli;
 mod message;
-#[cfg(feature = "rpc")]
 pub mod rpc;
 pub mod transport;
 pub mod util;
@@ -39,10 +39,13 @@ pub enum Error {
     MessageWrite(std::io::Error),
     #[error("Message read error: {0}")]
     MessageRead(std::io::Error),
-    #[error("Inbound failure:  {0}")]
-    Inbound(#[from] InboundFailure),
-    #[error("Outbound failure:  {0}")]
-    Outbound(#[from] OutboundFailure),
+    #[error("Inbound failure: {error} Peer ID: {peer}")]
+    Inbound { peer: PeerId, error: InboundFailure },
+    #[error("Outbound failure: {error} Peer ID: {peer}")]
+    Outbound {
+        peer: PeerId,
+        error: OutboundFailure,
+    },
     #[error("Query timed out. Could not find peer {0}")]
     QueryTimeout(PeerId),
     #[error("No available relay")]

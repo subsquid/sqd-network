@@ -3,11 +3,9 @@ use std::str::FromStr;
 use clap::Parser;
 use env_logger::Env;
 
-#[cfg(feature = "rpc")]
-use subsquid_network_transport::rpc;
 #[cfg(feature = "worker")]
 use subsquid_network_transport::worker;
-use subsquid_network_transport::{cli::TransportArgs, transport::P2PTransportBuilder};
+use subsquid_network_transport::{cli::TransportArgs, rpc, transport::P2PTransportBuilder};
 
 #[derive(Parser)]
 #[command(version, author)]
@@ -81,7 +79,6 @@ async fn main() -> anyhow::Result<()> {
             worker::run_worker(local_peer_id, msg_receiver, msg_sender, "".to_string()).await;
             Ok(())
         }
-        #[cfg(feature = "rpc")]
         Mode::Rpc => {
             let (msg_receiver, msg_sender, subscription_sender) = transport_builder.run().await?;
             rpc::run_server(

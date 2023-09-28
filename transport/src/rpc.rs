@@ -25,7 +25,7 @@ pub struct P2PTransportServer {
     peer_id: String,
     msg_receiver: Arc<Mutex<BoxStream<'static, Result<api::Message, Status>>>>,
     msg_sender: mpsc::Sender<Message>,
-    subscription_sender: mpsc::Sender<(String, bool)>,
+    subscription_sender: mpsc::Sender<api::Subscription>,
 }
 
 impl P2PTransportServer {
@@ -33,7 +33,7 @@ impl P2PTransportServer {
         peer_id: PeerId,
         msg_receiver: mpsc::Receiver<Message>,
         msg_sender: mpsc::Sender<Message>,
-        subscription_sender: mpsc::Sender<(String, bool)>,
+        subscription_sender: mpsc::Sender<api::Subscription>,
     ) -> Self {
         let msg_receiver = Arc::new(Mutex::new(
             ReceiverStream::new(msg_receiver).map(|msg| Ok(msg.into())).boxed(),
@@ -130,8 +130,8 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
         &self,
         request: Request<api::Subscription>,
     ) -> Result<Response<api::Empty>, Status> {
-        let api::Subscription { topic, subscribed } = request.into_inner();
-        match self.subscription_sender.send((topic, subscribed)).await {
+        let subscription = request.into_inner();
+        match self.subscription_sender.send(subscription).await {
             Ok(_) => Ok(Response::new(api::Empty {})),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -143,7 +143,7 @@ pub async fn run_server<T: ToSocketAddrs + Display>(
     listen_addr: T,
     msg_receiver: mpsc::Receiver<Message>,
     msg_sender: mpsc::Sender<Message>,
-    subscription_sender: mpsc::Sender<(String, bool)>,
+    subscription_sender: mpsc::Sender<api::Subscription>,
 ) -> anyhow::Result<()> {
     log::info!("Running gRPC server on address(es): {listen_addr}");
     let server =
