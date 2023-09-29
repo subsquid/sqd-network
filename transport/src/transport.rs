@@ -17,7 +17,7 @@ use libp2p::{
     core::{transport::OrTransport, upgrade},
     dcutr,
     dns::TokioDnsConfig,
-    gossipsub::{self, MessageAuthenticity, Sha256Topic, TopicHash},
+    gossipsub::{self, MessageAcceptance, MessageAuthenticity, Sha256Topic, TopicHash},
     identify,
     identity::Keypair,
     kad::{
@@ -250,6 +250,11 @@ impl P2PTransportBuilder {
 
         let mut request_config = request_response::Config::default();
         request_config.set_request_timeout(Duration::from_secs(60));
+        let gossipsub_config = gossipsub::ConfigBuilder::default()
+            .validate_messages()
+            .message_id_fn(gossipsub_msg_id)
+            .build()
+            .expect("config should be valid");
         let behaviour = Behaviour {
             relay,
             identify: identify::Behaviour::new(
@@ -272,7 +277,7 @@ impl P2PTransportBuilder {
             ),
             gossipsub: gossipsub::Behaviour::new(
                 MessageAuthenticity::Signed(keypair),
-                Default::default(),
+                gossipsub_config,
             )
             .unwrap(),
             ping: ping::Behaviour::new(Default::default()),
@@ -574,38 +579,71 @@ impl<T: MsgContent> P2PTransport<T> {
 
     async fn handle_gossipsub_event(&mut self, event: gossipsub::Event) -> Result<(), Error> {
         log::debug!("Gossipsub event received: {event:?}");
-        let msg = match event {
-            gossipsub::Event::Message { message, .. } => message,
+        let (msg, propagation_source) = match event {
+            gossipsub::Event::Message {
+                message,
+                propagation_source,
+                ..
+            } => (message, propagation_source),
             _ => return Ok(()),
         };
-        let source = match msg.source {
-            Some(peer_id) => peer_id,
-            None => return Ok(log::warn!("Dropping anonymous message")),
-        };
-        let (topic, allow_unordered) = match self.subscribed_topics.get(&msg.topic) {
-            Some(x) => x,
-            None => return Ok(log::warn!("Dropping message with unknown topic")),
-        };
-        if !allow_unordered {
-            let key = (msg.topic, source);
-            let last_seq_no = self.sequence_numbers.get(&key).copied().unwrap_or_default();
-            match msg.sequence_number {
-                Some(seq_no) if seq_no > last_seq_no => {
-                    self.sequence_numbers.insert(key, seq_no);
-                }
-                _ => return Ok(log::debug!("Dropping message with old sequence number")),
+        let msg_id = gossipsub_msg_id(&msg);
+
+        let (source, topic, data) = match self.validate_gossipsub_msg(msg) {
+            Ok((source, topic, data)) => {
+                let _ = self.swarm.behaviour_mut().gossipsub.report_message_validation_result(
+                    &msg_id,
+                    &propagation_source,
+                    MessageAcceptance::Accept,
+                );
+                (source, topic, data)
             }
-        }
+            Err(e) => {
+                log::debug!("Discarding gossipsub message from {propagation_source}: {e}");
+                let _ = self.swarm.behaviour_mut().gossipsub.report_message_validation_result(
+                    &msg_id,
+                    &propagation_source,
+                    MessageAcceptance::Reject,
+                );
+                return Ok(());
+            }
+        };
 
         let msg = Message {
             peer_id: Some(source),
-            content: T::from_vec(msg.data),
-            topic: Some(topic.to_owned()),
+            content: T::from_vec(data),
+            topic: Some(topic),
         };
         self.inbound_msg_sender
             .send(msg)
             .await
             .map_err(|_| Error::Unexpected("Inbound messages sink closed"))
+    }
+
+    /// Validate gossipsub message and return (source, topic, data)
+    fn validate_gossipsub_msg(
+        &mut self,
+        msg: gossipsub::Message,
+    ) -> Result<(PeerId, String, Vec<u8>), &'static str> {
+        let source = match msg.source {
+            Some(peer_id) => peer_id,
+            None => return Err("anonymous message"),
+        };
+        let (topic, allow_unordered) = match self.subscribed_topics.get(&msg.topic) {
+            Some(x) => x,
+            None => return Err("message with unknown topic"),
+        };
+        if !allow_unordered {
+            let key = (msg.topic, source);
+            let last_seq_no = self.sequence_numbers.get(&key).copied().unwrap_or_default();
+            match msg.sequence_number {
+                None => return Err("message with out sequence number"),
+                Some(seq_no) if seq_no <= last_seq_no => return Err("old message"),
+                Some(seq_no) => self.sequence_numbers.insert(key, seq_no),
+            };
+        }
+
+        Ok((source, topic.to_string(), msg.data))
     }
 
     async fn handle_request_event(
@@ -709,4 +747,15 @@ impl<T: MsgContent> P2PTransport<T> {
             }
         }
     }
+}
+
+// Default gossipsub msg ID function, copied from libp2p
+fn gossipsub_msg_id(msg: &gossipsub::Message) -> gossipsub::MessageId {
+    let mut source_string = if let Some(peer_id) = msg.source.as_ref() {
+        peer_id.to_base58()
+    } else {
+        PeerId::from_bytes(&[0, 1, 0]).expect("Valid peer id").to_base58()
+    };
+    source_string.push_str(&msg.sequence_number.unwrap_or_default().to_string());
+    gossipsub::MessageId::from(source_string)
 }
