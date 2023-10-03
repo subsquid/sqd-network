@@ -15,6 +15,10 @@ path = "src/bootnode.rs"
 name = "grpc-client"
 path = "src/grpc-client.rs"
 
+[[bin]]
+name = "keygen"
+path = "src/keygen.rs"
+
 [features]
 worker = ["cmake", "cxx", "cxx-build"]
 

@@ -27,9 +27,11 @@ HEALTHCHECK --interval=5s CMD ./healthcheck.sh
 FROM builder as rpc-node-builder
 
 RUN cargo build --release --bin node
+RUN cargo build --release --bin keygen
 
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim as rpc-node
 COPY --from=rpc-node-builder /usr/src/target/release/node /usr/local/bin/node
+COPY --from=rpc-node-builder /usr/src/target/release/keygen /usr/local/bin/keygen
 CMD ["node"]
 
 ENV P2P_LISTEN_ADDRS="/ip4/0.0.0.0/tcp/12345"
