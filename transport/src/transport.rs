@@ -2,7 +2,7 @@ use std::{
     collections::{hash_map::Entry, HashMap},
     fmt::Debug,
     marker::PhantomData,
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use async_trait::async_trait;
@@ -638,6 +638,8 @@ impl<T: MsgContent> P2PTransport<T> {
             let last_seq_no = self.sequence_numbers.get(&key).copied().unwrap_or_default();
             match msg.sequence_number {
                 None => return Err("message with out sequence number"),
+                // Sequence numbers should be timestamp-based, can't be from the future
+                Some(seq_no) if seq_no > timestamp_now() => return Err("invalid sequence number"),
                 Some(seq_no) if seq_no <= last_seq_no => return Err("old message"),
                 Some(seq_no) => self.sequence_numbers.insert(key, seq_no),
             };
@@ -758,4 +760,12 @@ fn gossipsub_msg_id(msg: &gossipsub::Message) -> gossipsub::MessageId {
     };
     source_string.push_str(&msg.sequence_number.unwrap_or_default().to_string());
     gossipsub::MessageId::from(source_string)
+}
+
+#[inline(always)]
+fn timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("we're after 1970")
+        .as_nanos() as u64
 }
