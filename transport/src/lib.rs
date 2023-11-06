@@ -4,8 +4,8 @@ use libp2p::{
     swarm::DialError,
     TransportError,
 };
-pub use libp2p::{Multiaddr, PeerId};
 
+pub use libp2p::{identity::PublicKey, Multiaddr, PeerId};
 pub use message::{Message, MsgContent};
 pub use rpc::api::Subscription;
 
