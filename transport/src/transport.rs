@@ -1,6 +1,5 @@
 use std::{
     collections::{hash_map::Entry, HashMap},
-    fmt::Debug,
     marker::PhantomData,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -14,25 +13,22 @@ use futures::{
 use libp2p::{
     autonat,
     autonat::NatStatus,
-    core::{transport::OrTransport, upgrade},
     dcutr,
-    dns::TokioDnsConfig,
     gossipsub::{
         self, MessageAcceptance, MessageAuthenticity, PublishError, Sha256Topic, TopicHash,
     },
     identify,
     identity::Keypair,
     kad::{
-        store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, Kademlia, KademliaEvent,
-        QueryId, QueryResult,
+        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, QueryId, QueryResult,
     },
     multiaddr::Protocol,
-    noise, ping, relay,
+    noise, ping,
     relay::client::Behaviour as RelayClient,
     request_response,
     request_response::ProtocolSupport,
-    swarm::{behaviour::toggle::Toggle, dial_opts::DialOpts, SwarmBuilder, SwarmEvent},
-    tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
+    swarm::{behaviour::toggle::Toggle, dial_opts::DialOpts, SwarmEvent},
+    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use rand::prelude::SliceRandom;
@@ -59,7 +55,7 @@ where
     T: MsgContent,
 {
     identify: identify::Behaviour,
-    kademlia: Kademlia<MemoryStore>,
+    kademlia: kad::Behaviour<MemoryStore>,
     autonat: Toggle<autonat::Behaviour>,
     relay: RelayClient,
     dcutr: dcutr::Behaviour,
@@ -239,36 +235,26 @@ impl P2PTransportBuilder {
         self.keypair.clone()
     }
 
-    fn build_swarm<T: MsgContent>(keypair: Keypair, private_node: bool) -> Swarm<Behaviour<T>> {
+    fn build_swarm<T: MsgContent>(
+        keypair: Keypair,
+        private_node: bool,
+    ) -> Result<Swarm<Behaviour<T>>, Error> {
         let local_peer_id = PeerId::from(keypair.public());
-
         let protocol = SUBSQUID_PROTOCOL.to_string();
-        let (relay_transport, relay) = relay::client::new(local_peer_id);
 
-        let tcp_transport =
-            TokioDnsConfig::system(tcp::tokio::Transport::new(tcp::Config::new().nodelay(true)))
-                .unwrap();
-        let transport = OrTransport::new(relay_transport, tcp_transport)
-            .upgrade(upgrade::Version::V1)
-            .authenticate(noise::Config::new(&keypair).unwrap())
-            .multiplex(yamux::Config::default())
-            .boxed();
-
-        let mut request_config = request_response::Config::default();
-        request_config.set_request_timeout(Duration::from_secs(60));
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .validate_messages()
             .message_id_fn(gossipsub_msg_id)
             .build()
             .expect("config should be valid");
-        let behaviour = Behaviour {
+        let behaviour = |keypair: &Keypair, relay| Behaviour {
             relay,
             identify: identify::Behaviour::new(
                 identify::Config::new(protocol, keypair.public())
                     .with_interval(Duration::from_secs(60))
                     .with_push_listen_addr_updates(true),
             ),
-            kademlia: Kademlia::with_config(
+            kademlia: kad::Behaviour::with_config(
                 local_peer_id,
                 MemoryStore::new(local_peer_id),
                 Default::default(),
@@ -279,17 +265,25 @@ impl P2PTransportBuilder {
             dcutr: dcutr::Behaviour::new(local_peer_id),
             request: request_response::Behaviour::new(
                 vec![(WORKER_PROTOCOL, ProtocolSupport::Full)],
-                request_config,
+                request_response::Config::default().with_request_timeout(Duration::from_secs(60)),
             ),
             gossipsub: gossipsub::Behaviour::new(
-                MessageAuthenticity::Signed(keypair),
+                MessageAuthenticity::Signed(keypair.clone()),
                 gossipsub_config,
             )
             .unwrap(),
             ping: ping::Behaviour::new(Default::default()),
         };
 
-        SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build()
+        // SwarmBuilder::with_tokio(transport, behaviour, local_peer_id).build()
+        Ok(SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_tcp(Default::default(), noise::Config::new, yamux::Config::default)?
+            .with_dns()?
+            .with_relay_client(noise::Config::new, yamux::Config::default)?
+            .with_behaviour(behaviour)
+            .expect("infallible")
+            .build())
     }
 
     #[allow(clippy::needless_pass_by_ref_mut)]
@@ -347,7 +341,7 @@ impl P2PTransportBuilder {
         self,
     ) -> Result<(InboundMsgReceiver<T>, OutboundMsgSender<T>, SubscriptionSender), Error> {
         log::info!("Local peer ID: {}", self.keypair.public().to_peer_id());
-        let mut swarm = Self::build_swarm(self.keypair, self.private_node);
+        let mut swarm = Self::build_swarm(self.keypair, self.private_node)?;
 
         // If relay node not specified explicitly, use random boot node
         let relay_addr = self.relay_addr.or_else(|| {
@@ -557,9 +551,9 @@ impl<T: MsgContent> P2PTransport<T> {
         }
     }
 
-    async fn handle_swarm_event<E: Debug>(
+    async fn handle_swarm_event(
         &mut self,
-        event: SwarmEvent<BehaviourEvent<T>, E>,
+        event: SwarmEvent<BehaviourEvent<T>>,
     ) -> Result<(), Error> {
         match event {
             SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => {
@@ -704,10 +698,10 @@ impl<T: MsgContent> P2PTransport<T> {
         Ok(())
     }
 
-    fn handle_kademlia_event(&mut self, event: KademliaEvent) -> Result<(), Error> {
+    fn handle_kademlia_event(&mut self, event: kad::Event) -> Result<(), Error> {
         log::debug!("Kademlia event received: {event:?}");
         let (query_id, result) = match event {
-            KademliaEvent::OutboundQueryProgressed {
+            kad::Event::OutboundQueryProgressed {
                 id,
                 result: QueryResult::GetClosestPeers(result),
                 ..

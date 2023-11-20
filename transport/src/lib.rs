@@ -1,11 +1,15 @@
 use libp2p::{
     kad::{BootstrapError, NoKnownPeers},
+    noise,
     request_response::{InboundFailure, OutboundFailure},
     swarm::DialError,
     TransportError,
 };
 
-pub use libp2p::{identity::PublicKey, Multiaddr, PeerId};
+pub use libp2p::{
+    identity::{Keypair, PublicKey},
+    Multiaddr, PeerId,
+};
 pub use message::{Message, MsgContent};
 pub use rpc::api::Subscription;
 
@@ -63,5 +67,17 @@ impl From<DialError> for Error {
 impl From<&DialError> for Error {
     fn from(err: &DialError) -> Self {
         Self::Dial(format!("{err:?}"))
+    }
+}
+
+impl From<noise::Error> for Error {
+    fn from(_: noise::Error) -> Self {
+        Self::Transport
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(_: std::io::Error) -> Self {
+        Self::Transport
     }
 }

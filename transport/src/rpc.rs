@@ -1,5 +1,8 @@
 use futures::{stream::BoxStream, Stream, StreamExt};
-use libp2p::identity::{Keypair, ParseError};
+use libp2p::{
+    identity::{Keypair, ParseError, PublicKey},
+    PeerId,
+};
 use std::{
     fmt::Display,
     net::ToSocketAddrs,
@@ -143,6 +146,26 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
             Ok(bytes) => Ok(Response::new(api::Bytes { bytes })),
             Err(e) => Err(Status::internal(e.to_string())),
         }
+    }
+
+    async fn verify_signature(
+        &self,
+        request: Request<api::SignedData>,
+    ) -> Result<Response<api::VerificationResult>, Status> {
+        let api::SignedData {
+            data,
+            signature,
+            peer_id,
+        } = request.into_inner();
+        let peer_id: PeerId = match peer_id.parse() {
+            Ok(peer_id) => peer_id,
+            Err(e) => return Err(Status::invalid_argument(e.to_string())),
+        };
+        let signature_ok = match PublicKey::try_decode_protobuf(&peer_id.to_bytes()[2..]) {
+            Ok(pubkey) => pubkey.verify(&data, &signature),
+            Err(e) => return Err(Status::invalid_argument(e.to_string())),
+        };
+        Ok(Response::new(api::VerificationResult { signature_ok }))
     }
 }
 

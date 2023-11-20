@@ -6,16 +6,17 @@ use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
     gossipsub::{self, MessageAuthenticity},
     identify,
-    kad::{store::MemoryStore, Kademlia, Mode},
-    ping, relay,
-    swarm::{dial_opts::DialOpts, SwarmBuilder, SwarmEvent},
-    PeerId,
+    kad::{self, store::MemoryStore, Mode},
+    noise, ping, relay,
+    swarm::{dial_opts::DialOpts, SwarmEvent},
+    yamux, PeerId, SwarmBuilder,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 
 use subsquid_network_transport::{
     cli::{BootNode, TransportArgs},
     util::{addr_is_reachable, get_keypair},
+    Keypair,
 };
 
 #[derive(Parser)]
@@ -28,7 +29,7 @@ struct Cli {
 #[derive(NetworkBehaviour)]
 struct Behaviour {
     identify: identify::Behaviour,
-    kademlia: Kademlia<MemoryStore>,
+    kademlia: kad::Behaviour<MemoryStore>,
     relay: relay::Behaviour,
     gossipsub: gossipsub::Behaviour,
     ping: ping::Behaviour,
@@ -44,13 +45,13 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Local peer ID: {local_peer_id}");
 
     // Prepare behaviour & transport
-    let behaviour = Behaviour {
+    let behaviour = |keypair: &Keypair| Behaviour {
         identify: identify::Behaviour::new(
             identify::Config::new("/subsquid/0.0.1".to_string(), keypair.public())
                 .with_interval(Duration::from_secs(60))
                 .with_push_listen_addr_updates(true),
         ),
-        kademlia: Kademlia::with_config(
+        kademlia: kad::Behaviour::with_config(
             local_peer_id,
             MemoryStore::new(local_peer_id),
             Default::default(),
@@ -63,10 +64,15 @@ async fn main() -> anyhow::Result<()> {
         .unwrap(),
         ping: ping::Behaviour::new(Default::default()),
     };
-    let transport = libp2p::tokio_development_transport(keypair)?;
 
     // Start the swarm
-    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
+    let mut swarm = SwarmBuilder::with_existing_identity(keypair)
+        .with_tokio()
+        .with_tcp(Default::default(), noise::Config::new, yamux::Config::default)?
+        .with_dns()?
+        .with_behaviour(behaviour)
+        .expect("infallible")
+        .build();
     log::info!("Listening on {}", cli.p2p_listen_addr);
     swarm.listen_on(cli.p2p_listen_addr)?;
     for public_addr in cli.p2p_public_addrs {
