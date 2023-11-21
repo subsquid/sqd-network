@@ -1,9 +1,23 @@
-FROM --platform=$BUILDPLATFORM rust:1.70-bookworm as builder
+FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:latest-rust-1.74-bookworm AS chef
+WORKDIR /app
+
+FROM --platform=$BUILDPLATFORM chef AS planner
+
+COPY build.rs .
+COPY Cargo.toml .
+COPY proto ./proto
+COPY src ./src
+
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM --platform=$BUILDPLATFORM chef as builder
 
 RUN apt update
 RUN apt install -y -V protobuf-compiler
 
-WORKDIR /usr/src
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+
 COPY build.rs .
 COPY Cargo.toml .
 COPY proto ./proto
@@ -14,7 +28,7 @@ FROM builder as bootnode-builder
 RUN cargo build --release --bin bootnode
 
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim as bootnode
-COPY --from=bootnode-builder /usr/src/target/release/bootnode /usr/local/bin/bootnode
+COPY --from=bootnode-builder /app/target/release/bootnode /usr/local/bin/bootnode
 CMD ["bootnode"]
 
 ENV P2P_LISTEN_ADDR="/ip4/0.0.0.0/tcp/12345"
@@ -30,8 +44,8 @@ RUN cargo build --release --bin node
 RUN cargo build --release --bin keygen
 
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim as rpc-node
-COPY --from=rpc-node-builder /usr/src/target/release/node /usr/local/bin/node
-COPY --from=rpc-node-builder /usr/src/target/release/keygen /usr/local/bin/keygen
+COPY --from=rpc-node-builder /app/target/release/node /usr/local/bin/node
+COPY --from=rpc-node-builder /app/target/release/keygen /usr/local/bin/keygen
 CMD ["node"]
 
 ENV P2P_LISTEN_ADDRS="/ip4/0.0.0.0/tcp/12345"
