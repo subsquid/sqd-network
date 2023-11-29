@@ -34,6 +34,8 @@ jobs:
           target: bootnode
           push: true
           tags: subsquid/bootnode:${{ inputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build & publish rpc-node
         uses: docker/build-push-action@v5
@@ -43,3 +45,5 @@ jobs:
           target: rpc-node
           push: true
           tags: subsquid/rpc-node:${{ inputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
