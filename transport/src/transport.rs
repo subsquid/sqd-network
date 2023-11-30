@@ -446,7 +446,7 @@ impl<T: MsgContent> P2PTransport<T> {
 
     fn bootstrap(&mut self) {
         if self.bootstrap {
-            log::info!("Bootstrapping kademlia");
+            log::debug!("Bootstrapping kademlia");
             if let Err(e) = self.swarm.behaviour_mut().kademlia.bootstrap() {
                 log::error!("Cannot bootstrap kademlia: {e:?}");
                 self.running = false;
