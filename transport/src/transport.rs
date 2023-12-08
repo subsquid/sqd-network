@@ -11,8 +11,6 @@ use futures::{
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
 use libp2p::{
-    autonat,
-    autonat::NatStatus,
     dcutr,
     gossipsub::{
         self, MessageAcceptance, MessageAuthenticity, PublishError, Sha256Topic, TopicHash,
@@ -27,7 +25,7 @@ use libp2p::{
     relay::client::Behaviour as RelayClient,
     request_response,
     request_response::ProtocolSupport,
-    swarm::{behaviour::toggle::Toggle, dial_opts::DialOpts, SwarmEvent},
+    swarm::{dial_opts::DialOpts, SwarmEvent},
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
@@ -56,7 +54,6 @@ where
 {
     identify: identify::Behaviour,
     kademlia: kad::Behaviour<MemoryStore>,
-    autonat: Toggle<autonat::Behaviour>,
     relay: RelayClient,
     dcutr: dcutr::Behaviour,
     request: request_response::Behaviour<MessageCodec<T>>,
@@ -156,7 +153,6 @@ pub struct P2PTransportBuilder {
     relay_addr: Option<Multiaddr>,
     relay: bool,
     bootstrap: bool,
-    private_node: bool,
 }
 
 impl Default for P2PTransportBuilder {
@@ -180,7 +176,6 @@ impl P2PTransportBuilder {
             relay_addr: None,
             relay: false,
             bootstrap: true,
-            private_node: true,
         }
     }
 
@@ -194,7 +189,6 @@ impl P2PTransportBuilder {
             relay_addr: None,
             relay: false,
             bootstrap: args.bootstrap,
-            private_node: args.private_node,
         })
     }
 
@@ -223,10 +217,6 @@ impl P2PTransportBuilder {
         self.bootstrap = bootstrap;
     }
 
-    pub fn allow_private(&mut self, allow: bool) {
-        self.private_node = allow;
-    }
-
     pub fn local_peer_id(&self) -> PeerId {
         self.keypair.public().to_peer_id()
     }
@@ -235,10 +225,7 @@ impl P2PTransportBuilder {
         self.keypair.clone()
     }
 
-    fn build_swarm<T: MsgContent>(
-        keypair: Keypair,
-        private_node: bool,
-    ) -> Result<Swarm<Behaviour<T>>, Error> {
+    fn build_swarm<T: MsgContent>(keypair: Keypair) -> Result<Swarm<Behaviour<T>>, Error> {
         let local_peer_id = PeerId::from(keypair.public());
         let protocol = SUBSQUID_PROTOCOL.to_string();
 
@@ -258,9 +245,6 @@ impl P2PTransportBuilder {
                 local_peer_id,
                 MemoryStore::new(local_peer_id),
                 Default::default(),
-            ),
-            autonat: Toggle::from(
-                (!private_node).then(|| autonat::Behaviour::new(local_peer_id, Default::default())),
             ),
             dcutr: dcutr::Behaviour::new(local_peer_id),
             request: request_response::Behaviour::new(
@@ -297,7 +281,7 @@ impl P2PTransportBuilder {
                     SwarmEvent::NewListenAddr { address, .. } => {
                         log::info!("Listening on {:?}", address);
                     }
-                    e => log::warn!("Unexpected swarm event: {e:?}"),
+                    e => log::debug!("Unexpected swarm event: {e:?}"),
                 }
             }
         })
@@ -341,7 +325,7 @@ impl P2PTransportBuilder {
         self,
     ) -> Result<(InboundMsgReceiver<T>, OutboundMsgSender<T>, SubscriptionSender), Error> {
         log::info!("Local peer ID: {}", self.keypair.public().to_peer_id());
-        let mut swarm = Self::build_swarm(self.keypair, self.private_node)?;
+        let mut swarm = Self::build_swarm(self.keypair)?;
 
         // If relay node not specified explicitly, use random boot node
         let relay_addr = self.relay_addr.or_else(|| {
@@ -568,10 +552,6 @@ impl<T: MsgContent> P2PTransport<T> {
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
                 self.handle_kademlia_event(event)
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Autonat(event)) => {
-                self.handle_autonat_event(event);
-                Ok(())
-            }
             SwarmEvent::ConnectionEstablished { peer_id, .. } => {
                 self.send_pending_messages(&peer_id);
                 Ok(())
@@ -738,19 +718,6 @@ impl<T: MsgContent> P2PTransport<T> {
         self.pending_messages
             .remove(peer_id)
             .map(|messages| messages.into_iter().map(|msg| self.send_msg(peer_id, msg)));
-    }
-
-    fn handle_autonat_event(&mut self, event: autonat::Event) {
-        log::debug!("AutoNAT event received: {event:?}");
-        let autonat = self.swarm.behaviour().autonat.as_ref();
-        if let (autonat::Event::OutboundProbe(_), Some(autonat)) = (event, autonat) {
-            let status = autonat.nat_status();
-            let confidence = autonat.confidence();
-            if matches!(status, NatStatus::Private) && confidence > 0 {
-                log::error!("Node is not publicly reachable!");
-                self.running = false;
-            }
-        }
     }
 }
 

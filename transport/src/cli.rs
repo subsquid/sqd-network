@@ -40,13 +40,6 @@ pub struct TransportArgs {
         help = "Bootstrap kademlia. Makes node discoverable by others."
     )]
     pub bootstrap: bool,
-
-    #[arg(
-        long,
-        env,
-        help = "Allow running a private node (i.e. without public IP address)."
-    )]
-    pub private_node: bool,
 }
 
 #[derive(Debug, Clone)]

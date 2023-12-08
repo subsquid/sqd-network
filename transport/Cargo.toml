@@ -12,10 +12,6 @@ name = "bootnode"
 path = "src/bootnode.rs"
 
 [[bin]]
-name = "grpc-client"
-path = "src/grpc-client.rs"
-
-[[bin]]
 name = "keygen"
 path = "src/keygen.rs"
 
@@ -30,7 +26,7 @@ clap = { version = "4", features = ["derive", "env"] }
 env_logger = "0.10"
 futures = "0.3"
 futures-core = "0.3"
-libp2p = { version = "0.53", features = ["autonat", "dns", "tcp", "tokio", "websocket", "noise", "yamux", "identify", "kad", "autonat", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde"] }
+libp2p = { version = "0.53", features = ["dns", "tcp", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde"] }
 libp2p-swarm-derive = "0.34"
 log = "0.4"
 rand = "0.8"
@@ -38,7 +34,6 @@ snow = "^0.9.1"
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "sync"] }
 tokio-stream = { version  = "0.1", features = ["sync"] }
-tokio-util = { version = "0.7", features = ["compat", "codec"] }
 
 # Worker
 cxx = {version = "1", optional = true }
