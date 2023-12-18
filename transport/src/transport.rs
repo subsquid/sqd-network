@@ -455,12 +455,16 @@ impl<T: MsgContent> P2PTransport<T> {
 
     fn broadcast_msg(&mut self, topic: String, content: T) {
         log::debug!("Broadcasting message with topic '{topic}'");
-        let topic = Sha256Topic::new(topic).hash();
+        let topic_hash = Sha256Topic::new(&topic).hash();
         let data = content.to_vec();
-        if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic, data) {
+        let size = data.len();
+        if let Err(e) = self.swarm.behaviour_mut().gossipsub.publish(topic_hash, data) {
             match e {
                 PublishError::InsufficientPeers => (), // Nobody listening, not an actual error
-                e => log::error!("Error broadcasting message: {e:?}"),
+                PublishError::MessageTooLarge => {
+                    log::error!("Broadcast message too large. topic={topic} size={size} bytes")
+                }
+                e => log::error!("Error broadcasting message: {e:?} topic={topic}"),
             }
         }
     }
