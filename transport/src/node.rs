@@ -43,7 +43,6 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Local peer ID: {local_peer_id}");
 
     let keypair = transport_builder.keypair();
-    let (msg_receiver, msg_sender, subscription_sender) = transport_builder.run().await?;
-    rpc::run_server(keypair, cli.rpc_listen_addr, msg_receiver, msg_sender, subscription_sender)
-        .await
+    let (msg_receiver, transport_handle) = transport_builder.run().await?;
+    rpc::run_server(keypair, cli.rpc_listen_addr, msg_receiver, transport_handle).await
 }

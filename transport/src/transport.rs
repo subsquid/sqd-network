@@ -10,6 +10,8 @@ use futures::{
     stream::{Fuse, StreamExt},
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
+use libp2p::core::ConnectedPoint;
+use libp2p::swarm::dial_opts::PeerCondition;
 use libp2p::{
     dcutr,
     gossipsub::{
@@ -30,7 +32,10 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use rand::prelude::SliceRandom;
-use tokio::{sync::mpsc, time::interval};
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::interval,
+};
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 
 use crate::{
@@ -270,7 +275,6 @@ impl P2PTransportBuilder {
             .build())
     }
 
-    #[allow(clippy::needless_pass_by_ref_mut)]
     async fn wait_for_listening<T: MsgContent>(swarm: &mut Swarm<Behaviour<T>>) {
         // There is no easy way to wait for *all* listen addresses to be ready (e.g. counting
         // events doesn't work, because 0.0.0.0 addr will generate as many events, as there are
@@ -323,7 +327,7 @@ impl P2PTransportBuilder {
 
     pub async fn run<T: MsgContent>(
         self,
-    ) -> Result<(InboundMsgReceiver<T>, OutboundMsgSender<T>, SubscriptionSender), Error> {
+    ) -> Result<(InboundMsgReceiver<T>, P2PTransportHandle<T>), Error> {
         log::info!("Local peer ID: {}", self.keypair.public().to_peer_id());
         let mut swarm = Self::build_swarm(self.keypair)?;
 
@@ -367,11 +371,123 @@ impl P2PTransportBuilder {
         let (inbound_tx, inbound_rx) = mpsc::channel(100);
         let (outbound_tx, outbound_rx) = mpsc::channel(100);
         let (subscription_tx, subscription_rx) = mpsc::channel(100);
-        let transport =
-            P2PTransport::new(inbound_tx, outbound_rx, subscription_rx, swarm, self.bootstrap);
+        let (dial_tx, dial_rx) = mpsc::channel(100);
+        let transport = P2PTransport::new(
+            inbound_tx,
+            outbound_rx,
+            subscription_rx,
+            dial_rx,
+            swarm,
+            self.bootstrap,
+        );
 
         tokio::task::spawn(transport.run());
-        Ok((inbound_rx, outbound_tx, subscription_tx))
+        let handle = P2PTransportHandle::new(outbound_tx, subscription_tx, dial_tx);
+        Ok((inbound_rx, handle))
+    }
+}
+
+struct DialResultSender(oneshot::Sender<bool>);
+
+impl DialResultSender {
+    pub fn send_result(self, result: bool) {
+        let _ = self.0.send(result).map_err(|_| log::error!("Error sending dial result"));
+    }
+}
+
+type DialSender = mpsc::Sender<(PeerId, DialResultSender)>;
+type DialReceiver = mpsc::Receiver<(PeerId, DialResultSender)>;
+
+#[derive(Clone)]
+pub struct P2PTransportHandle<T: MsgContent> {
+    msg_sender: OutboundMsgSender<T>,
+    subscription_sender: SubscriptionSender,
+    dial_sender: DialSender,
+}
+
+#[derive(thiserror::Error, Debug)]
+#[error("{0}")]
+pub struct P2PTransportError(String);
+
+impl<T> From<mpsc::error::SendError<T>> for P2PTransportError {
+    fn from(error: mpsc::error::SendError<T>) -> Self {
+        Self(error.to_string())
+    }
+}
+impl From<oneshot::error::RecvError> for P2PTransportError {
+    fn from(error: oneshot::error::RecvError) -> Self {
+        Self(error.to_string())
+    }
+}
+
+impl<T: MsgContent> P2PTransportHandle<T> {
+    fn new(
+        msg_sender: OutboundMsgSender<T>,
+        subscription_sender: SubscriptionSender,
+        dial_sender: DialSender,
+    ) -> Self {
+        Self {
+            msg_sender,
+            subscription_sender,
+            dial_sender,
+        }
+    }
+
+    pub async fn send_message(&self, msg: Message<T>) -> Result<(), P2PTransportError> {
+        self.msg_sender.send(msg).await?;
+        Ok(())
+    }
+
+    pub async fn send_direct_msg(
+        &self,
+        msg_content: T,
+        peer_id: PeerId,
+    ) -> Result<(), P2PTransportError> {
+        let msg = Message {
+            peer_id: Some(peer_id),
+            topic: None,
+            content: msg_content,
+        };
+        self.msg_sender.send(msg).await?;
+        Ok(())
+    }
+
+    pub async fn broadcast_msg(
+        &self,
+        msg_content: T,
+        topic: impl ToString,
+    ) -> Result<(), P2PTransportError> {
+        let msg = Message {
+            peer_id: None,
+            topic: Some(topic.to_string()),
+            content: msg_content,
+        };
+        self.msg_sender.send(msg).await?;
+        Ok(())
+    }
+
+    pub async fn subscribe(&self, topic: impl ToString) -> Result<(), P2PTransportError> {
+        let subscription = Subscription {
+            topic: topic.to_string(),
+            subscribed: true,
+            allow_unordered: false,
+        };
+        self.toggle_subscription(subscription).await
+    }
+
+    pub async fn toggle_subscription(
+        &self,
+        subscription: Subscription,
+    ) -> Result<(), P2PTransportError> {
+        self.subscription_sender.send(subscription).await?;
+        Ok(())
+    }
+
+    pub async fn dial_peer(&self, peer_id: PeerId) -> Result<bool, P2PTransportError> {
+        let (tx, rx) = oneshot::channel();
+        let sender = DialResultSender(tx);
+        self.dial_sender.send((peer_id, sender)).await?;
+        Ok(rx.await?)
     }
 }
 
@@ -379,10 +495,12 @@ struct P2PTransport<T: MsgContent> {
     inbound_msg_sender: mpsc::Sender<Message<T>>,
     outbound_msg_receiver: Fuse<ReceiverStream<Message<T>>>,
     subscription_receiver: Fuse<ReceiverStream<Subscription>>,
+    dial_receiver: Fuse<ReceiverStream<(PeerId, DialResultSender)>>,
     pending_queries: BiHashMap<PeerId, QueryId>,
     pending_messages: HashMap<PeerId, Vec<T>>,
     subscribed_topics: HashMap<TopicHash, (String, bool)>, // hash -> (topic, allow_unordered)
     sequence_numbers: HashMap<(TopicHash, PeerId), u64>,
+    peer_dials: HashMap<PeerId, Vec<DialResultSender>>,
     swarm: Swarm<Behaviour<T>>,
     bootstrap: bool,
     running: bool,
@@ -393,6 +511,7 @@ impl<T: MsgContent> P2PTransport<T> {
         inbound_msg_sender: mpsc::Sender<Message<T>>,
         outbound_msg_receiver: mpsc::Receiver<Message<T>>,
         subscription_receiver: mpsc::Receiver<Subscription>,
+        dial_receiver: DialReceiver,
         swarm: Swarm<Behaviour<T>>,
         bootstrap: bool,
     ) -> Self {
@@ -400,10 +519,12 @@ impl<T: MsgContent> P2PTransport<T> {
             inbound_msg_sender,
             outbound_msg_receiver: ReceiverStream::new(outbound_msg_receiver).fuse(),
             subscription_receiver: ReceiverStream::new(subscription_receiver).fuse(),
+            dial_receiver: ReceiverStream::new(dial_receiver).fuse(),
             pending_queries: BiHashMap::new(),
             pending_messages: HashMap::new(),
             subscribed_topics: HashMap::new(),
             sequence_numbers: HashMap::new(),
+            peer_dials: HashMap::new(),
             swarm,
             bootstrap,
             running: true,
@@ -423,6 +544,8 @@ impl<T: MsgContent> P2PTransport<T> {
                     self.handle_outbound_msg(msg),
                 subscription = self.subscription_receiver.select_next_some() =>
                     self.handle_subscription(subscription),
+                (peer_id, result_sender) = self.dial_receiver.select_next_some() =>
+                    self.dial_peer(peer_id, result_sender)
             }
         }
         log::info!("Shutting down P2P transport");
@@ -556,8 +679,10 @@ impl<T: MsgContent> P2PTransport<T> {
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
                 self.handle_kademlia_event(event)
             }
-            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                self.send_pending_messages(&peer_id);
+            SwarmEvent::ConnectionEstablished {
+                peer_id, endpoint, ..
+            } => {
+                self.handle_connection_established(peer_id, endpoint);
                 Ok(())
             }
             e => Ok(log::trace!("Swarm event: {e:?}")),
@@ -721,7 +846,31 @@ impl<T: MsgContent> P2PTransport<T> {
     fn send_pending_messages(&mut self, peer_id: &PeerId) {
         self.pending_messages
             .remove(peer_id)
-            .map(|messages| messages.into_iter().map(|msg| self.send_msg(peer_id, msg)));
+            .into_iter()
+            .flatten()
+            .for_each(|msg| self.send_msg(peer_id, msg));
+    }
+
+    fn dial_peer(&mut self, peer_id: PeerId, result_sender: DialResultSender) {
+        let dial_opts = DialOpts::peer_id(peer_id).condition(PeerCondition::Always).build();
+        match self.swarm.dial(dial_opts) {
+            Err(e) => {
+                log::info!("Cannot dial peer {peer_id}: {e:?}");
+                result_sender.send_result(false);
+            }
+            Ok(()) => self.peer_dials.entry(peer_id).or_default().push(result_sender),
+        }
+    }
+
+    fn handle_connection_established(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
+        self.send_pending_messages(&peer_id);
+        if let ConnectedPoint::Dialer { .. } = endpoint {
+            self.peer_dials
+                .remove(&peer_id)
+                .into_iter()
+                .flatten()
+                .for_each(|sender| sender.send_result(true));
+        }
     }
 }
 
