@@ -18,8 +18,6 @@ mod message;
 pub mod rpc;
 pub mod transport;
 pub mod util;
-#[cfg(feature = "worker")]
-pub mod worker;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

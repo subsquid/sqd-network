@@ -15,9 +15,6 @@ path = "src/bootnode.rs"
 name = "keygen"
 path = "src/keygen.rs"
 
-[features]
-worker = ["cmake", "cxx", "cxx-build"]
-
 [dependencies]
 anyhow = "1"
 async-trait = "0.1"
@@ -35,18 +32,11 @@ thiserror = "1"
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "sync"] }
 tokio-stream = { version  = "0.1", features = ["sync"] }
 
-# Worker
-cxx = {version = "1", optional = true }
-
 # RPC
 prost = "0.12"
 tonic = { version = "0.10", features = ["gzip"] }
 tower = { version = "0.4", features = ["make"] }
 
 [build-dependencies]
-# Worker
-cmake = { version = "0.1", optional = true }
-cxx-build = { version =  "1", optional = true }
-
 # RPC
 tonic-build = "0.10"

@@ -1,47 +1,89 @@
-# subsquid-network
+# Subsquid network
 
-A network of decentralized archives and workers.
+This is a libp2p-based network which allows to send arbitrary messages between nodes.
 
-## Archives (Data Source)
+## Binaries
+1. `bootnode` – A simple node which acts as relay server and a source of information about other nodes.
+2. `node` – The proper node which communicates exposer RPC to communicate with the network (see below).
 
-`./crates/pallet-data-source`
+## Running the node
 
-Archive is a service that ingests raw on-chain data, stores it into persistent storage in a normalized way and exposes it via API for downstream data pipelines (such as Squid Processor) and ad-hoc exploration. Compared to data access using a conventional chain node RPC, an archive allows one to access data in a more granular fashion and from multiple blocks at once, thanks to its rich batching and filtering capabilities.
+```
+Usage: node [OPTIONS]
 
-## Workers
+Options:
+  -k, --key <KEY>
+          Path to libp2p key file [env: KEY_PATH=]
+      --p2p-listen-addr <P2P_LISTEN_ADDR>
+          Address on which the p2p node will listen [env: P2P_LISTEN_ADDR=] [default: /ip4/0.0.0.0/tcp/0]
+      --p2p-public-addrs <P2P_PUBLIC_ADDRS>...
+          Public address(es) on which the p2p node can be reached [env: P2P_PUBLIC_ADDRS=]
+      --boot-nodes <BOOT_NODES>...
+          Connect to boot node '<peer_id> <address>'. [env: BOOT_NODES=]
+      --bootstrap
+          Bootstrap kademlia. Makes node discoverable by others. [env: BOOTSTRAP=]
+  -r, --relay [<RELAY>]
+          Connect to relay. If address not specified, one of the boot nodes is used. [env: RELAY=]
+      --rpc-listen-addr <RPC_LISTEN_ADDR>
+          Listen address for the rpc server [env: RPC_LISTEN_ADDR=] [default: 0.0.0.0:50051]
+  -h, --help
+          Print help
+  -V, --version
+          Print version
 
-`./crate/pallet-workers`
+```
 
-Worker is a part of the network that provides resources for executing requests submitted by the network. To execute the request, the worker should run docker related command that is part of the request.
+The node starts a gRPC server allowing to send and receive messages to/from the network by another process. The server API is described below.
+```protobuf
+syntax = "proto3";
+package p2p_transport;
 
-### Requirements
+service P2PTransport {
+  rpc LocalPeerId(Empty) returns (PeerId);
+  rpc GetMessages(Empty) returns (stream Message);
+  rpc SendMessage(Message) returns (Empty);
+  rpc ToggleSubscription(Subscription) returns (Empty);
+  rpc Sign(Bytes) returns (Bytes);
+  rpc VerifySignature(SignedData) returns (VerificationResult);
+}
 
-- Worker should pass some registration to be a part of the network.
-- Worker should stake required SQD tokens.
-- Worker should listen the network for events to execute task.
-- Worker should use approved (by the network) docker images.
-- There is a range of workers number when it's profitable to run it.
+message Empty {}
 
-## Workers scheduler
+message PeerId {
+  string peer_id = 1;
+}
 
-`./crates/pallet-workers-scheduler`
+message Message {
+  // None for outgoing broadcast messages, Some for others
+  optional string peer_id = 1;
+  // None for direct messages, Some for broadcast messages
+  optional string topic = 2;
+  bytes content = 3;
+}
 
-Workers schedule is a part of the network that is responsible for assigning a specific task to the worker for incoming requests from clients. It should choose available suitable worker based on some predefined algorithm. The task is assigned by submitting event.
+message Subscription {
+  string topic = 1;
+  bool subscribed = 2;
+  bool allow_unordered = 3;
+}
 
-## Vesting
+message Bytes {
+  bytes bytes = 1;
+}
 
-`./crate/pallet-vesting`
+message SignedData {
+  bytes data = 1;
+  bytes signature = 2;
+  string peer_id = 3;
+}
 
-A simple module providing a means of placing a linear curve on an account's locked balance (via Substrate `LockableCurrency` trait implementation). It should be possible to create vesting for any account by any account, removing vesting for core team in some cases by sudo call, unlock tokens.
+message VerificationResult {
+  bool signature_ok = 1;
+}
 
-## Rust
+```
 
-Install rust related tools by running the command `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`.
-
-## Run
-
-You can run the network as usual substrate-based network. Run `cargo run -- --dev --tmp` for running the node in dev mode with temporary data.
-
-## Test
-
-There is an implemented unittest example for `pallet-vesting` for demo purposes. Use `cargo test` to run unittests for network.
+## Docker images
+There is a Dockerfile provided which allows to build 2 images:
+1. `docker build ./transport --target rpc-node` – rpc node
+2. `docker build ./transport --target bootnode` – bootnode

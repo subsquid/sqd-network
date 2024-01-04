@@ -1,3 +1,0 @@
-[submodule "sql-archives"]
-	path = transport/sql-archives
-	url = git@github.com:subsquid/sql-archives.git

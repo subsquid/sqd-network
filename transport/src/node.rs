@@ -1,10 +1,6 @@
-use std::str::FromStr;
-
 use clap::Parser;
 use env_logger::Env;
 
-#[cfg(feature = "worker")]
-use subsquid_network_transport::worker;
 use subsquid_network_transport::{cli::TransportArgs, rpc, transport::P2PTransportBuilder};
 
 #[derive(Parser)]
@@ -22,38 +18,12 @@ struct Cli {
     relay: Option<Option<String>>,
 
     #[arg(
-        short,
-        long,
-        default_value = "rpc",
-        help = "Mode of operation ('worker' or 'rpc')"
-    )]
-    mode: Mode,
-
-    #[arg(
         long,
         env,
         default_value = "0.0.0.0:50051",
         help = "Listen address for the rpc server"
     )]
     rpc_listen_addr: String,
-}
-
-#[derive(Debug, Clone)]
-enum Mode {
-    Worker,
-    Rpc,
-}
-
-impl FromStr for Mode {
-    type Err = &'static str;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "worker" => Ok(Self::Worker),
-            "rpc" => Ok(Self::Rpc),
-            _ => Err("Invalid mode"),
-        }
-    }
 }
 
 #[tokio::main]
@@ -72,29 +42,8 @@ async fn main() -> anyhow::Result<()> {
     let local_peer_id = transport_builder.local_peer_id();
     log::info!("Local peer ID: {local_peer_id}");
 
-    match cli.mode {
-        #[cfg(feature = "worker")]
-        Mode::Worker => {
-            let (msg_receiver, msg_sender, _) = transport_builder.run().await?;
-            worker::run_worker(local_peer_id, msg_receiver, msg_sender, "".to_string()).await;
-            Ok(())
-        }
-        Mode::Rpc => {
-            let keypair = transport_builder.keypair();
-            let (msg_receiver, msg_sender, subscription_sender) = transport_builder.run().await?;
-            rpc::run_server(
-                keypair,
-                cli.rpc_listen_addr,
-                msg_receiver,
-                msg_sender,
-                subscription_sender,
-            )
-            .await?;
-            Ok(())
-        }
-        #[allow(unreachable_patterns)]
-        _ => anyhow::bail!(
-            "Unsupported mode. Did you enable the appropriate feature during compilation?"
-        ),
-    }
+    let keypair = transport_builder.keypair();
+    let (msg_receiver, msg_sender, subscription_sender) = transport_builder.run().await?;
+    rpc::run_server(keypair, cli.rpc_listen_addr, msg_receiver, msg_sender, subscription_sender)
+        .await
 }
