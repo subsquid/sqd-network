@@ -300,7 +300,7 @@ impl P2PTransportBuilder {
                     break;
                 }
                 SwarmEvent::Behaviour(BehaviourEvent::Kademlia(_)) => {}
-                e => log::warn!("Unexpected swarm event: {e:?}"),
+                e => log::debug!("Unexpected swarm event: {e:?}"),
             }
         }
     }
