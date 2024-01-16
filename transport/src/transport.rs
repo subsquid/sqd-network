@@ -420,6 +420,12 @@ impl From<oneshot::error::RecvError> for P2PTransportError {
     }
 }
 
+impl From<tokio::time::error::Elapsed> for P2PTransportError {
+    fn from(_: tokio::time::error::Elapsed) -> Self {
+        Self("Operation timed out".to_string())
+    }
+}
+
 impl<T: MsgContent> P2PTransportHandle<T> {
     fn new(
         msg_sender: OutboundMsgSender<T>,
@@ -487,7 +493,7 @@ impl<T: MsgContent> P2PTransportHandle<T> {
         let (tx, rx) = oneshot::channel();
         let sender = DialResultSender(tx);
         self.dial_sender.send((peer_id, sender)).await?;
-        Ok(rx.await?)
+        Ok(tokio::time::timeout(Duration::from_secs(30), rx).await??)
     }
 }
 
