@@ -11,7 +11,7 @@ use futures::{
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
 use libp2p::swarm::dial_opts::PeerCondition;
-use libp2p::swarm::ConnectionId;
+use libp2p::swarm::{ConnectionId, DialError};
 use libp2p::{
     dcutr,
     gossipsub::{
@@ -553,7 +553,7 @@ impl<T: MsgContent> P2PTransport<T> {
                 subscription = self.subscription_receiver.select_next_some() =>
                     self.handle_subscription(subscription),
                 (peer_id, result_sender) = self.dial_receiver.select_next_some() =>
-                    self.handle_dial_request(peer_id, result_sender)
+                    self.dial_peer(peer_id, result_sender)
             }
         }
         log::info!("Shutting down P2P transport");
@@ -570,15 +570,11 @@ impl<T: MsgContent> P2PTransport<T> {
     }
 
     fn can_send_msg(&mut self, peer_id: &PeerId) -> bool {
-        self.swarm.is_connected(peer_id) || self.peer_addr_known(peer_id)
-    }
-
-    fn peer_addr_known(&mut self, peer_id: &PeerId) -> bool {
-        self.swarm
-            .behaviour_mut()
-            .kademlia
-            .kbucket(*peer_id)
-            .is_some_and(|x| !x.is_empty())
+        if self.swarm.is_connected(peer_id) {
+            return true;
+        }
+        let dial_opts = DialOpts::peer_id(*peer_id).condition(PeerCondition::Always).build();
+        self.swarm.dial(dial_opts).is_ok()
     }
 
     fn send_msg(&mut self, peer_id: &PeerId, content: T) {
@@ -892,21 +888,15 @@ impl<T: MsgContent> P2PTransport<T> {
         self.pending_messages.remove(peer_id);
     }
 
-    fn handle_dial_request(&mut self, peer_id: PeerId, result_sender: DialResultSender) {
-        log::debug!("Handling dial request for peer {peer_id}");
-        if self.peer_addr_known(&peer_id) {
-            self.dial_peer(peer_id, result_sender)
-        } else {
-            self.pending_dials.entry(peer_id).or_default().push(result_sender);
-            self.lookup_peer(peer_id);
-        }
-    }
-
     fn dial_peer(&mut self, peer_id: PeerId, result_sender: DialResultSender) {
         log::debug!("Dialing peer {peer_id}");
         let dial_opts = DialOpts::peer_id(peer_id).condition(PeerCondition::Always).build();
         let conn_id = dial_opts.connection_id();
         match self.swarm.dial(dial_opts) {
+            Err(DialError::NoAddresses) => {
+                self.pending_dials.entry(peer_id).or_default().push(result_sender);
+                self.lookup_peer(peer_id);
+            }
             Err(e) => {
                 log::info!("Cannot dial peer {peer_id}: {e:?}");
                 result_sender.send_result(false);
