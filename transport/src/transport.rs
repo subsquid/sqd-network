@@ -10,8 +10,8 @@ use futures::{
     stream::{Fuse, StreamExt},
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
-use libp2p::core::ConnectedPoint;
 use libp2p::swarm::dial_opts::PeerCondition;
+use libp2p::swarm::ConnectionId;
 use libp2p::{
     dcutr,
     gossipsub::{
@@ -106,7 +106,7 @@ impl<M: MsgContent> request_response::Codec for MessageCodec<M> {
 
         let mut msg = M::new(msg_len);
         io.read_exact(msg.as_mut_slice()).await?;
-        log::debug!("New message decoded: {}", String::from_utf8_lossy(msg.as_slice()));
+        log::trace!("New message decoded: {}", String::from_utf8_lossy(msg.as_slice()));
         Ok(msg)
     }
 
@@ -131,7 +131,7 @@ impl<M: MsgContent> request_response::Codec for MessageCodec<M> {
         T: futures::AsyncWrite + Unpin + Send,
     {
         let req = req.as_slice();
-        log::debug!("New message to encode: {}", String::from_utf8_lossy(req));
+        log::trace!("New message to encode: {}", String::from_utf8_lossy(req));
         let msg_len = req.len().to_be_bytes();
         io.write_all(&msg_len).await?;
         io.write_all(req).await
@@ -496,11 +496,12 @@ struct P2PTransport<T: MsgContent> {
     outbound_msg_receiver: Fuse<ReceiverStream<Message<T>>>,
     subscription_receiver: Fuse<ReceiverStream<Subscription>>,
     dial_receiver: Fuse<ReceiverStream<(PeerId, DialResultSender)>>,
-    pending_queries: BiHashMap<PeerId, QueryId>,
+    pending_dials: HashMap<PeerId, Vec<DialResultSender>>,
+    ongoing_dials: HashMap<ConnectionId, DialResultSender>,
+    ongoing_queries: BiHashMap<PeerId, QueryId>,
     pending_messages: HashMap<PeerId, Vec<T>>,
     subscribed_topics: HashMap<TopicHash, (String, bool)>, // hash -> (topic, allow_unordered)
     sequence_numbers: HashMap<(TopicHash, PeerId), u64>,
-    peer_dials: HashMap<PeerId, Vec<DialResultSender>>,
     swarm: Swarm<Behaviour<T>>,
     bootstrap: bool,
     running: bool,
@@ -520,11 +521,12 @@ impl<T: MsgContent> P2PTransport<T> {
             outbound_msg_receiver: ReceiverStream::new(outbound_msg_receiver).fuse(),
             subscription_receiver: ReceiverStream::new(subscription_receiver).fuse(),
             dial_receiver: ReceiverStream::new(dial_receiver).fuse(),
-            pending_queries: BiHashMap::new(),
-            pending_messages: HashMap::new(),
-            subscribed_topics: HashMap::new(),
-            sequence_numbers: HashMap::new(),
-            peer_dials: HashMap::new(),
+            pending_dials: Default::default(),
+            ongoing_dials: Default::default(),
+            ongoing_queries: Default::default(),
+            pending_messages: Default::default(),
+            subscribed_topics: Default::default(),
+            sequence_numbers: Default::default(),
             swarm,
             bootstrap,
             running: true,
@@ -545,7 +547,7 @@ impl<T: MsgContent> P2PTransport<T> {
                 subscription = self.subscription_receiver.select_next_some() =>
                     self.handle_subscription(subscription),
                 (peer_id, result_sender) = self.dial_receiver.select_next_some() =>
-                    self.dial_peer(peer_id, result_sender)
+                    self.handle_dial_request(peer_id, result_sender)
             }
         }
         log::info!("Shutting down P2P transport");
@@ -562,13 +564,15 @@ impl<T: MsgContent> P2PTransport<T> {
     }
 
     fn can_send_msg(&mut self, peer_id: &PeerId) -> bool {
-        self.swarm.is_connected(peer_id)
-            || self
-                .swarm
-                .behaviour_mut()
-                .kademlia
-                .kbucket(*peer_id)
-                .is_some_and(|x| !x.is_empty())
+        self.swarm.is_connected(peer_id) || self.peer_addr_known(peer_id)
+    }
+
+    fn peer_addr_known(&mut self, peer_id: &PeerId) -> bool {
+        self.swarm
+            .behaviour_mut()
+            .kademlia
+            .kbucket(*peer_id)
+            .is_some_and(|x| !x.is_empty())
     }
 
     fn send_msg(&mut self, peer_id: &PeerId, content: T) {
@@ -644,21 +648,21 @@ impl<T: MsgContent> P2PTransport<T> {
         if self.can_send_msg(&peer_id) {
             self.send_msg(&peer_id, content)
         }
-        // If there is an ongoing query for the recipient peer,
-        // put the message in queue – it will be sent once the query is complete.
-        else if self.pending_queries.contains_left(&peer_id) {
-            log::debug!("Appending message to queue");
-            self.pending_messages
-                .get_mut(&peer_id)
-                .expect("There should always be at least one pending message")
-                .push(content);
-        }
-        // Start a new query, if necessary.
+        // Otherwise add message to queue and lookup peer on DHT.
+        // All pending messages will be sent out once the peer is found.
         else {
+            self.pending_messages.entry(peer_id).or_default().push(content);
+            self.lookup_peer(peer_id);
+        }
+    }
+
+    fn lookup_peer(&mut self, peer_id: PeerId) {
+        if self.ongoing_queries.contains_left(&peer_id) {
+            log::debug!("Query for peer {peer_id} already ongoing");
+        } else {
             log::debug!("Starting query for peer {peer_id}");
             let query_id = self.swarm.behaviour_mut().kademlia.get_closest_peers(peer_id);
-            self.pending_queries.insert(peer_id, query_id);
-            self.pending_messages.insert(peer_id, vec![content]);
+            self.ongoing_queries.insert(peer_id, query_id);
         }
     }
 
@@ -680,9 +684,19 @@ impl<T: MsgContent> P2PTransport<T> {
                 self.handle_kademlia_event(event)
             }
             SwarmEvent::ConnectionEstablished {
-                peer_id, endpoint, ..
+                peer_id,
+                connection_id,
+                ..
             } => {
-                self.handle_connection_established(peer_id, endpoint);
+                self.handle_connection_established(peer_id, connection_id);
+                Ok(())
+            }
+            SwarmEvent::OutgoingConnectionError {
+                peer_id,
+                connection_id,
+                ..
+            } => {
+                self.handle_connection_failed(peer_id, connection_id);
                 Ok(())
             }
             e => Ok(log::trace!("Swarm event: {e:?}")),
@@ -819,7 +833,7 @@ impl<T: MsgContent> P2PTransport<T> {
         };
 
         let peer_id = self
-            .pending_queries
+            .ongoing_queries
             .get_by_right(&query_id)
             .ok_or(Error::Unexpected("Unknown query"))?
             .to_owned();
@@ -830,13 +844,13 @@ impl<T: MsgContent> P2PTransport<T> {
 
         // Query reached the peer that was looked for. Send all pending messages.
         if peers.contains(&peer_id) {
-            self.pending_queries.remove_by_right(&query_id);
-            self.send_pending_messages(&peer_id);
+            self.ongoing_queries.remove_by_right(&query_id);
+            self.peer_found(peer_id);
         }
         // Query timed out and the peer wasn't found. Drop all pending messages.
         else if timeout {
-            self.pending_queries.remove_by_right(&query_id);
-            self.pending_messages.remove(&peer_id);
+            self.ongoing_queries.remove_by_right(&query_id);
+            self.peer_not_found(&peer_id);
             return Err(Error::QueryTimeout(peer_id));
         }
 
@@ -844,6 +858,7 @@ impl<T: MsgContent> P2PTransport<T> {
     }
 
     fn send_pending_messages(&mut self, peer_id: &PeerId) {
+        log::debug!("Sending pending messages to {peer_id}");
         self.pending_messages
             .remove(peer_id)
             .into_iter()
@@ -851,25 +866,64 @@ impl<T: MsgContent> P2PTransport<T> {
             .for_each(|msg| self.send_msg(peer_id, msg));
     }
 
+    fn peer_found(&mut self, peer_id: PeerId) {
+        log::info!("Peer found: {peer_id}");
+        self.pending_dials
+            .remove(&peer_id)
+            .into_iter()
+            .flatten()
+            .for_each(|rs| self.dial_peer(peer_id, rs));
+        self.send_pending_messages(&peer_id);
+    }
+
+    fn peer_not_found(&mut self, peer_id: &PeerId) {
+        log::info!("Peer not found: {peer_id}");
+        self.pending_dials
+            .remove(peer_id)
+            .into_iter()
+            .flatten()
+            .for_each(|rs| rs.send_result(false));
+        self.pending_messages.remove(peer_id);
+    }
+
+    fn handle_dial_request(&mut self, peer_id: PeerId, result_sender: DialResultSender) {
+        log::debug!("Handling dial request for peer {peer_id}");
+        if self.peer_addr_known(&peer_id) {
+            self.dial_peer(peer_id, result_sender)
+        } else {
+            self.pending_dials.entry(peer_id).or_default().push(result_sender);
+            self.lookup_peer(peer_id);
+        }
+    }
+
     fn dial_peer(&mut self, peer_id: PeerId, result_sender: DialResultSender) {
+        log::debug!("Dialing peer {peer_id}");
         let dial_opts = DialOpts::peer_id(peer_id).condition(PeerCondition::Always).build();
+        let conn_id = dial_opts.connection_id();
         match self.swarm.dial(dial_opts) {
             Err(e) => {
                 log::info!("Cannot dial peer {peer_id}: {e:?}");
                 result_sender.send_result(false);
             }
-            Ok(()) => self.peer_dials.entry(peer_id).or_default().push(result_sender),
+            Ok(()) => {
+                self.ongoing_dials.insert(conn_id, result_sender);
+            }
         }
     }
 
-    fn handle_connection_established(&mut self, peer_id: PeerId, endpoint: ConnectedPoint) {
+    fn handle_connection_established(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        log::debug!("Connection established with {peer_id}");
         self.send_pending_messages(&peer_id);
-        if let ConnectedPoint::Dialer { .. } = endpoint {
-            self.peer_dials
-                .remove(&peer_id)
-                .into_iter()
-                .flatten()
-                .for_each(|sender| sender.send_result(true));
+        if let Some(result_sender) = self.ongoing_dials.remove(&connection_id) {
+            result_sender.send_result(true)
+        }
+    }
+
+    fn handle_connection_failed(&mut self, peer_id: Option<PeerId>, connection_id: ConnectionId) {
+        let peer_id = peer_id.map(|id| id.to_string()).unwrap_or("<unknown>".to_string());
+        log::debug!("Outgoing connection to {peer_id} failed");
+        if let Some(result_sender) = self.ongoing_dials.remove(&connection_id) {
+            result_sender.send_result(false)
         }
     }
 }
