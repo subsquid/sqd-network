@@ -4,6 +4,7 @@ use clap::Parser;
 use env_logger::Env;
 use futures::{stream::FusedStream, StreamExt};
 use libp2p::{
+    autonat,
     gossipsub::{self, MessageAuthenticity},
     identify,
     kad::{self, store::MemoryStore, Mode},
@@ -33,6 +34,7 @@ struct Behaviour {
     relay: relay::Behaviour,
     gossipsub: gossipsub::Behaviour,
     ping: ping::Behaviour,
+    autonat: autonat::Behaviour,
 }
 
 #[tokio::main]
@@ -63,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .unwrap(),
         ping: ping::Behaviour::new(Default::default()),
+        autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
     };
 
     // Start the swarm
@@ -72,6 +75,7 @@ async fn main() -> anyhow::Result<()> {
         .with_dns()?
         .with_behaviour(behaviour)
         .expect("infallible")
+        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(120)))
         .build();
     log::info!("Listening on {}", cli.p2p_listen_addr);
     swarm.listen_on(cli.p2p_listen_addr)?;
