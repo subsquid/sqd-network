@@ -13,7 +13,7 @@ use futures::{
 use libp2p::swarm::dial_opts::PeerCondition;
 use libp2p::swarm::{ConnectionId, DialError};
 use libp2p::{
-    dcutr,
+    autonat, dcutr,
     gossipsub::{
         self, MessageAcceptance, MessageAuthenticity, PublishError, Sha256Topic, TopicHash,
     },
@@ -64,6 +64,7 @@ where
     request: request_response::Behaviour<MessageCodec<T>>,
     gossipsub: gossipsub::Behaviour,
     ping: ping::Behaviour,
+    autonat: autonat::Behaviour,
 }
 
 struct MessageCodec<T: MsgContent> {
@@ -262,6 +263,7 @@ impl P2PTransportBuilder {
             )
             .unwrap(),
             ping: ping::Behaviour::new(Default::default()),
+            autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
         };
 
         // SwarmBuilder::with_tokio(transport, behaviour, local_peer_id).build()
@@ -272,6 +274,7 @@ impl P2PTransportBuilder {
             .with_relay_client(noise::Config::new, yamux::Config::default)?
             .with_behaviour(behaviour)
             .expect("infallible")
+            .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(120)))
             .build())
     }
 

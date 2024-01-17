@@ -23,7 +23,7 @@ clap = { version = "4", features = ["derive", "env"] }
 env_logger = "0.10"
 futures = "0.3"
 futures-core = "0.3"
-libp2p = { version = "0.53", features = ["dns", "tcp", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde"] }
+libp2p = { version = "0.53", features = ["dns", "tcp", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde", "autonat"] }
 libp2p-swarm-derive = "0.34"
 log = "0.4"
 rand = "0.8"
