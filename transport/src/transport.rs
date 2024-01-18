@@ -10,6 +10,7 @@ use futures::{
     stream::{Fuse, StreamExt},
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
+use libp2p::kad::ProgressStep;
 use libp2p::swarm::dial_opts::PeerCondition;
 use libp2p::swarm::{ConnectionId, DialError};
 use libp2p::{
@@ -828,12 +829,13 @@ impl<T: MsgContent> P2PTransport<T> {
 
     fn handle_kademlia_event(&mut self, event: kad::Event) -> Result<(), Error> {
         log::debug!("Kademlia event received: {event:?}");
-        let (query_id, result) = match event {
+        let (query_id, result, finished) = match event {
             kad::Event::OutboundQueryProgressed {
                 id,
                 result: QueryResult::GetClosestPeers(result),
+                step: ProgressStep { last, .. },
                 ..
-            } => (id, result),
+            } => (id, result, last),
             _ => return Ok(()),
         };
 
@@ -842,9 +844,9 @@ impl<T: MsgContent> P2PTransport<T> {
             .get_by_right(&query_id)
             .ok_or(Error::Unexpected("Unknown query"))?
             .to_owned();
-        let (timeout, peers) = match result {
-            Ok(GetClosestPeersOk { peers, .. }) => (false, peers),
-            Err(GetClosestPeersError::Timeout { peers, .. }) => (true, peers),
+        let peers = match result {
+            Ok(GetClosestPeersOk { peers, .. }) => peers,
+            Err(GetClosestPeersError::Timeout { peers, .. }) => peers,
         };
 
         // Query reached the peer that was looked for. Send all pending messages.
@@ -852,11 +854,10 @@ impl<T: MsgContent> P2PTransport<T> {
             self.ongoing_queries.remove_by_right(&query_id);
             self.peer_found(peer_id);
         }
-        // Query timed out and the peer wasn't found. Drop all pending messages.
-        else if timeout {
+        // Query finished and the peer wasn't found. Drop all pending messages and dial requests.
+        else if finished {
             self.ongoing_queries.remove_by_right(&query_id);
             self.peer_not_found(&peer_id);
-            return Err(Error::QueryTimeout(peer_id));
         }
 
         Ok(())
@@ -872,7 +873,7 @@ impl<T: MsgContent> P2PTransport<T> {
     }
 
     fn peer_found(&mut self, peer_id: PeerId) {
-        log::info!("Peer found: {peer_id}");
+        log::debug!("Peer found: {peer_id}");
         self.pending_dials
             .remove(&peer_id)
             .into_iter()
@@ -882,7 +883,7 @@ impl<T: MsgContent> P2PTransport<T> {
     }
 
     fn peer_not_found(&mut self, peer_id: &PeerId) {
-        log::info!("Peer not found: {peer_id}");
+        log::debug!("Peer not found: {peer_id}");
         self.pending_dials
             .remove(peer_id)
             .into_iter()
@@ -901,7 +902,7 @@ impl<T: MsgContent> P2PTransport<T> {
                 self.lookup_peer(peer_id);
             }
             Err(e) => {
-                log::info!("Cannot dial peer {peer_id}: {e:?}");
+                log::warn!("Cannot dial peer {peer_id}: {e:?}");
                 result_sender.send_result(false);
             }
             Ok(()) => {
