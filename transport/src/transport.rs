@@ -920,7 +920,9 @@ impl<T: MsgContent> P2PTransport<T> {
         log::debug!("Connection established with {peer_id}");
         self.send_pending_messages(&peer_id);
         if let Some(result_sender) = self.ongoing_dials.remove(&connection_id) {
-            result_sender.send_result(true)
+            result_sender.send_result(true);
+            // The connection was only for probing, we don't need it anymore
+            self.swarm.close_connection(connection_id);
         }
     }
 
