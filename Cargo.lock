@@ -2997,6 +2997,7 @@ dependencies = [
  "futures",
  "futures-core",
  "libp2p",
+ "libp2p-connection-limits",
  "libp2p-swarm-derive",
  "log",
  "prost",

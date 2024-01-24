@@ -12,6 +12,7 @@ use libp2p::{
     swarm::{dial_opts::DialOpts, SwarmEvent},
     yamux, PeerId, SwarmBuilder,
 };
+use libp2p_connection_limits::ConnectionLimits;
 use libp2p_swarm_derive::NetworkBehaviour;
 
 use subsquid_network_transport::{
@@ -35,6 +36,7 @@ struct Behaviour {
     gossipsub: gossipsub::Behaviour,
     ping: ping::Behaviour,
     autonat: autonat::Behaviour,
+    conn_limits: libp2p_connection_limits::Behaviour,
 }
 
 #[tokio::main]
@@ -66,6 +68,9 @@ async fn main() -> anyhow::Result<()> {
         .unwrap(),
         ping: ping::Behaviour::new(Default::default()),
         autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
+        conn_limits: libp2p_connection_limits::Behaviour::new(
+            ConnectionLimits::default().with_max_established_per_peer(Some(3)),
+        ),
     };
 
     // Start the swarm
