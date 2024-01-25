@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::{
     collections::{hash_map::Entry, HashMap},
     marker::PhantomData,
@@ -31,7 +32,6 @@ use libp2p::{
     swarm::{dial_opts::DialOpts, SwarmEvent},
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
-use libp2p_connection_limits::ConnectionLimits;
 use libp2p_swarm_derive::NetworkBehaviour;
 use rand::prelude::SliceRandom;
 use tokio::{
@@ -53,6 +53,7 @@ type SubscriptionSender = mpsc::Sender<Subscription>;
 pub const SUBSQUID_PROTOCOL: &str = "/subsquid/0.0.1";
 const WORKER_PROTOCOL: &str = "/subsquid-worker/0.0.1";
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(300);
+const MAX_CONNS_PER_PEER: u32 = 2;
 
 #[derive(NetworkBehaviour)]
 struct Behaviour<T>
@@ -67,7 +68,6 @@ where
     gossipsub: gossipsub::Behaviour,
     ping: ping::Behaviour,
     autonat: autonat::Behaviour,
-    conn_limits: libp2p_connection_limits::Behaviour,
 }
 
 struct MessageCodec<T: MsgContent> {
@@ -267,9 +267,6 @@ impl P2PTransportBuilder {
             .unwrap(),
             ping: ping::Behaviour::new(Default::default()),
             autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
-            conn_limits: libp2p_connection_limits::Behaviour::new(
-                ConnectionLimits::default().with_max_established_per_peer(Some(3)),
-            ),
         };
 
         // SwarmBuilder::with_tokio(transport, behaviour, local_peer_id).build()
@@ -502,7 +499,7 @@ impl<T: MsgContent> P2PTransportHandle<T> {
         let (tx, rx) = oneshot::channel();
         let sender = DialResultSender(tx);
         self.dial_sender.send((peer_id, sender)).await?;
-        Ok(tokio::time::timeout(Duration::from_secs(30), rx).await??)
+        Ok(tokio::time::timeout(Duration::from_secs(60), rx).await??)
     }
 }
 
@@ -517,6 +514,7 @@ struct P2PTransport<T: MsgContent> {
     pending_messages: HashMap<PeerId, Vec<T>>,
     subscribed_topics: HashMap<TopicHash, (String, bool)>, // hash -> (topic, allow_unordered)
     sequence_numbers: HashMap<(TopicHash, PeerId), u64>,
+    active_connections: HashMap<PeerId, VecDeque<ConnectionId>>,
     swarm: Swarm<Behaviour<T>>,
     bootstrap: bool,
     running: bool,
@@ -542,6 +540,7 @@ impl<T: MsgContent> P2PTransport<T> {
             pending_messages: Default::default(),
             subscribed_topics: Default::default(),
             sequence_numbers: Default::default(),
+            active_connections: Default::default(),
             swarm,
             bootstrap,
             running: true,
@@ -700,6 +699,14 @@ impl<T: MsgContent> P2PTransport<T> {
                 ..
             } => {
                 self.handle_connection_established(peer_id, connection_id);
+                Ok(())
+            }
+            SwarmEvent::ConnectionClosed {
+                peer_id,
+                connection_id,
+                ..
+            } => {
+                self.handle_connection_closed(peer_id, connection_id);
                 Ok(())
             }
             SwarmEvent::OutgoingConnectionError {
@@ -921,8 +928,22 @@ impl<T: MsgContent> P2PTransport<T> {
         self.send_pending_messages(&peer_id);
         if let Some(result_sender) = self.ongoing_dials.remove(&connection_id) {
             result_sender.send_result(true);
-            // The connection was only for probing, we don't need it anymore
-            self.swarm.close_connection(connection_id);
+        }
+
+        let peer_conns = self.active_connections.entry(peer_id).or_default();
+        peer_conns.push_front(connection_id);
+        if peer_conns.len() > MAX_CONNS_PER_PEER as usize {
+            log::debug!("Connection limit reached for {peer_id}");
+            let conn_to_close = peer_conns.back().expect("not empty");
+            self.swarm.close_connection(*conn_to_close);
+        }
+    }
+
+    fn handle_connection_closed(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
+        log::debug!("Connection with {peer_id} closed");
+        match self.active_connections.get_mut(&peer_id) {
+            Some(conns) => conns.retain(|cid| *cid != connection_id),
+            None => log::warn!("Unknown connection peer_id={peer_id} conn_id={connection_id}"),
         }
     }
 
