@@ -11,9 +11,8 @@ use futures::{
     stream::{Fuse, StreamExt},
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
-use libp2p::kad::ProgressStep;
-use libp2p::swarm::dial_opts::PeerCondition;
-use libp2p::swarm::{ConnectionId, DialError};
+#[cfg(feature = "metrics")]
+use libp2p::metrics::{Metrics, Recorder, Registry};
 use libp2p::{
     autonat, dcutr,
     gossipsub::{
@@ -22,14 +21,18 @@ use libp2p::{
     identify,
     identity::Keypair,
     kad::{
-        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, QueryId, QueryResult,
+        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, ProgressStep, QueryId,
+        QueryResult,
     },
     multiaddr::Protocol,
     noise, ping,
     relay::client::Behaviour as RelayClient,
     request_response,
     request_response::ProtocolSupport,
-    swarm::{dial_opts::DialOpts, SwarmEvent},
+    swarm::{
+        dial_opts::{DialOpts, PeerCondition},
+        ConnectionId, DialError, SwarmEvent,
+    },
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
@@ -162,6 +165,8 @@ pub struct P2PTransportBuilder {
     relay_addr: Option<Multiaddr>,
     relay: bool,
     bootstrap: bool,
+    #[cfg(feature = "metrics")]
+    metrics_registry: Registry,
 }
 
 impl Default for P2PTransportBuilder {
@@ -185,6 +190,8 @@ impl P2PTransportBuilder {
             relay_addr: None,
             relay: false,
             bootstrap: true,
+            #[cfg(feature = "metrics")]
+            metrics_registry: Default::default(),
         }
     }
 
@@ -198,6 +205,8 @@ impl P2PTransportBuilder {
             relay_addr: None,
             relay: false,
             bootstrap: args.bootstrap,
+            #[cfg(feature = "metrics")]
+            metrics_registry: Default::default(),
         })
     }
 
@@ -224,6 +233,11 @@ impl P2PTransportBuilder {
 
     pub fn bootstrap(&mut self, bootstrap: bool) {
         self.bootstrap = bootstrap;
+    }
+
+    #[cfg(feature = "metrics")]
+    pub fn with_registry(&mut self, registry: Registry) {
+        self.metrics_registry = registry;
     }
 
     pub fn local_peer_id(&self) -> PeerId {
@@ -385,6 +399,8 @@ impl P2PTransportBuilder {
             dial_rx,
             swarm,
             self.bootstrap,
+            #[cfg(feature = "metrics")]
+            self.metrics_registry,
         );
 
         tokio::task::spawn(transport.run());
@@ -518,6 +534,8 @@ struct P2PTransport<T: MsgContent> {
     swarm: Swarm<Behaviour<T>>,
     bootstrap: bool,
     running: bool,
+    #[cfg(feature = "metrics")]
+    metrics: Metrics,
 }
 
 impl<T: MsgContent> P2PTransport<T> {
@@ -528,6 +546,7 @@ impl<T: MsgContent> P2PTransport<T> {
         dial_receiver: DialReceiver,
         swarm: Swarm<Behaviour<T>>,
         bootstrap: bool,
+        #[cfg(feature = "metrics")] mut metrics_registry: Registry,
     ) -> Self {
         Self {
             inbound_msg_sender,
@@ -544,6 +563,8 @@ impl<T: MsgContent> P2PTransport<T> {
             swarm,
             bootstrap,
             running: true,
+            #[cfg(feature = "metrics")]
+            metrics: Metrics::new(&mut metrics_registry),
         }
     }
 
@@ -640,7 +661,7 @@ impl<T: MsgContent> P2PTransport<T> {
     }
 
     fn handle_outbound_msg(&mut self, msg: Message<T>) {
-        log::debug!("Handling outbound msg: {msg:?}");
+        log::trace!("Handling outbound msg: {msg:?}");
         let Message {
             peer_id,
             content,
@@ -698,6 +719,8 @@ impl<T: MsgContent> P2PTransport<T> {
                 connection_id,
                 ..
             } => {
+                #[cfg(feature = "metrics")]
+                self.metrics.record(&event);
                 self.handle_connection_established(peer_id, connection_id);
                 Ok(())
             }
@@ -706,6 +729,8 @@ impl<T: MsgContent> P2PTransport<T> {
                 connection_id,
                 ..
             } => {
+                #[cfg(feature = "metrics")]
+                self.metrics.record(&event);
                 self.handle_connection_closed(peer_id, connection_id);
                 Ok(())
             }
@@ -714,15 +739,24 @@ impl<T: MsgContent> P2PTransport<T> {
                 connection_id,
                 ..
             } => {
+                #[cfg(feature = "metrics")]
+                self.metrics.record(&event);
                 self.handle_connection_failed(peer_id, connection_id);
                 Ok(())
             }
-            e => Ok(log::trace!("Swarm event: {e:?}")),
+            e => {
+                #[cfg(feature = "metrics")]
+                self.metrics.record(&e);
+                log::trace!("Swarm event: {e:?}");
+                Ok(())
+            }
         }
     }
 
     async fn handle_gossipsub_event(&mut self, event: gossipsub::Event) -> Result<(), Error> {
         log::debug!("Gossipsub event received: {event:?}");
+        #[cfg(feature = "metrics")]
+        self.metrics.record(&event);
         let (msg, propagation_source) = match event {
             gossipsub::Event::Message {
                 message,
@@ -828,6 +862,8 @@ impl<T: MsgContent> P2PTransport<T> {
 
     fn handle_identify_event(&mut self, event: identify::Event) -> Result<(), Error> {
         log::debug!("Identify event received: {event:?}");
+        #[cfg(feature = "metrics")]
+        self.metrics.record(&event);
         let (peer_id, listen_addrs) = match event {
             identify::Event::Received { peer_id, info } => (peer_id, info.listen_addrs),
             _ => return Ok(()),
@@ -841,6 +877,8 @@ impl<T: MsgContent> P2PTransport<T> {
 
     fn handle_kademlia_event(&mut self, event: kad::Event) -> Result<(), Error> {
         log::debug!("Kademlia event received: {event:?}");
+        #[cfg(feature = "metrics")]
+        self.metrics.record(&event);
         let (query_id, result, finished) = match event {
             kad::Event::OutboundQueryProgressed {
                 id,
