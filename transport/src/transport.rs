@@ -166,7 +166,7 @@ pub struct P2PTransportBuilder {
     relay: bool,
     bootstrap: bool,
     #[cfg(feature = "metrics")]
-    metrics_registry: Registry,
+    metrics: Metrics,
 }
 
 impl Default for P2PTransportBuilder {
@@ -191,7 +191,7 @@ impl P2PTransportBuilder {
             relay: false,
             bootstrap: true,
             #[cfg(feature = "metrics")]
-            metrics_registry: Default::default(),
+            metrics: Metrics::new(&mut Default::default()),
         }
     }
 
@@ -206,7 +206,7 @@ impl P2PTransportBuilder {
             relay: false,
             bootstrap: args.bootstrap,
             #[cfg(feature = "metrics")]
-            metrics_registry: Default::default(),
+            metrics: Metrics::new(&mut Default::default()),
         })
     }
 
@@ -236,8 +236,8 @@ impl P2PTransportBuilder {
     }
 
     #[cfg(feature = "metrics")]
-    pub fn with_registry(&mut self, registry: Registry) {
-        self.metrics_registry = registry;
+    pub fn with_registry(&mut self, registry: &mut Registry) {
+        self.metrics = Metrics::new(registry);
     }
 
     pub fn local_peer_id(&self) -> PeerId {
@@ -400,7 +400,7 @@ impl P2PTransportBuilder {
             swarm,
             self.bootstrap,
             #[cfg(feature = "metrics")]
-            self.metrics_registry,
+            self.metrics,
         );
 
         tokio::task::spawn(transport.run());
@@ -546,7 +546,7 @@ impl<T: MsgContent> P2PTransport<T> {
         dial_receiver: DialReceiver,
         swarm: Swarm<Behaviour<T>>,
         bootstrap: bool,
-        #[cfg(feature = "metrics")] mut metrics_registry: Registry,
+        #[cfg(feature = "metrics")] metrics: Metrics,
     ) -> Self {
         Self {
             inbound_msg_sender,
@@ -564,7 +564,7 @@ impl<T: MsgContent> P2PTransport<T> {
             bootstrap,
             running: true,
             #[cfg(feature = "metrics")]
-            metrics: Metrics::new(&mut metrics_registry),
+            metrics,
         }
     }
 
