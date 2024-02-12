@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::{
     collections::{hash_map::Entry, HashMap},
     marker::PhantomData,
@@ -37,6 +38,8 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use rand::prelude::SliceRandom;
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 use tokio::{
     sync::{mpsc, oneshot},
     time::interval,
@@ -403,8 +406,8 @@ impl P2PTransportBuilder {
             self.metrics,
         );
 
-        tokio::task::spawn(transport.run());
-        let handle = P2PTransportHandle::new(outbound_tx, subscription_tx, dial_tx);
+        let task_handle = tokio::task::spawn(transport.run());
+        let handle = P2PTransportHandle::new(outbound_tx, subscription_tx, dial_tx, task_handle);
         Ok((inbound_rx, handle))
     }
 }
@@ -425,26 +428,24 @@ pub struct P2PTransportHandle<T: MsgContent> {
     msg_sender: OutboundMsgSender<T>,
     subscription_sender: SubscriptionSender,
     dial_sender: DialSender,
+    task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 #[derive(thiserror::Error, Debug)]
-#[error("{0}")]
-pub struct P2PTransportError(String);
+pub enum P2PTransportError {
+    #[error("{0}")]
+    Send(String),
+    #[error(transparent)]
+    Recv(#[from] oneshot::error::RecvError),
+    #[error("Operation timed out")]
+    Timeout(#[from] tokio::time::error::Elapsed),
+    #[error("Failed to join task")]
+    Join(#[from] tokio::task::JoinError),
+}
 
 impl<T> From<mpsc::error::SendError<T>> for P2PTransportError {
     fn from(error: mpsc::error::SendError<T>) -> Self {
-        Self(error.to_string())
-    }
-}
-impl From<oneshot::error::RecvError> for P2PTransportError {
-    fn from(error: oneshot::error::RecvError) -> Self {
-        Self(error.to_string())
-    }
-}
-
-impl From<tokio::time::error::Elapsed> for P2PTransportError {
-    fn from(_: tokio::time::error::Elapsed) -> Self {
-        Self("Operation timed out".to_string())
+        Self::Send(error.to_string())
     }
 }
 
@@ -453,11 +454,13 @@ impl<T: MsgContent> P2PTransportHandle<T> {
         msg_sender: OutboundMsgSender<T>,
         subscription_sender: SubscriptionSender,
         dial_sender: DialSender,
+        task_handle: JoinHandle<()>,
     ) -> Self {
         Self {
             msg_sender,
             subscription_sender,
             dial_sender,
+            task_handle: Arc::new(Mutex::new(Some(task_handle))),
         }
     }
 
@@ -516,6 +519,19 @@ impl<T: MsgContent> P2PTransportHandle<T> {
         let sender = DialResultSender(tx);
         self.dial_sender.send((peer_id, sender)).await?;
         Ok(tokio::time::timeout(Duration::from_secs(60), rx).await??)
+    }
+
+    pub async fn stop(&self) -> Result<(), P2PTransportError> {
+        let task_handle = match self.task_handle.lock().await.take() {
+            None => return Ok(()), // Already stopped
+            Some(task_handle) => task_handle,
+        };
+        log::info!("Stopping P2P transport");
+        task_handle.abort();
+        match tokio::time::timeout(Duration::from_secs(1), task_handle).await? {
+            Err(e) if !e.is_cancelled() => Err(e.into()),
+            _ => Ok(()),
+        }
     }
 }
 
