@@ -12,6 +12,7 @@ use std::{
     sync::Arc,
     task::{Context, Poll},
 };
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::{mpsc, Mutex, OwnedMutexGuard};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{async_trait, transport::Server, Request, Response, Status};
@@ -175,13 +176,22 @@ pub async fn run_server<T: ToSocketAddrs + Display>(
     transport_handle: P2PTransportHandle<MsgContent>,
 ) -> anyhow::Result<()> {
     log::info!("Running gRPC server on address(es): {listen_addr}");
-    let server = P2PTransportServer::new(keypair, msg_receiver, transport_handle);
+    let server = P2PTransportServer::new(keypair, msg_receiver, transport_handle.clone());
     let server = api::p2p_transport_server::P2pTransportServer::new(server)
         .max_decoding_message_size(MAX_MESSAGE_SIZE)
         .max_encoding_message_size(MAX_MESSAGE_SIZE);
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let shutdown = async move {
+        tokio::select! {
+            _ = sigint.recv() => (),
+            _ = sigterm.recv() =>(),
+        }
+    };
     Server::builder()
         .add_service(server)
-        .serve(listen_addr.to_socket_addrs().unwrap().next().unwrap())
+        .serve_with_shutdown(listen_addr.to_socket_addrs().unwrap().next().unwrap(), shutdown)
         .await?;
+    transport_handle.stop().await?;
     Ok(())
 }

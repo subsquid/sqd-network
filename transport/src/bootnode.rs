@@ -14,6 +14,7 @@ use libp2p::{
 };
 use libp2p_connection_limits::ConnectionLimits;
 use libp2p_swarm_derive::NetworkBehaviour;
+use tokio::signal::unix::{signal, SignalKind};
 
 use subsquid_network_transport::{
     cli::{BootNode, TransportArgs},
@@ -104,8 +105,14 @@ async fn main() -> anyhow::Result<()> {
         log::warn!("No peers connected. Cannot bootstrap kademlia.")
     }
 
+    let mut sigint = signal(SignalKind::interrupt())?;
+    let mut sigterm = signal(SignalKind::terminate())?;
     while !swarm.is_terminated() {
-        let event = swarm.select_next_some().await;
+        let event = tokio::select! {
+            event = swarm.select_next_some() => event,
+            _ = sigint.recv() => break,
+            _ = sigterm.recv() => break,
+        };
         log::debug!("Swarm event: {event:?}");
         if let SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
             peer_id,
@@ -118,5 +125,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    log::info!("Bootnode stopped");
     Ok(())
 }
