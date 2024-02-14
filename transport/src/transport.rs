@@ -38,14 +38,14 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use rand::prelude::SliceRandom;
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tokio::{
     sync::{mpsc, oneshot},
     time::interval,
 };
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
+use tokio_util::sync::CancellationToken;
 
+use crate::task_manager::TaskManager;
 use crate::{
     cli::{BootNode, TransportArgs},
     util::{addr_is_reachable, get_keypair},
@@ -406,8 +406,7 @@ impl P2PTransportBuilder {
             self.metrics,
         );
 
-        let task_handle = tokio::task::spawn(transport.run());
-        let handle = P2PTransportHandle::new(outbound_tx, subscription_tx, dial_tx, task_handle);
+        let handle = P2PTransportHandle::new(outbound_tx, subscription_tx, dial_tx, transport);
         Ok((inbound_rx, handle))
     }
 }
@@ -428,7 +427,7 @@ pub struct P2PTransportHandle<T: MsgContent> {
     msg_sender: OutboundMsgSender<T>,
     subscription_sender: SubscriptionSender,
     dial_sender: DialSender,
-    task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -439,8 +438,6 @@ pub enum P2PTransportError {
     Recv(#[from] oneshot::error::RecvError),
     #[error("Operation timed out")]
     Timeout(#[from] tokio::time::error::Elapsed),
-    #[error("Failed to join task")]
-    Join(#[from] tokio::task::JoinError),
 }
 
 impl<T> From<mpsc::error::SendError<T>> for P2PTransportError {
@@ -454,13 +451,15 @@ impl<T: MsgContent> P2PTransportHandle<T> {
         msg_sender: OutboundMsgSender<T>,
         subscription_sender: SubscriptionSender,
         dial_sender: DialSender,
-        task_handle: JoinHandle<()>,
+        transport: P2PTransport<T>,
     ) -> Self {
+        let mut task_manager = TaskManager::default();
+        task_manager.spawn(|c| transport.run(c));
         Self {
             msg_sender,
             subscription_sender,
             dial_sender,
-            task_handle: Arc::new(Mutex::new(Some(task_handle))),
+            _task_manager: Arc::new(task_manager),
         }
     }
 
@@ -520,19 +519,6 @@ impl<T: MsgContent> P2PTransportHandle<T> {
         self.dial_sender.send((peer_id, sender)).await?;
         Ok(tokio::time::timeout(Duration::from_secs(60), rx).await??)
     }
-
-    pub async fn stop(&self) -> Result<(), P2PTransportError> {
-        let task_handle = match self.task_handle.lock().await.take() {
-            None => return Ok(()), // Already stopped
-            Some(task_handle) => task_handle,
-        };
-        log::info!("Stopping P2P transport");
-        task_handle.abort();
-        match tokio::time::timeout(Duration::from_secs(1), task_handle).await? {
-            Err(e) if !e.is_cancelled() => Err(e.into()),
-            _ => Ok(()),
-        }
-    }
 }
 
 struct P2PTransport<T: MsgContent> {
@@ -549,7 +535,6 @@ struct P2PTransport<T: MsgContent> {
     active_connections: HashMap<PeerId, VecDeque<ConnectionId>>,
     swarm: Swarm<Behaviour<T>>,
     bootstrap: bool,
-    running: bool,
     #[cfg(feature = "metrics")]
     metrics: Metrics,
 }
@@ -578,18 +563,22 @@ impl<T: MsgContent> P2PTransport<T> {
             active_connections: Default::default(),
             swarm,
             bootstrap,
-            running: true,
             #[cfg(feature = "metrics")]
             metrics,
         }
     }
 
-    pub async fn run(mut self) {
+    pub async fn run(mut self, cancel_token: CancellationToken) {
         log::info!("P2PTransport starting");
         let mut bootstrap_timer = IntervalStream::new(interval(BOOTSTRAP_INTERVAL)).fuse();
-        while self.running {
-            futures::select! {
-                _ = bootstrap_timer.select_next_some() => self.bootstrap(),
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => break,
+                _ = bootstrap_timer.select_next_some() => {
+                    if !self.bootstrap() {
+                        break
+                    }
+                },
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await.unwrap_or_else(|e| {
                     log::error!("Error handling swarm event: {e}")
                 }),
@@ -604,14 +593,15 @@ impl<T: MsgContent> P2PTransport<T> {
         log::info!("Shutting down P2P transport");
     }
 
-    fn bootstrap(&mut self) {
+    fn bootstrap(&mut self) -> bool {
         if self.bootstrap {
             log::debug!("Bootstrapping kademlia");
             if let Err(e) = self.swarm.behaviour_mut().kademlia.bootstrap() {
                 log::error!("Cannot bootstrap kademlia: {e:?}");
-                self.running = false;
+                return false;
             }
         }
+        true
     }
 
     fn can_send_msg(&mut self, peer_id: &PeerId) -> bool {

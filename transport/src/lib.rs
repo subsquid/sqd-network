@@ -16,6 +16,7 @@ pub use rpc::api::Subscription;
 pub mod cli;
 mod message;
 pub mod rpc;
+pub mod task_manager;
 pub mod transport;
 pub mod util;
 
