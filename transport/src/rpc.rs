@@ -176,7 +176,7 @@ pub async fn run_server<T: ToSocketAddrs + Display>(
     transport_handle: P2PTransportHandle<MsgContent>,
 ) -> anyhow::Result<()> {
     log::info!("Running gRPC server on address(es): {listen_addr}");
-    let server = P2PTransportServer::new(keypair, msg_receiver, transport_handle.clone());
+    let server = P2PTransportServer::new(keypair, msg_receiver, transport_handle);
     let server = api::p2p_transport_server::P2pTransportServer::new(server)
         .max_decoding_message_size(MAX_MESSAGE_SIZE)
         .max_encoding_message_size(MAX_MESSAGE_SIZE);
@@ -192,6 +192,5 @@ pub async fn run_server<T: ToSocketAddrs + Display>(
         .add_service(server)
         .serve_with_shutdown(listen_addr.to_socket_addrs().unwrap().next().unwrap(), shutdown)
         .await?;
-    transport_handle.stop().await?;
     Ok(())
 }
