@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use tokio::runtime::RuntimeFlavor;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
@@ -26,11 +27,12 @@ impl TaskManager {
     /// how much time tasks spawn by this manager will have to finish when they get cancelled.
     /// Panics if called outside tokio runtime or when the runtime flavour is `CurrentThread`.
     pub fn new(shutdown_timeout: Duration) -> Self {
-        match tokio::runtime::Handle::current().runtime_flavor() {
-            // Current thread runtime doesn't allow async drop (see `Drop` impl below)
-            RuntimeFlavor::CurrentThread => panic!("Current thread runtime not supported"),
-            _ => (),
-        };
+        // Current thread runtime doesn't allow async drop (see `Drop` impl below)
+        assert_ne!(
+            tokio::runtime::Handle::current().runtime_flavor(),
+            RuntimeFlavor::CurrentThread,
+            "Current thread runtime not supported"
+        );
 
         Self {
             shutdown_timeout,
@@ -51,6 +53,29 @@ impl TaskManager {
         let child_token = self.cancel_token.child_token();
         let future = f(child_token);
         self.tasks.push(tokio::spawn(future));
+    }
+
+    /// Spawn a new periodic task that will be run every `interval`. First run will occur
+    /// after `interval` from spawning, not immediately.
+    /// Task can break its driving loop by calling `.cancel()` on the token passed to it.
+    /// When cancelled, the task is supposed to finish within the `shutdown_timeout`.
+    /// Panics if `.cancel()` or `.await_stop()` has been already called.
+    pub fn spawn_periodic<F, T>(&mut self, mut f: F, interval: Duration)
+    where
+        F: FnMut(CancellationToken) -> T,
+        F: Send + 'static,
+        T: Future<Output = ()> + Send + 'static,
+    {
+        let mut interval = tokio::time::interval_at(Instant::now() + interval, interval);
+        self.spawn(|cancel_token| async move {
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => (),
+                    _ = cancel_token.cancelled() => break,
+                };
+                f(cancel_token.clone()).await;
+            }
+        })
     }
 
     /// Cancel all spawned tasks.
@@ -129,5 +154,30 @@ mod tests {
         // Task2 has long cancel delay, so task2_stopped == false
         assert!(*task1_stopped.lock().await);
         assert!(!*task2_stopped.lock().await);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_periodic() {
+        let counter1 = Arc::new(Mutex::new(0));
+        let counter2 = counter1.clone();
+
+        let task = move |cancel_token: CancellationToken| {
+            let counter = counter2.clone();
+            async move {
+                let mut counter = counter.lock().await;
+                *counter += 1;
+                if *counter >= 2 {
+                    cancel_token.cancel();
+                }
+            }
+        };
+
+        let interval = Duration::from_millis(20);
+        let mut task_manager = TaskManager::default();
+        task_manager.spawn_periodic(task, interval);
+
+        // Task should get cancelled after second run and only execute twice
+        tokio::time::sleep(interval * 4).await;
+        assert_eq!(*counter1.lock().await, 2);
     }
 }
