@@ -40,19 +40,17 @@ impl TaskManager {
     }
 
     /// Spawn a new task. A cancellation token will be passed to the constructor.
-    /// The task is supposed to finish within the `shutdown_timeout`.
+    /// When cancelled, the task is supposed to finish within the `shutdown_timeout`.
     /// Panics if `.cancel()` or `.await_stop()` has been already called.
     pub fn spawn<F, T>(&mut self, f: F)
     where
         F: FnOnce(CancellationToken) -> T,
-        T: Future + Send + 'static,
+        T: Future<Output = ()> + Send + 'static,
     {
         assert!(!self.cancel_token.is_cancelled());
         let child_token = self.cancel_token.child_token();
         let future = f(child_token);
-        self.tasks.push(tokio::spawn(async move {
-            future.await;
-        }));
+        self.tasks.push(tokio::spawn(future));
     }
 
     /// Cancel all spawned tasks.
@@ -96,9 +94,9 @@ mod tests {
     use tokio::sync::Mutex;
 
     #[tokio::test(flavor = "current_thread")]
+    #[should_panic]
     async fn test_current_thread() {
-        let res = std::panic::catch_unwind(TaskManager::default);
-        assert!(res.is_err())
+        TaskManager::default();
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
