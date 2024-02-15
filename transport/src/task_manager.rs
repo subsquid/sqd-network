@@ -4,7 +4,8 @@ use std::time::Duration;
 use tokio::runtime::RuntimeFlavor;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tokio_util::sync::CancellationToken;
+
+pub use tokio_util::sync::CancellationToken;
 
 pub const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -64,7 +65,7 @@ impl TaskManager {
     where
         F: FnMut(CancellationToken) -> T,
         F: Send + 'static,
-        T: Future<Output = ()> + Send + 'static,
+        T: Future<Output = ()> + Send,
     {
         let mut interval = tokio::time::interval_at(Instant::now() + interval, interval);
         self.spawn(|cancel_token| async move {
