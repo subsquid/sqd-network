@@ -12,8 +12,10 @@ use futures::{
     stream::{Fuse, StreamExt},
     AsyncReadExt as FutAsyncRead, AsyncWriteExt,
 };
+use libp2p::core::Endpoint;
 #[cfg(feature = "metrics")]
 use libp2p::metrics::{Metrics, Recorder, Registry};
+use libp2p::swarm::NetworkBehaviour;
 use libp2p::{
     autonat, dcutr,
     gossipsub::{
@@ -608,8 +610,20 @@ impl<T: MsgContent> P2PTransport<T> {
         if self.swarm.is_connected(peer_id) {
             return true;
         }
-        let dial_opts = DialOpts::peer_id(*peer_id).condition(PeerCondition::Always).build();
-        self.swarm.dial(dial_opts).is_ok()
+        !self.peer_addrs(*peer_id).is_empty()
+    }
+
+    fn peer_addrs(&mut self, peer_id: PeerId) -> Vec<Multiaddr> {
+        self.swarm
+            .behaviour_mut()
+            .kademlia
+            .handle_pending_outbound_connection(
+                ConnectionId::new_unchecked(0),
+                Some(peer_id),
+                &[],
+                Endpoint::Dialer,
+            )
+            .unwrap_or_default()
     }
 
     fn send_msg(&mut self, peer_id: &PeerId, content: T) {
@@ -950,7 +964,11 @@ impl<T: MsgContent> P2PTransport<T> {
 
     fn dial_peer(&mut self, peer_id: PeerId, result_sender: DialResultSender) {
         log::debug!("Dialing peer {peer_id}");
-        let dial_opts = DialOpts::peer_id(peer_id).condition(PeerCondition::Always).build();
+        let addrs = self.peer_addrs(peer_id);
+        let dial_opts = DialOpts::peer_id(peer_id)
+            .addresses(addrs)
+            .condition(PeerCondition::Always)
+            .build();
         let conn_id = dial_opts.connection_id();
         match self.swarm.dial(dial_opts) {
             Err(DialError::NoAddresses) => {
