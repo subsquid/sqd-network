@@ -11,10 +11,14 @@ pub use libp2p::{
     Multiaddr, PeerId,
 };
 pub use message::{Message, MsgContent};
+#[cfg(feature = "metrics")]
+pub use prometheus_client::registry::Registry;
 pub use rpc::api::Subscription;
 
 pub mod cli;
 mod message;
+#[cfg(feature = "metrics")]
+pub mod metrics;
 pub mod rpc;
 pub mod task_manager;
 pub mod transport;
@@ -36,8 +40,6 @@ pub enum Error {
     PeerId(String),
     #[error("Peer not found: {0}")]
     PeerNotFound(PeerId),
-    #[error("Null pointer")]
-    NullPointer,
     #[error("Message write error: {0}")]
     MessageWrite(std::io::Error),
     #[error("Message read error: {0}")]

@@ -3,6 +3,8 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use derivative::Derivative;
+
 use crate::PeerId;
 
 pub trait MsgContent: Sized + Send + Debug + 'static {
@@ -59,11 +61,12 @@ impl MsgContent for Vec<u8> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Derivative, Debug)]
 pub struct Message<T: MsgContent> {
     // None for outgoing broadcast messages, Some for others
     pub peer_id: Option<PeerId>,
     // None for direct messages, Some for broadcast messages
     pub topic: Option<String>,
+    #[derivative(Debug = "ignore")]
     pub content: T,
 }

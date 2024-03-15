@@ -13,8 +13,7 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::{mpsc, Mutex, OwnedMutexGuard};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tonic::{async_trait, transport::Server, Request, Response, Status};
 
 pub mod api {
@@ -36,12 +35,10 @@ pub struct P2PTransportServer {
 impl P2PTransportServer {
     pub fn new(
         keypair: Keypair,
-        msg_receiver: mpsc::Receiver<Message>,
+        msg_receiver: impl Stream<Item = Message> + Send + 'static,
         transport_handle: P2PTransportHandle<MsgContent>,
     ) -> Self {
-        let msg_receiver = Arc::new(Mutex::new(
-            ReceiverStream::new(msg_receiver).map(|msg| Ok(msg.into())).boxed(),
-        ));
+        let msg_receiver = Arc::new(Mutex::new(msg_receiver.map(|msg| Ok(msg.into())).boxed()));
         Self {
             keypair,
             msg_receiver,
@@ -123,7 +120,7 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
             Ok(msg) => msg,
             Err(_) => return Err(Status::invalid_argument("Invalid peer ID")),
         };
-        match self.transport_handle.send_message(msg).await {
+        match self.transport_handle.send_message(msg) {
             Ok(_) => Ok(Response::new(api::Empty {})),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -134,7 +131,7 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
         request: Request<api::Subscription>,
     ) -> Result<Response<api::Empty>, Status> {
         let subscription = request.into_inner();
-        match self.transport_handle.toggle_subscription(subscription).await {
+        match self.transport_handle.toggle_subscription(subscription) {
             Ok(_) => Ok(Response::new(api::Empty {})),
             Err(e) => Err(Status::internal(e.to_string())),
         }
@@ -169,12 +166,16 @@ impl api::p2p_transport_server::P2pTransport for P2PTransportServer {
     }
 }
 
-pub async fn run_server<T: ToSocketAddrs + Display>(
+pub async fn run_server<T, S>(
     keypair: Keypair,
     listen_addr: T,
-    msg_receiver: mpsc::Receiver<Message>,
+    msg_receiver: S,
     transport_handle: P2PTransportHandle<MsgContent>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<()>
+where
+    T: ToSocketAddrs + Display,
+    S: Stream<Item = Message> + Send + 'static,
+{
     log::info!("Running gRPC server on address(es): {listen_addr}");
     let server = P2PTransportServer::new(keypair, msg_receiver, transport_handle);
     let server = api::p2p_transport_server::P2pTransportServer::new(server)

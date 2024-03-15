@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::future::Future;
 use std::sync::Arc;
 use std::{
     collections::{hash_map::Entry, HashMap},
@@ -8,16 +9,14 @@ use std::{
 
 use async_trait::async_trait;
 use bimap::BiHashMap;
-use futures::{
-    stream::{Fuse, StreamExt},
-    AsyncReadExt as FutAsyncRead, AsyncWriteExt,
-};
-use libp2p::core::Endpoint;
+use futures::{stream::StreamExt, AsyncReadExt as FutAsyncRead, AsyncWriteExt};
+use futures_core::Stream;
 #[cfg(feature = "metrics")]
-use libp2p::metrics::{Metrics, Recorder, Registry};
-use libp2p::swarm::NetworkBehaviour;
+use libp2p::metrics::{Metrics, Recorder};
 use libp2p::{
-    autonat, dcutr,
+    autonat,
+    core::Endpoint,
+    dcutr,
     gossipsub::{
         self, MessageAcceptance, MessageAuthenticity, PublishError, Sha256Topic, TopicHash,
     },
@@ -34,12 +33,15 @@ use libp2p::{
     request_response::ProtocolSupport,
     swarm::{
         dial_opts::{DialOpts, PeerCondition},
-        ConnectionId, DialError, SwarmEvent,
+        ConnectionId, DialError, NetworkBehaviour, SwarmEvent,
     },
     yamux, Multiaddr, PeerId, Swarm, SwarmBuilder,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
+#[cfg(feature = "metrics")]
+use prometheus_client::registry::Registry;
 use rand::prelude::SliceRandom;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::{
     sync::{mpsc, oneshot},
     time::interval,
@@ -47,14 +49,18 @@ use tokio::{
 use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
 use tokio_util::sync::CancellationToken;
 
-use crate::task_manager::TaskManager;
+#[cfg(feature = "metrics")]
+use crate::metrics::{
+    register_metrics, ACTIVE_CONNECTIONS, DIAL_QUEUE_SIZE, INBOUND_MSG_QUEUE_SIZE, ONGOING_DIALS,
+    ONGOING_QUERIES, OUTBOUND_MSG_QUEUE_SIZE, PENDING_DIALS, PENDING_MESSAGES, SUBSCRIBED_TOPICS,
+};
 use crate::{
     cli::{BootNode, TransportArgs},
+    task_manager::TaskManager,
     util::{addr_is_reachable, get_keypair},
     Error, Message, MsgContent, Subscription,
 };
 
-type InboundMsgReceiver<T> = mpsc::Receiver<Message<T>>;
 type OutboundMsgSender<T> = mpsc::Sender<Message<T>>;
 type SubscriptionSender = mpsc::Sender<Subscription>;
 
@@ -171,7 +177,7 @@ pub struct P2PTransportBuilder {
     relay: bool,
     bootstrap: bool,
     #[cfg(feature = "metrics")]
-    metrics: Metrics,
+    p2p_metrics: Metrics,
 }
 
 impl Default for P2PTransportBuilder {
@@ -196,7 +202,7 @@ impl P2PTransportBuilder {
             relay: false,
             bootstrap: true,
             #[cfg(feature = "metrics")]
-            metrics: Metrics::new(&mut Default::default()),
+            p2p_metrics: Metrics::new(&mut Default::default()),
         }
     }
 
@@ -211,7 +217,7 @@ impl P2PTransportBuilder {
             relay: false,
             bootstrap: args.bootstrap,
             #[cfg(feature = "metrics")]
-            metrics: Metrics::new(&mut Default::default()),
+            p2p_metrics: Metrics::new(&mut Default::default()),
         })
     }
 
@@ -242,7 +248,8 @@ impl P2PTransportBuilder {
 
     #[cfg(feature = "metrics")]
     pub fn with_registry(&mut self, registry: &mut Registry) {
-        self.metrics = Metrics::new(registry);
+        self.p2p_metrics = Metrics::new(registry);
+        register_metrics(registry);
     }
 
     pub fn local_peer_id(&self) -> PeerId {
@@ -352,7 +359,10 @@ impl P2PTransportBuilder {
 
     pub async fn run<T: MsgContent>(
         self,
-    ) -> Result<(InboundMsgReceiver<T>, P2PTransportHandle<T>), Error> {
+    ) -> Result<
+        (impl Stream<Item = Message<T>> + Send + Unpin + 'static, P2PTransportHandle<T>),
+        Error,
+    > {
         log::info!("Local peer ID: {}", self.keypair.public().to_peer_id());
         let mut swarm = Self::build_swarm(self.keypair)?;
 
@@ -393,10 +403,10 @@ impl P2PTransportBuilder {
             swarm.listen_on(addr.with(Protocol::P2pCircuit))?;
         }
 
-        let (inbound_tx, inbound_rx) = mpsc::channel(100);
-        let (outbound_tx, outbound_rx) = mpsc::channel(100);
+        let (inbound_tx, inbound_rx) = mpsc::channel(1000);
+        let (outbound_tx, outbound_rx) = mpsc::channel(1000);
         let (subscription_tx, subscription_rx) = mpsc::channel(100);
-        let (dial_tx, dial_rx) = mpsc::channel(100);
+        let (dial_tx, dial_rx) = mpsc::channel(1000);
         let transport = P2PTransport::new(
             inbound_tx,
             outbound_rx,
@@ -405,11 +415,16 @@ impl P2PTransportBuilder {
             swarm,
             self.bootstrap,
             #[cfg(feature = "metrics")]
-            self.metrics,
+            self.p2p_metrics,
         );
 
         let handle = P2PTransportHandle::new(outbound_tx, subscription_tx, dial_tx, transport);
-        Ok((inbound_rx, handle))
+        let inbound_msg_stream = ReceiverStream::new(inbound_rx).map(|msg| {
+            #[cfg(feature = "metrics")]
+            INBOUND_MSG_QUEUE_SIZE.dec();
+            msg
+        });
+        Ok((inbound_msg_stream, handle))
     }
 }
 
@@ -417,7 +432,9 @@ struct DialResultSender(oneshot::Sender<bool>);
 
 impl DialResultSender {
     pub fn send_result(self, result: bool) {
-        let _ = self.0.send(result).map_err(|_| log::error!("Error sending dial result"));
+        self.0
+            .send(result)
+            .unwrap_or_else(|_| log::warn!("Dial result receiver dropped"));
     }
 }
 
@@ -448,6 +465,12 @@ impl<T> From<mpsc::error::SendError<T>> for P2PTransportError {
     }
 }
 
+impl<T> From<TrySendError<T>> for P2PTransportError {
+    fn from(error: TrySendError<T>) -> Self {
+        Self::Send(error.to_string())
+    }
+}
+
 impl<T: MsgContent> P2PTransportHandle<T> {
     fn new(
         msg_sender: OutboundMsgSender<T>,
@@ -465,12 +488,14 @@ impl<T: MsgContent> P2PTransportHandle<T> {
         }
     }
 
-    pub async fn send_message(&self, msg: Message<T>) -> Result<(), P2PTransportError> {
-        self.msg_sender.send(msg).await?;
+    pub fn send_message(&self, msg: Message<T>) -> Result<(), P2PTransportError> {
+        self.msg_sender.try_send(msg)?;
+        #[cfg(feature = "metrics")]
+        OUTBOUND_MSG_QUEUE_SIZE.inc();
         Ok(())
     }
 
-    pub async fn send_direct_msg(
+    pub fn send_direct_msg(
         &self,
         msg_content: T,
         peer_id: PeerId,
@@ -480,11 +505,13 @@ impl<T: MsgContent> P2PTransportHandle<T> {
             topic: None,
             content: msg_content,
         };
-        self.msg_sender.send(msg).await?;
+        self.msg_sender.try_send(msg)?;
+        #[cfg(feature = "metrics")]
+        OUTBOUND_MSG_QUEUE_SIZE.inc();
         Ok(())
     }
 
-    pub async fn broadcast_msg(
+    pub fn broadcast_msg(
         &self,
         msg_content: T,
         topic: impl ToString,
@@ -494,7 +521,9 @@ impl<T: MsgContent> P2PTransportHandle<T> {
             topic: Some(topic.to_string()),
             content: msg_content,
         };
-        self.msg_sender.send(msg).await?;
+        self.msg_sender.try_send(msg)?;
+        #[cfg(feature = "metrics")]
+        OUTBOUND_MSG_QUEUE_SIZE.inc();
         Ok(())
     }
 
@@ -504,30 +533,38 @@ impl<T: MsgContent> P2PTransportHandle<T> {
             subscribed: true,
             allow_unordered: false,
         };
-        self.toggle_subscription(subscription).await
+        self.toggle_subscription(subscription)
     }
 
-    pub async fn toggle_subscription(
-        &self,
-        subscription: Subscription,
-    ) -> Result<(), P2PTransportError> {
-        self.subscription_sender.send(subscription).await?;
+    pub fn toggle_subscription(&self, subscription: Subscription) -> Result<(), P2PTransportError> {
+        self.subscription_sender.try_send(subscription)?;
         Ok(())
     }
 
-    pub async fn dial_peer(&self, peer_id: PeerId) -> Result<bool, P2PTransportError> {
+    pub fn dial_peer(
+        &self,
+        peer_id: PeerId,
+    ) -> impl Future<Output = Result<bool, P2PTransportError>> {
+        let dial_sender = self.dial_sender.clone();
         let (tx, rx) = oneshot::channel();
-        let sender = DialResultSender(tx);
-        self.dial_sender.send((peer_id, sender)).await?;
-        Ok(tokio::time::timeout(Duration::from_secs(60), rx).await??)
+        let result_sender = DialResultSender(tx);
+        async move {
+            tokio::time::timeout(Duration::from_secs(60), async move {
+                dial_sender.send((peer_id, result_sender)).await?;
+                #[cfg(feature = "metrics")]
+                DIAL_QUEUE_SIZE.inc();
+                Ok::<bool, P2PTransportError>(rx.await?)
+            })
+            .await?
+        }
     }
 }
 
 struct P2PTransport<T: MsgContent> {
     inbound_msg_sender: mpsc::Sender<Message<T>>,
-    outbound_msg_receiver: Fuse<ReceiverStream<Message<T>>>,
-    subscription_receiver: Fuse<ReceiverStream<Subscription>>,
-    dial_receiver: Fuse<ReceiverStream<(PeerId, DialResultSender)>>,
+    outbound_msg_receiver: mpsc::Receiver<Message<T>>,
+    subscription_receiver: mpsc::Receiver<Subscription>,
+    dial_receiver: DialReceiver,
     pending_dials: HashMap<PeerId, Vec<DialResultSender>>,
     ongoing_dials: HashMap<ConnectionId, DialResultSender>,
     ongoing_queries: BiHashMap<PeerId, QueryId>,
@@ -538,7 +575,7 @@ struct P2PTransport<T: MsgContent> {
     swarm: Swarm<Behaviour<T>>,
     bootstrap: bool,
     #[cfg(feature = "metrics")]
-    metrics: Metrics,
+    p2p_metrics: Metrics,
 }
 
 impl<T: MsgContent> P2PTransport<T> {
@@ -553,9 +590,9 @@ impl<T: MsgContent> P2PTransport<T> {
     ) -> Self {
         Self {
             inbound_msg_sender,
-            outbound_msg_receiver: ReceiverStream::new(outbound_msg_receiver).fuse(),
-            subscription_receiver: ReceiverStream::new(subscription_receiver).fuse(),
-            dial_receiver: ReceiverStream::new(dial_receiver).fuse(),
+            outbound_msg_receiver,
+            subscription_receiver,
+            dial_receiver,
             pending_dials: Default::default(),
             ongoing_dials: Default::default(),
             ongoing_queries: Default::default(),
@@ -566,7 +603,7 @@ impl<T: MsgContent> P2PTransport<T> {
             swarm,
             bootstrap,
             #[cfg(feature = "metrics")]
-            metrics,
+            p2p_metrics: metrics,
         }
     }
 
@@ -584,12 +621,18 @@ impl<T: MsgContent> P2PTransport<T> {
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event).await.unwrap_or_else(|e| {
                     log::error!("Error handling swarm event: {e}")
                 }),
-                msg = self.outbound_msg_receiver.select_next_some() =>
-                    self.handle_outbound_msg(msg),
-                subscription = self.subscription_receiver.select_next_some() =>
-                    self.handle_subscription(subscription),
-                (peer_id, result_sender) = self.dial_receiver.select_next_some() =>
+                Some(msg) = self.outbound_msg_receiver.recv() => {
+                    #[cfg(feature = "metrics")]
+                    OUTBOUND_MSG_QUEUE_SIZE.dec();
+                    self.handle_outbound_msg(msg)
+                },
+                Some(sub) = self.subscription_receiver.recv() => self.handle_subscription(sub),
+                Some((peer_id, result_sender)) = self.dial_receiver.recv() => {
+                    #[cfg(feature = "metrics")]
+                    DIAL_QUEUE_SIZE.dec();
                     self.dial_peer(peer_id, result_sender)
+                }
+
             }
         }
         log::info!("Shutting down P2P transport");
@@ -657,6 +700,8 @@ impl<T: MsgContent> P2PTransport<T> {
             }
             e.insert((topic.to_string(), allow_unordered));
         }
+        #[cfg(feature = "metrics")]
+        SUBSCRIBED_TOPICS.inc();
     }
 
     fn unsubscribe(&mut self, topic: String) {
@@ -669,6 +714,8 @@ impl<T: MsgContent> P2PTransport<T> {
             }
         }
         self.sequence_numbers.retain(|(t, _), _| t != &topic_hash);
+        #[cfg(feature = "metrics")]
+        SUBSCRIBED_TOPICS.dec();
     }
 
     fn handle_subscription(&mut self, subscription: Subscription) {
@@ -703,6 +750,8 @@ impl<T: MsgContent> P2PTransport<T> {
         // All pending messages will be sent out once the peer is found.
         else {
             self.pending_messages.entry(peer_id).or_default().push(content);
+            #[cfg(feature = "metrics")]
+            PENDING_MESSAGES.inc();
             self.lookup_peer(peer_id);
         }
     }
@@ -714,6 +763,8 @@ impl<T: MsgContent> P2PTransport<T> {
             log::debug!("Starting query for peer {peer_id}");
             let query_id = self.swarm.behaviour_mut().kademlia.get_closest_peers(peer_id);
             self.ongoing_queries.insert(peer_id, query_id);
+            #[cfg(feature = "metrics")]
+            ONGOING_QUERIES.inc();
         }
     }
 
@@ -740,7 +791,7 @@ impl<T: MsgContent> P2PTransport<T> {
                 ..
             } => {
                 #[cfg(feature = "metrics")]
-                self.metrics.record(&event);
+                self.p2p_metrics.record(&event);
                 self.handle_connection_established(peer_id, connection_id);
                 Ok(())
             }
@@ -750,7 +801,7 @@ impl<T: MsgContent> P2PTransport<T> {
                 ..
             } => {
                 #[cfg(feature = "metrics")]
-                self.metrics.record(&event);
+                self.p2p_metrics.record(&event);
                 self.handle_connection_closed(peer_id, connection_id);
                 Ok(())
             }
@@ -760,13 +811,13 @@ impl<T: MsgContent> P2PTransport<T> {
                 ..
             } => {
                 #[cfg(feature = "metrics")]
-                self.metrics.record(&event);
+                self.p2p_metrics.record(&event);
                 self.handle_connection_failed(peer_id, connection_id);
                 Ok(())
             }
             e => {
                 #[cfg(feature = "metrics")]
-                self.metrics.record(&e);
+                self.p2p_metrics.record(&e);
                 log::trace!("Swarm event: {e:?}");
                 Ok(())
             }
@@ -776,7 +827,7 @@ impl<T: MsgContent> P2PTransport<T> {
     async fn handle_gossipsub_event(&mut self, event: gossipsub::Event) -> Result<(), Error> {
         log::debug!("Gossipsub event received: {event:?}");
         #[cfg(feature = "metrics")]
-        self.metrics.record(&event);
+        self.p2p_metrics.record(&event);
         let (msg, propagation_source) = match event {
             gossipsub::Event::Message {
                 message,
@@ -812,10 +863,17 @@ impl<T: MsgContent> P2PTransport<T> {
             content: T::from_vec(data),
             topic: Some(topic),
         };
-        self.inbound_msg_sender
-            .send(msg)
-            .await
-            .map_err(|_| Error::Unexpected("Inbound messages sink closed"))
+        match self.inbound_msg_sender.try_send(msg) {
+            Err(TrySendError::Full(msg)) => log::warn!("Dropping inbound message: {msg:?}"),
+            Err(TrySendError::Closed(_)) => {
+                return Err(Error::Unexpected("Inbound messages sink closed"))
+            }
+            _ => {
+                #[cfg(feature = "metrics")]
+                INBOUND_MSG_QUEUE_SIZE.inc();
+            }
+        }
+        Ok(())
     }
 
     /// Validate gossipsub message and return (source, topic, data)
@@ -867,23 +925,32 @@ impl<T: MsgContent> P2PTransport<T> {
             }
             _ => return Ok(()),
         };
-        // Send response just to prevent errors being emitted
-        let _ = self.swarm.behaviour_mut().request.send_response(channel, ());
-        let message = Message {
+
+        let msg = Message {
             peer_id: Some(peer_id),
             topic: None,
             content,
         };
-        self.inbound_msg_sender
-            .send(message)
-            .await
-            .map_err(|_| Error::Unexpected("Inbound messages sink closed"))
+
+        match self.inbound_msg_sender.try_send(msg) {
+            Err(TrySendError::Full(msg)) => log::warn!("Dropping inbound message: {msg:?}"),
+            Err(TrySendError::Closed(_)) => {
+                return Err(Error::Unexpected("Inbound messages sink closed"))
+            }
+            _ => {
+                // Send response to prevent errors being emitted on the sender side
+                let _ = self.swarm.behaviour_mut().request.send_response(channel, ());
+                #[cfg(feature = "metrics")]
+                INBOUND_MSG_QUEUE_SIZE.inc();
+            }
+        }
+        Ok(())
     }
 
     fn handle_identify_event(&mut self, event: identify::Event) -> Result<(), Error> {
         log::debug!("Identify event received: {event:?}");
         #[cfg(feature = "metrics")]
-        self.metrics.record(&event);
+        self.p2p_metrics.record(&event);
         let (peer_id, listen_addrs) = match event {
             identify::Event::Received { peer_id, info } => (peer_id, info.listen_addrs),
             _ => return Ok(()),
@@ -898,7 +965,7 @@ impl<T: MsgContent> P2PTransport<T> {
     fn handle_kademlia_event(&mut self, event: kad::Event) -> Result<(), Error> {
         log::debug!("Kademlia event received: {event:?}");
         #[cfg(feature = "metrics")]
-        self.metrics.record(&event);
+        self.p2p_metrics.record(&event);
         let (query_id, result, finished) = match event {
             kad::Event::OutboundQueryProgressed {
                 id,
@@ -922,11 +989,15 @@ impl<T: MsgContent> P2PTransport<T> {
         // Query reached the peer that was looked for. Send all pending messages.
         if peers.contains(&peer_id) {
             self.ongoing_queries.remove_by_right(&query_id);
+            #[cfg(feature = "metrics")]
+            ONGOING_QUERIES.dec();
             self.peer_found(peer_id);
         }
         // Query finished and the peer wasn't found. Drop all pending messages and dial requests.
         else if finished {
             self.ongoing_queries.remove_by_right(&query_id);
+            #[cfg(feature = "metrics")]
+            ONGOING_QUERIES.dec();
             self.peer_not_found(&peer_id);
         }
 
@@ -935,31 +1006,34 @@ impl<T: MsgContent> P2PTransport<T> {
 
     fn send_pending_messages(&mut self, peer_id: &PeerId) {
         log::debug!("Sending pending messages to {peer_id}");
-        self.pending_messages
-            .remove(peer_id)
-            .into_iter()
-            .flatten()
-            .for_each(|msg| self.send_msg(peer_id, msg));
+        self.pending_messages.remove(peer_id).into_iter().flatten().for_each(|msg| {
+            self.send_msg(peer_id, msg);
+            #[cfg(feature = "metrics")]
+            PENDING_MESSAGES.dec();
+        });
     }
 
     fn peer_found(&mut self, peer_id: PeerId) {
         log::debug!("Peer found: {peer_id}");
-        self.pending_dials
-            .remove(&peer_id)
-            .into_iter()
-            .flatten()
-            .for_each(|rs| self.dial_peer(peer_id, rs));
+        self.pending_dials.remove(&peer_id).into_iter().flatten().for_each(|rs| {
+            self.dial_peer(peer_id, rs);
+            #[cfg(feature = "metrics")]
+            PENDING_DIALS.dec();
+        });
         self.send_pending_messages(&peer_id);
     }
 
     fn peer_not_found(&mut self, peer_id: &PeerId) {
         log::debug!("Peer not found: {peer_id}");
-        self.pending_dials
-            .remove(peer_id)
-            .into_iter()
-            .flatten()
-            .for_each(|rs| rs.send_result(false));
-        self.pending_messages.remove(peer_id);
+        self.pending_dials.remove(peer_id).into_iter().flatten().for_each(|rs| {
+            rs.send_result(false);
+            #[cfg(feature = "metrics")]
+            PENDING_DIALS.dec();
+        });
+        let num_dropped_msg = self.pending_messages.remove(peer_id).unwrap_or_default().len();
+        log::warn!("Peer {peer_id} not found. Dropped {num_dropped_msg} pending messages");
+        #[cfg(feature = "metrics")]
+        PENDING_MESSAGES.dec_by(num_dropped_msg as u32);
     }
 
     fn dial_peer(&mut self, peer_id: PeerId, result_sender: DialResultSender) {
@@ -973,6 +1047,8 @@ impl<T: MsgContent> P2PTransport<T> {
         match self.swarm.dial(dial_opts) {
             Err(DialError::NoAddresses) => {
                 self.pending_dials.entry(peer_id).or_default().push(result_sender);
+                #[cfg(feature = "metrics")]
+                PENDING_DIALS.inc();
                 self.lookup_peer(peer_id);
             }
             Err(e) => {
@@ -981,15 +1057,22 @@ impl<T: MsgContent> P2PTransport<T> {
             }
             Ok(()) => {
                 self.ongoing_dials.insert(conn_id, result_sender);
+                #[cfg(feature = "metrics")]
+                ONGOING_DIALS.inc();
             }
         }
     }
 
     fn handle_connection_established(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
         log::debug!("Connection established with {peer_id}");
+        #[cfg(feature = "metrics")]
+        ACTIVE_CONNECTIONS.inc();
+
         self.send_pending_messages(&peer_id);
         if let Some(result_sender) = self.ongoing_dials.remove(&connection_id) {
             result_sender.send_result(true);
+            #[cfg(feature = "metrics")]
+            ONGOING_DIALS.dec();
         }
 
         let peer_conns = self.active_connections.entry(peer_id).or_default();
@@ -1003,6 +1086,9 @@ impl<T: MsgContent> P2PTransport<T> {
 
     fn handle_connection_closed(&mut self, peer_id: PeerId, connection_id: ConnectionId) {
         log::debug!("Connection with {peer_id} closed");
+        #[cfg(feature = "metrics")]
+        ACTIVE_CONNECTIONS.dec();
+
         match self.active_connections.get_mut(&peer_id) {
             Some(conns) => conns.retain(|cid| *cid != connection_id),
             None => log::warn!("Unknown connection peer_id={peer_id} conn_id={connection_id}"),
@@ -1013,7 +1099,9 @@ impl<T: MsgContent> P2PTransport<T> {
         let peer_id = peer_id.map(|id| id.to_string()).unwrap_or("<unknown>".to_string());
         log::debug!("Outgoing connection to {peer_id} failed");
         if let Some(result_sender) = self.ongoing_dials.remove(&connection_id) {
-            result_sender.send_result(false)
+            result_sender.send_result(false);
+            #[cfg(feature = "metrics")]
+            ONGOING_DIALS.dec();
         }
     }
 }
