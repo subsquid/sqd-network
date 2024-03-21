@@ -12,7 +12,7 @@ pub struct TransportArgs {
         long,
         env,
         help = "Address on which the p2p node will listen",
-        default_value = "/ip4/0.0.0.0/tcp/0"
+        default_value = "/ip4/0.0.0.0/udp/0/quic-v1"
     )]
     pub p2p_listen_addr: Multiaddr,
 

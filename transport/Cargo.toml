@@ -25,7 +25,7 @@ env_logger = "0.10"
 futures = "0.3"
 futures-core = "0.3"
 lazy_static = { version = "1", optional = true }
-libp2p = { version = "0.53", features = ["dns", "tcp", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde", "autonat"] }
+libp2p = { version = "0.53", features = ["dns", "tcp", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde", "autonat", "quic"] }
 libp2p-connection-limits = "0.3"
 libp2p-swarm-derive = "0.34"
 log = "0.4"

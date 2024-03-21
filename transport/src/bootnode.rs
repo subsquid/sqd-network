@@ -78,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
     let mut swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
         .with_tcp(Default::default(), noise::Config::new, yamux::Config::default)?
+        .with_quic()
         .with_dns()?
         .with_behaviour(behaviour)
         .expect("infallible")
