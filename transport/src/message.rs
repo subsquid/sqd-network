@@ -61,7 +61,8 @@ impl MsgContent for Vec<u8> {
     }
 }
 
-#[derive(Derivative, Debug)]
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct Message<T: MsgContent> {
     // None for outgoing broadcast messages, Some for others
     pub peer_id: Option<PeerId>,
