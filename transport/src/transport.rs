@@ -108,7 +108,7 @@ impl<T: MsgContent> Copy for MessageCodec<T> {}
 impl<M: MsgContent> request_response::Codec for MessageCodec<M> {
     type Protocol = &'static str;
     type Request = M;
-    type Response = ();
+    type Response = u8;
 
     async fn read_request<T>(
         &mut self,
@@ -118,25 +118,29 @@ impl<M: MsgContent> request_response::Codec for MessageCodec<M> {
     where
         T: futures::AsyncRead + Unpin + Send,
     {
-        let mut buf = [0u8; std::mem::size_of::<usize>()];
+        let mut buf = [0u8; 8];
         io.read_exact(&mut buf).await?;
-        let msg_len = usize::from_be_bytes(buf);
+        let msg_len = u64::from_be_bytes(buf);
 
-        let mut msg = M::new(msg_len);
-        io.read_exact(msg.as_mut_slice()).await?;
-        log::trace!("New message decoded: {}", String::from_utf8_lossy(msg.as_slice()));
-        Ok(msg)
+        let mut buf = Vec::new();
+        io.take(100 * 1024 * 1024).read_to_end(&mut buf).await?;
+        if buf.len() as u64 != msg_len {
+            log::warn!("Received message size mismatch: {} != {}", buf.len(), msg_len);
+        }
+        Ok(M::from_vec(buf))
     }
 
     async fn read_response<T>(
         &mut self,
         _protocol: &Self::Protocol,
-        _io: &mut T,
+        io: &mut T,
     ) -> std::io::Result<Self::Response>
     where
         T: futures::AsyncRead + Unpin + Send,
     {
-        Ok(())
+        let mut buf = Vec::new();
+        io.take(100).read_to_end(&mut buf).await?;
+        Ok(0)
     }
 
     async fn write_request<T>(
@@ -149,8 +153,7 @@ impl<M: MsgContent> request_response::Codec for MessageCodec<M> {
         T: futures::AsyncWrite + Unpin + Send,
     {
         let req = req.as_slice();
-        log::trace!("New message to encode: {}", String::from_utf8_lossy(req));
-        let msg_len = req.len().to_be_bytes();
+        let msg_len = (req.len() as u64).to_be_bytes();
         io.write_all(&msg_len).await?;
         io.write_all(req).await
     }
@@ -158,13 +161,13 @@ impl<M: MsgContent> request_response::Codec for MessageCodec<M> {
     async fn write_response<T>(
         &mut self,
         _protocol: &Self::Protocol,
-        _io: &mut T,
-        _res: Self::Response,
+        io: &mut T,
+        res: Self::Response,
     ) -> std::io::Result<()>
     where
         T: futures::AsyncWrite + Unpin + Send,
     {
-        Ok(())
+        io.write_all(&[res]).await
     }
 }
 
@@ -571,7 +574,7 @@ struct P2PTransport<T: MsgContent> {
     ongoing_queries: BiHashMap<PeerId, QueryId>,
     pending_messages: HashMap<PeerId, Vec<T>>,
     subscribed_topics: HashMap<TopicHash, (String, bool)>, // hash -> (topic, allow_unordered)
-    sequence_numbers: HashMap<(TopicHash, PeerId), u64>,
+    sequence_numbers: HashMap<(TopicHash, PeerId), u64>,   // FIXME: Potential memory leak
     active_connections: HashMap<PeerId, VecDeque<ConnectionId>>,
     swarm: Swarm<Behaviour<T>>,
     bootstrap: bool,
@@ -907,7 +910,7 @@ impl<T: MsgContent> P2PTransport<T> {
 
     async fn handle_request_event(
         &mut self,
-        event: request_response::Event<T, ()>,
+        event: request_response::Event<T, u8>,
     ) -> Result<(), Error> {
         log::debug!("Request-Response event received: {event:?}");
         let (peer_id, content, channel) = match event {
@@ -940,7 +943,7 @@ impl<T: MsgContent> P2PTransport<T> {
             }
             _ => {
                 // Send response to prevent errors being emitted on the sender side
-                let _ = self.swarm.behaviour_mut().request.send_response(channel, ());
+                let _ = self.swarm.behaviour_mut().request.send_response(channel, 1u8);
                 #[cfg(feature = "metrics")]
                 INBOUND_MSG_QUEUE_SIZE.inc();
             }
