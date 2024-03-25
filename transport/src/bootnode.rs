@@ -45,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
     // Init logging and parse arguments
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let cli = Cli::parse().transport;
+    let listen_addrs = cli.listen_addrs();
     let keypair = get_keypair(cli.key).await?;
     let local_peer_id = PeerId::from(keypair.public());
     log::info!("Local peer ID: {local_peer_id}");
@@ -84,8 +85,10 @@ async fn main() -> anyhow::Result<()> {
         .expect("infallible")
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(120)))
         .build();
-    log::info!("Listening on {}", cli.p2p_listen_addr);
-    swarm.listen_on(cli.p2p_listen_addr)?;
+    for listen_addr in listen_addrs {
+        log::info!("Listening on {}", listen_addr);
+        swarm.listen_on(listen_addr)?;
+    }
     for public_addr in cli.p2p_public_addrs {
         log::info!("Adding public address {public_addr}");
         swarm.add_external_address(public_addr);

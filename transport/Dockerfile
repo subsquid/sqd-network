@@ -43,9 +43,9 @@ COPY --from=builder /app/target/release/bootnode /usr/local/bin/bootnode
 COPY --from=builder /app/target/release/keygen /usr/local/bin/keygen
 CMD ["bootnode"]
 
-ENV P2P_LISTEN_ADDR="/ip4/0.0.0.0/tcp/12345"
+ENV P2P_LISTEN_ADDRS="/ip4/0.0.0.0/udp/12345/quic-v1"
 
-RUN echo "PORT=\${P2P_LISTEN_ADDR##*/}; netstat -an | grep \$PORT > /dev/null; if [ 0 != \$? ]; then exit 1; fi;" > ./healthcheck.sh
+COPY p2p_healthcheck.sh ./healthcheck.sh
 RUN chmod +x ./healthcheck.sh
 HEALTHCHECK --interval=5s CMD ./healthcheck.sh
 
@@ -54,7 +54,7 @@ COPY --from=builder /app/target/release/node /usr/local/bin/node
 COPY --from=builder /app/target/release/keygen /usr/local/bin/keygen
 CMD ["node"]
 
-ENV P2P_LISTEN_ADDRS="/ip4/0.0.0.0/tcp/12345"
+ENV P2P_LISTEN_ADDRS="/ip4/0.0.0.0/udp/12345/quic-v1"
 ENV RPC_LISTEN_ADDR="0.0.0.0:50051"
 ENV BOOTSTRAP="true"
 

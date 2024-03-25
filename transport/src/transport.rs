@@ -210,10 +210,11 @@ impl P2PTransportBuilder {
     }
 
     pub async fn from_cli(args: TransportArgs) -> anyhow::Result<Self> {
+        let listen_addrs = args.listen_addrs();
         let keypair = get_keypair(args.key).await?;
         Ok(Self {
             keypair,
-            listen_addrs: vec![args.p2p_listen_addr],
+            listen_addrs,
             public_addrs: args.p2p_public_addrs,
             boot_nodes: args.boot_nodes,
             relay_addr: None,
