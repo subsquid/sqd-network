@@ -22,7 +22,6 @@ pub struct TransportArgs {
         help = "Addresses on which the p2p node will listen",
         value_delimiter = ',',
         num_args = 1..,
-        default_value = "/ip4/0.0.0.0/udp/0/quic-v1",
     )]
     p2p_listen_addrs: Vec<Multiaddr>,
 
