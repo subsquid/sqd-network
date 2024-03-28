@@ -282,6 +282,8 @@ impl P2PTransportBuilder {
             .message_id_fn(gossipsub_msg_id)
             .build()
             .expect("config should be valid");
+        let mut autonat_config = autonat::Config::default();
+        autonat_config.timeout = Duration::from_secs(60);
         let behaviour = |keypair: &Keypair, relay| Behaviour {
             relay,
             identify: identify::Behaviour::new(
@@ -305,11 +307,12 @@ impl P2PTransportBuilder {
             )
             .unwrap(),
             ping: ping::Behaviour::new(Default::default()),
-            autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
+            autonat: autonat::Behaviour::new(local_peer_id, autonat_config),
         };
 
         let mut mtu_config = MtuDiscoveryConfig::default();
         mtu_config.upper_bound(*MTU_DISCOVERY_MAX);
+
         Ok(SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic_config(|config| config.with_mtu_discovery_config(mtu_config))
@@ -402,6 +405,7 @@ impl P2PTransportBuilder {
         if !self.boot_nodes.is_empty() {
             for BootNode { peer_id, address } in self.boot_nodes {
                 log::info!("Connecting to boot node {peer_id} at {address}");
+                swarm.behaviour_mut().autonat.add_server(peer_id, Some(address.clone()));
                 swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
                 swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
             }

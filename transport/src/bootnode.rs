@@ -53,6 +53,11 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Local peer ID: {local_peer_id}");
 
     // Prepare behaviour & transport
+    let mut autonat_config = autonat::Config::default();
+    autonat_config.use_connected = false;
+    autonat_config.timeout = Duration::from_secs(60);
+    autonat_config.throttle_clients_global_max = 64;
+    autonat_config.throttle_clients_peer_max = 16;
     let behaviour = |keypair: &Keypair| Behaviour {
         identify: identify::Behaviour::new(
             identify::Config::new("/subsquid/0.0.1".to_string(), keypair.public())
@@ -71,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .unwrap(),
         ping: ping::Behaviour::new(Default::default()),
-        autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
+        autonat: autonat::Behaviour::new(local_peer_id, autonat_config),
         conn_limits: libp2p_connection_limits::Behaviour::new(
             ConnectionLimits::default().with_max_established_per_peer(Some(3)),
         ),
@@ -104,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
         cli.boot_nodes.into_iter().filter(|node| node.peer_id != local_peer_id)
     {
         log::info!("Connecting to boot node {peer_id} at {address}");
+        swarm.behaviour_mut().autonat.add_server(peer_id, Some(address.clone()));
         swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
         swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
     }
