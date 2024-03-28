@@ -1,13 +1,7 @@
-FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.62-rust-1.75-slim-bookworm AS chef
+FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.62-rust-1.74-slim-bookworm AS chef
 WORKDIR /app
 
 FROM --platform=$BUILDPLATFORM chef AS planner
-RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
-    --mount=target=/var/cache/apt,type=cache,sharing=locked \
-    rm -f /etc/apt/apt.conf.d/docker-clean \
-    && apt-get update \
-    && apt-get -y install pkg-config libssl-dev \
-    && cargo install cargo-patch
 
 COPY Cargo.toml .
 COPY Cargo.lock .
@@ -16,12 +10,6 @@ COPY transport ./transport
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM --platform=$BUILDPLATFORM chef as builder
-RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
-    --mount=target=/var/cache/apt,type=cache,sharing=locked \
-    rm -f /etc/apt/apt.conf.d/docker-clean \
-    && apt-get update \
-    && apt-get -y install pkg-config libssl-dev \
-    && cargo install cargo-patch
 
 RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
