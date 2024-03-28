@@ -29,7 +29,7 @@ jobs:
       - name: Build & publish bootnode
         uses: docker/build-push-action@v5
         with:
-          context: ./transport
+          context: .
           platforms: linux/amd64,linux/arm/v7,linux/arm64/v8,linux/386
           target: bootnode
           push: true
@@ -40,7 +40,7 @@ jobs:
       - name: Build & publish rpc-node
         uses: docker/build-push-action@v5
         with:
-          context: ./transport
+          context: .
           platforms: linux/amd64,linux/arm/v7,linux/arm64/v8,linux/386
           target: rpc-node
           push: true

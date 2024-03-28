@@ -1,16 +1,27 @@
-FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.62-rust-1.74-slim-bookworm AS chef
+FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.62-rust-1.75-slim-bookworm AS chef
 WORKDIR /app
 
 FROM --platform=$BUILDPLATFORM chef AS planner
+RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
+    && apt-get -y install pkg-config libssl-dev \
+    && cargo install cargo-patch
 
-COPY build.rs .
 COPY Cargo.toml .
-COPY proto ./proto
-COPY src ./src
+COPY Cargo.lock .
+COPY transport ./transport
 
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM --platform=$BUILDPLATFORM chef as builder
+RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
+    && apt-get -y install pkg-config libssl-dev \
+    && cargo install cargo-patch
 
 RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
@@ -21,10 +32,9 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
 COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 
-COPY build.rs .
 COPY Cargo.toml .
-COPY proto ./proto
-COPY src ./src
+COPY Cargo.lock .
+COPY transport ./transport
 
 FROM builder as builder
 
