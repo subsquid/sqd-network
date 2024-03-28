@@ -452,7 +452,7 @@ impl DialResultSender {
     pub fn send_result(self, result: bool) {
         self.0
             .send(result)
-            .unwrap_or_else(|_| log::warn!("Dial result receiver dropped"));
+            .unwrap_or_else(|_| log::debug!("Dial result receiver dropped"));
     }
 }
 
@@ -677,7 +677,6 @@ impl<T: MsgContent> P2PTransport<T> {
     fn peer_addrs(&mut self, peer_id: PeerId) -> Vec<Multiaddr> {
         self.swarm
             .behaviour_mut()
-            .kademlia
             .handle_pending_outbound_connection(
                 ConnectionId::new_unchecked(0),
                 Some(peer_id),
@@ -994,11 +993,10 @@ impl<T: MsgContent> P2PTransport<T> {
             _ => return Ok(()),
         };
 
-        let peer_id = self
-            .ongoing_queries
-            .get_by_right(&query_id)
-            .ok_or(Error::Unexpected("Unknown query"))?
-            .to_owned();
+        let peer_id = match self.ongoing_queries.get_by_right(&query_id) {
+            None => return Ok(()),
+            Some(peer_id) => peer_id.to_owned(),
+        };
         let peers = match result {
             Ok(GetClosestPeersOk { peers, .. }) => peers,
             Err(GetClosestPeersError::Timeout { peers, .. }) => peers,
@@ -1059,10 +1057,11 @@ impl<T: MsgContent> P2PTransport<T> {
         let addrs = self.peer_addrs(peer_id);
         let dial_opts = DialOpts::peer_id(peer_id)
             .addresses(addrs)
-            .condition(PeerCondition::Always)
+            .condition(PeerCondition::Disconnected)
             .build();
         let conn_id = dial_opts.connection_id();
         match self.swarm.dial(dial_opts) {
+            Err(DialError::DialPeerConditionFalse(_)) => result_sender.send_result(true),
             Err(DialError::NoAddresses) => {
                 self.pending_dials.entry(peer_id).or_default().push(result_sender);
                 #[cfg(feature = "metrics")]
@@ -1086,12 +1085,21 @@ impl<T: MsgContent> P2PTransport<T> {
         #[cfg(feature = "metrics")]
         ACTIVE_CONNECTIONS.inc();
 
-        self.send_pending_messages(&peer_id);
+        if let Some(_) = self.ongoing_queries.remove_by_left(&peer_id) {
+            #[cfg(feature = "metrics")]
+            ONGOING_QUERIES.dec();
+        }
         if let Some(result_sender) = self.ongoing_dials.remove(&connection_id) {
             result_sender.send_result(true);
             #[cfg(feature = "metrics")]
             ONGOING_DIALS.dec();
         }
+        self.pending_dials.remove(&peer_id).into_iter().flatten().for_each(|rs| {
+            rs.send_result(true);
+            #[cfg(feature = "metrics")]
+            PENDING_DIALS.dec();
+        });
+        self.send_pending_messages(&peer_id);
 
         let peer_conns = self.active_connections.entry(peer_id).or_default();
         peer_conns.push_front(connection_id);
