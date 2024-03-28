@@ -1,3 +1,7 @@
 [workspace]
 members = ["transport"]
 resolver = "2"
+
+[patch.crates-io]
+libp2p = { git = "https://github.com/Wiezzel/rust-libp2p.git", branch = "wiezzel/quic" }
+libp2p-connection-limits = { git = "https://github.com/Wiezzel/rust-libp2p.git", branch = "wiezzel/quic" }

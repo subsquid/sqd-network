@@ -11,8 +11,10 @@ use async_trait::async_trait;
 use bimap::BiHashMap;
 use futures::{stream::StreamExt, AsyncReadExt as FutAsyncRead, AsyncWriteExt};
 use futures_core::Stream;
+use lazy_static::lazy_static;
 #[cfg(feature = "metrics")]
 use libp2p::metrics::{Metrics, Recorder};
+use libp2p::quic::MtuDiscoveryConfig;
 use libp2p::{
     autonat,
     core::Endpoint,
@@ -68,6 +70,13 @@ pub const SUBSQUID_PROTOCOL: &str = "/subsquid/0.0.1";
 const WORKER_PROTOCOL: &str = "/subsquid-worker/0.0.1";
 const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(300);
 const MAX_CONNS_PER_PEER: u32 = 2;
+
+lazy_static! {
+    pub static ref MTU_DISCOVERY_MAX: u16 = std::env::var("MTU_DISCOVERY_MAX")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(1452);
+}
 
 #[derive(NetworkBehaviour)]
 struct Behaviour<T>
@@ -299,11 +308,11 @@ impl P2PTransportBuilder {
             autonat: autonat::Behaviour::new(local_peer_id, Default::default()),
         };
 
-        // SwarmBuilder::with_tokio(transport, behaviour, local_peer_id).build()
+        let mut mtu_config = MtuDiscoveryConfig::default();
+        mtu_config.upper_bound(*MTU_DISCOVERY_MAX);
         Ok(SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
-            .with_tcp(Default::default(), noise::Config::new, yamux::Config::default)?
-            .with_quic()
+            .with_quic_config(|config| config.with_mtu_discovery_config(mtu_config))
             .with_dns()?
             .with_relay_client(noise::Config::new, yamux::Config::default)?
             .with_behaviour(behaviour)
