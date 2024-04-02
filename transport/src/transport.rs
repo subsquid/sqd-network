@@ -315,7 +315,12 @@ impl P2PTransportBuilder {
 
         Ok(SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
-            .with_quic_config(|config| config.with_mtu_discovery_config(mtu_config))
+            .with_quic_config(|config| {
+                let mut config = config.with_mtu_discovery_config(mtu_config);
+                config.keep_alive_interval = Duration::from_secs(5);
+                config.max_idle_timeout = 60 * 1000; // milliseconds
+                config
+            })
             .with_dns()?
             .with_relay_client(noise::Config::new, yamux::Config::default)?
             .with_behaviour(behaviour)
