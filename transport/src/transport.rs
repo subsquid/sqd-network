@@ -981,6 +981,15 @@ impl<T: MsgContent> P2PTransport<T> {
         listen_addrs.into_iter().filter(addr_is_reachable).for_each(|addr| {
             kademlia.add_address(&peer_id, addr);
         });
+
+        // Receiving identify event from peer counts as successful query.
+        // The node will return an *empty response* when asked about its own peer ID either way.
+        // See: https://github.com/libp2p/rust-libp2p/issues/5269
+        if let Some(_) = self.ongoing_queries.remove_by_left(&peer_id) {
+            #[cfg(feature = "metrics")]
+            ONGOING_QUERIES.dec();
+            self.peer_found(peer_id);
+        }
         Ok(())
     }
 
