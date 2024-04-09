@@ -7,7 +7,7 @@ use libp2p::{
 };
 
 pub use libp2p::{
-    identity::{Keypair, PublicKey},
+    identity::{Keypair, ParseError as IdParseError, PublicKey},
     Multiaddr, PeerId,
 };
 pub use message::{Message, MsgContent};
