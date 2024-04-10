@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.62-rust-1.74-slim-bookworm AS chef
+FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.62-rust-1.75-slim-bookworm AS chef
 WORKDIR /app
 
 FROM --platform=$BUILDPLATFORM chef AS planner
