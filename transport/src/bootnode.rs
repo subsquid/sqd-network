@@ -53,11 +53,13 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Local peer ID: {local_peer_id}");
 
     // Prepare behaviour & transport
-    let mut autonat_config = autonat::Config::default();
-    autonat_config.use_connected = false;
-    autonat_config.timeout = Duration::from_secs(60);
-    autonat_config.throttle_clients_global_max = 64;
-    autonat_config.throttle_clients_peer_max = 16;
+    let autonat_config = autonat::Config {
+        use_connected: false,
+        timeout: Duration::from_secs(60),
+        throttle_clients_global_max: 64,
+        throttle_clients_peer_max: 16,
+        ..Default::default()
+    };
     let behaviour = |keypair: &Keypair| Behaviour {
         identify: identify::Behaviour::new(
             identify::Config::new("/subsquid/0.0.1".to_string(), keypair.public())

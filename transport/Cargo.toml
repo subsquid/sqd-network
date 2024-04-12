@@ -25,9 +25,9 @@ env_logger = "0.11"
 futures = "0.3"
 futures-core = "0.3"
 lazy_static = { version = "1" }
-libp2p = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "07b79f0c", features = ["dns", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde", "autonat", "quic"] }
-libp2p-connection-limits = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "07b79f0c" }
-libp2p-swarm-derive = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "07b79f0c" }
+libp2p = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "299b66e4", features = ["dns", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde", "autonat", "quic"] }
+libp2p-connection-limits = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "299b66e4" }
+libp2p-swarm-derive = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "299b66e4" }
 log = "0.4"
 prometheus-client = { version = "0.22.2", optional = true }
 prost = "0.12"
