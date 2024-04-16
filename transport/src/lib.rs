@@ -13,13 +13,12 @@ pub use libp2p::{
 pub use message::{Message, MsgContent};
 #[cfg(feature = "metrics")]
 pub use prometheus_client::registry::Registry;
-pub use rpc::api::Subscription;
+pub use transport::Subscription;
 
 pub mod cli;
 mod message;
 #[cfg(feature = "metrics")]
 pub mod metrics;
-pub mod rpc;
 pub mod task_manager;
 pub mod transport;
 pub mod util;

@@ -11,17 +11,10 @@ pub struct TransportArgs {
     #[arg(
         long,
         env,
-        help = "Deprecated. Use p2p_listen_addrs",
-        default_value = "/ip4/0.0.0.0/udp/0/quic-v1"
-    )]
-    p2p_listen_addr: Multiaddr,
-
-    #[arg(
-        long,
-        env,
         help = "Addresses on which the p2p node will listen",
         value_delimiter = ',',
         num_args = 1..,
+        default_value = "/ip4/0.0.0.0/udp/0/quic-v1"
     )]
     p2p_listen_addrs: Vec<Multiaddr>,
 
@@ -53,12 +46,7 @@ pub struct TransportArgs {
 
 impl TransportArgs {
     pub fn listen_addrs(&self) -> Vec<Multiaddr> {
-        if self.p2p_listen_addrs.is_empty() {
-            log::warn!("Using `p2p_listen_addr` is deprecated. Use `p2p_listen_addrs`");
-            vec![self.p2p_listen_addr.clone()]
-        } else {
-            self.p2p_listen_addrs.clone()
-        }
+        self.p2p_listen_addrs.clone()
     }
 }
 

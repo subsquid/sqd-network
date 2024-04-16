@@ -59,8 +59,15 @@ use crate::{
     cli::{BootNode, TransportArgs},
     task_manager::TaskManager,
     util::{addr_is_reachable, get_keypair},
-    Error, Message, MsgContent, Subscription,
+    Error, Message, MsgContent,
 };
+
+#[derive(Debug, Clone)]
+pub struct Subscription {
+    pub topic: String,
+    pub subscribed: bool,
+    pub allow_unordered: bool,
+}
 
 type OutboundMsgSender<T> = mpsc::Sender<Message<T>>;
 type SubscriptionSender = mpsc::Sender<Subscription>;

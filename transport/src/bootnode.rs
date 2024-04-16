@@ -54,7 +54,6 @@ async fn main() -> anyhow::Result<()> {
 
     // Prepare behaviour & transport
     let autonat_config = autonat::Config {
-        use_connected: false,
         timeout: Duration::from_secs(60),
         throttle_clients_global_max: 64,
         throttle_clients_peer_max: 16,
@@ -111,7 +110,6 @@ async fn main() -> anyhow::Result<()> {
         cli.boot_nodes.into_iter().filter(|node| node.peer_id != local_peer_id)
     {
         log::info!("Connecting to boot node {peer_id} at {address}");
-        swarm.behaviour_mut().autonat.add_server(peer_id, Some(address.clone()));
         swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
         swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
     }
