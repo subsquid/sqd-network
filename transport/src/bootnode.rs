@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use env_logger::Env;
-use futures::{stream::FusedStream, StreamExt};
+use futures::StreamExt;
 use libp2p::quic::MtuDiscoveryConfig;
 use libp2p::{
     autonat,
@@ -10,14 +10,14 @@ use libp2p::{
     identify,
     kad::{self, store::MemoryStore, Mode},
     ping, relay,
-    swarm::{dial_opts::DialOpts, SwarmEvent},
+    swarm::SwarmEvent,
     PeerId, SwarmBuilder,
 };
 use libp2p_connection_limits::ConnectionLimits;
 use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::signal::unix::{signal, SignalKind};
 
-use subsquid_network_transport::transport::MTU_DISCOVERY_MAX;
+use subsquid_network_transport::transport::{DHT_PROTOCOL, MTU_DISCOVERY_MAX};
 use subsquid_network_transport::{
     cli::{BootNode, TransportArgs},
     util::{addr_is_reachable, get_keypair},
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         kademlia: kad::Behaviour::with_config(
             local_peer_id,
             MemoryStore::new(local_peer_id),
-            Default::default(),
+            kad::Config::new(DHT_PROTOCOL),
         ),
         relay: relay::Behaviour::new(local_peer_id, Default::default()),
         gossipsub: gossipsub::Behaviour::new(
@@ -111,16 +111,12 @@ async fn main() -> anyhow::Result<()> {
     {
         log::info!("Connecting to boot node {peer_id} at {address}");
         swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
-        swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
-    }
-
-    if swarm.behaviour_mut().kademlia.bootstrap().is_err() {
-        log::warn!("No peers connected. Cannot bootstrap kademlia.")
+        swarm.dial(peer_id)?;
     }
 
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;
-    while !swarm.is_terminated() {
+    loop {
         let event = tokio::select! {
             event = swarm.select_next_some() => event,
             _ = sigint.recv() => break,

@@ -35,13 +35,6 @@ pub struct TransportArgs {
         num_args = 1..,
     )]
     pub boot_nodes: Vec<BootNode>,
-
-    #[arg(
-        long,
-        env,
-        help = "Bootstrap kademlia. Makes node discoverable by others."
-    )]
-    pub bootstrap: bool,
 }
 
 impl TransportArgs {

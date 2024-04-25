@@ -37,17 +37,13 @@ use libp2p::{
         dial_opts::{DialOpts, PeerCondition},
         ConnectionId, DialError, NetworkBehaviour, SwarmEvent,
     },
-    yamux, Multiaddr, PeerId, Swarm, SwarmBuilder,
+    yamux, Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 #[cfg(feature = "metrics")]
 use prometheus_client::registry::Registry;
-use rand::prelude::SliceRandom;
-use tokio::{
-    sync::{mpsc, mpsc::error::TrySendError, oneshot},
-    time::interval,
-};
-use tokio_stream::wrappers::{IntervalStream, ReceiverStream};
+use tokio::sync::{mpsc, mpsc::error::TrySendError, oneshot};
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "metrics")]
@@ -73,8 +69,8 @@ type OutboundMsgSender<T> = mpsc::Sender<Message<T>>;
 type SubscriptionSender = mpsc::Sender<Subscription>;
 
 pub const SUBSQUID_PROTOCOL: &str = "/subsquid/0.0.1";
+pub const DHT_PROTOCOL: StreamProtocol = StreamProtocol::new("/subsquid/dht/0.0.1");
 const WORKER_PROTOCOL: &str = "/subsquid-worker/0.0.1";
-const BOOTSTRAP_INTERVAL: Duration = Duration::from_secs(300);
 const MAX_CONNS_PER_PEER: u32 = 2;
 
 lazy_static! {
@@ -193,7 +189,6 @@ pub struct P2PTransportBuilder {
     boot_nodes: Vec<BootNode>,
     relay_addr: Option<Multiaddr>,
     relay: bool,
-    bootstrap: bool,
     #[cfg(feature = "metrics")]
     p2p_metrics: Metrics,
 }
@@ -218,7 +213,6 @@ impl P2PTransportBuilder {
             boot_nodes: vec![],
             relay_addr: None,
             relay: false,
-            bootstrap: true,
             #[cfg(feature = "metrics")]
             p2p_metrics: Metrics::new(&mut Default::default()),
         }
@@ -234,7 +228,6 @@ impl P2PTransportBuilder {
             boot_nodes: args.boot_nodes,
             relay_addr: None,
             relay: false,
-            bootstrap: args.bootstrap,
             #[cfg(feature = "metrics")]
             p2p_metrics: Metrics::new(&mut Default::default()),
         })
@@ -259,10 +252,6 @@ impl P2PTransportBuilder {
 
     pub fn relay(&mut self, relay: bool) {
         self.relay = relay;
-    }
-
-    pub fn bootstrap(&mut self, bootstrap: bool) {
-        self.bootstrap = bootstrap;
     }
 
     #[cfg(feature = "metrics")]
@@ -302,7 +291,7 @@ impl P2PTransportBuilder {
             kademlia: kad::Behaviour::with_config(
                 local_peer_id,
                 MemoryStore::new(local_peer_id),
-                Default::default(),
+                kad::Config::new(DHT_PROTOCOL),
             ),
             dcutr: dcutr::Behaviour::new(local_peer_id),
             request: request_response::Behaviour::new(
@@ -337,76 +326,6 @@ impl P2PTransportBuilder {
             .build())
     }
 
-    async fn wait_for_listening<T: MsgContent>(
-        swarm: &mut Swarm<Behaviour<T>>,
-        #[cfg(feature = "metrics")] metrics: &Metrics,
-    ) {
-        // There is no easy way to wait for *all* listen addresses to be ready (e.g. counting
-        // events doesn't work, because 0.0.0.0 addr will generate as many events, as there are
-        // available network interfaces). Assuming 1 second should be enough in most cases.
-        let _ = tokio::time::timeout(Duration::from_secs(1), async {
-            loop {
-                let event = swarm.next().await.unwrap();
-                #[cfg(feature = "metrics")]
-                record_event(metrics, &event);
-                match event {
-                    SwarmEvent::NewListenAddr { address, .. } => {
-                        log::info!("Listening on {:?}", address);
-                    }
-                    e => {
-                        log::debug!("Unexpected swarm event: {e:?}");
-                    }
-                }
-            }
-        })
-        .await;
-    }
-
-    async fn wait_for_first_connection<T: MsgContent>(
-        swarm: &mut Swarm<Behaviour<T>>,
-        #[cfg(feature = "metrics")] metrics: &Metrics,
-    ) {
-        loop {
-            let event = swarm.next().await.unwrap();
-            #[cfg(feature = "metrics")]
-            record_event(metrics, &event);
-            match event {
-                SwarmEvent::ConnectionEstablished { peer_id, .. } => {
-                    log::info!("Connection established with {peer_id}");
-                    break;
-                }
-                SwarmEvent::Behaviour(BehaviourEvent::Kademlia(_)) => {}
-                e => log::debug!("Unexpected swarm event: {e:?}"),
-            }
-        }
-    }
-
-    async fn wait_for_identify<T: MsgContent>(
-        swarm: &mut Swarm<Behaviour<T>>,
-        #[cfg(feature = "metrics")] metrics: &Metrics,
-    ) {
-        let mut received = false;
-        let mut sent = false;
-        while !(received && sent) {
-            let event = swarm.next().await.unwrap();
-            #[cfg(feature = "metrics")]
-            record_event(metrics, &event);
-            match event {
-                SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Sent {
-                    ..
-                })) => {
-                    sent = true;
-                }
-                SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
-                    ..
-                })) => {
-                    received = true;
-                }
-                event => log::debug!("{:?}", event),
-            }
-        }
-    }
-
     pub async fn run<T: MsgContent>(
         self,
     ) -> Result<
@@ -416,23 +335,20 @@ impl P2PTransportBuilder {
         log::info!("Local peer ID: {}", self.keypair.public().to_peer_id());
         let mut swarm = Self::build_swarm(self.keypair)?;
 
-        // If relay node not specified explicitly, use random boot node
-        let relay_addr = self.relay_addr.or_else(|| {
-            self.boot_nodes
-                .choose(&mut rand::thread_rng())
-                .map(|node| node.address.clone().with(Protocol::P2p(node.peer_id)))
-        });
+        // If relay node not specified explicitly, use boot nodes
+        let relay_addrs = match self.relay_addr {
+            Some(addr) => vec![addr],
+            None => self
+                .boot_nodes
+                .iter()
+                .map(|bn| bn.address.clone().with(Protocol::P2p(bn.peer_id)))
+                .collect(),
+        };
 
         // Listen on provided addresses
         for addr in self.listen_addrs {
             swarm.listen_on(addr)?;
         }
-        Self::wait_for_listening(
-            &mut swarm,
-            #[cfg(feature = "metrics")]
-            &self.p2p_metrics,
-        )
-        .await;
 
         // Register public addresses
         for addr in self.public_addrs {
@@ -447,26 +363,14 @@ impl P2PTransportBuilder {
                 swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
                 swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
             }
-            Self::wait_for_first_connection(
-                &mut swarm,
-                #[cfg(feature = "metrics")]
-                &self.p2p_metrics,
-            )
-            .await;
         }
 
         // Connect to relay and listen for relayed connections
         if self.relay {
-            let addr = relay_addr.ok_or(Error::NoRelay)?;
-            log::info!("Connecting to relay {addr}");
-            swarm.dial(addr.clone())?;
-            Self::wait_for_identify(
-                &mut swarm,
-                #[cfg(feature = "metrics")]
-                &self.p2p_metrics,
-            )
-            .await;
-            swarm.listen_on(addr.with(Protocol::P2pCircuit))?;
+            for addr in relay_addrs {
+                log::info!("Connecting to relay {addr}");
+                swarm.listen_on(addr.with(Protocol::P2pCircuit))?;
+            }
         }
 
         let (inbound_tx, inbound_rx) = mpsc::channel(1000);
@@ -479,7 +383,6 @@ impl P2PTransportBuilder {
             subscription_rx,
             dial_rx,
             swarm,
-            self.bootstrap,
             #[cfg(feature = "metrics")]
             self.p2p_metrics,
         );
@@ -639,7 +542,6 @@ struct P2PTransport<T: MsgContent> {
     sequence_numbers: HashMap<(TopicHash, PeerId), u64>,   // FIXME: Potential memory leak
     active_connections: HashMap<PeerId, VecDeque<ConnectionId>>,
     swarm: Swarm<Behaviour<T>>,
-    bootstrap: bool,
     #[cfg(feature = "metrics")]
     p2p_metrics: Metrics,
 }
@@ -651,7 +553,6 @@ impl<T: MsgContent> P2PTransport<T> {
         subscription_receiver: mpsc::Receiver<Subscription>,
         dial_receiver: DialReceiver,
         swarm: Swarm<Behaviour<T>>,
-        bootstrap: bool,
         #[cfg(feature = "metrics")] metrics: Metrics,
     ) -> Self {
         Self {
@@ -667,7 +568,6 @@ impl<T: MsgContent> P2PTransport<T> {
             sequence_numbers: Default::default(),
             active_connections: Default::default(),
             swarm,
-            bootstrap,
             #[cfg(feature = "metrics")]
             p2p_metrics: metrics,
         }
@@ -675,16 +575,10 @@ impl<T: MsgContent> P2PTransport<T> {
 
     pub async fn run(mut self, cancel_token: CancellationToken) {
         log::info!("P2PTransport starting");
-        let mut bootstrap_timer = IntervalStream::new(interval(BOOTSTRAP_INTERVAL)).fuse();
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => break,
-                _ = bootstrap_timer.select_next_some() => {
-                    if !self.bootstrap() {
-                        break
-                    }
-                },
-                event = self.swarm.select_next_some() => self.handle_swarm_event(event).await.unwrap_or_else(|e| {
+                event = self.swarm.select_next_some() => self.handle_swarm_event(event).unwrap_or_else(|e| {
                     log::error!("Error handling swarm event: {e}")
                 }),
                 Some(msg) = self.outbound_msg_receiver.recv() => {
@@ -702,17 +596,6 @@ impl<T: MsgContent> P2PTransport<T> {
             }
         }
         log::info!("Shutting down P2P transport");
-    }
-
-    fn bootstrap(&mut self) -> bool {
-        if self.bootstrap {
-            log::debug!("Bootstrapping kademlia");
-            if let Err(e) = self.swarm.behaviour_mut().kademlia.bootstrap() {
-                log::error!("Cannot bootstrap kademlia: {e:?}");
-                return false;
-            }
-        }
-        true
     }
 
     fn can_send_msg(&mut self, peer_id: &PeerId) -> bool {
@@ -834,15 +717,15 @@ impl<T: MsgContent> P2PTransport<T> {
     }
 
     #[rustfmt::skip]
-    async fn handle_swarm_event(
+    fn handle_swarm_event(
         &mut self,
         event: SwarmEvent<BehaviourEvent<T>>,
     ) -> Result<(), Error> {
         #[cfg(feature = "metrics")]
         record_event(&self.p2p_metrics, &event);
         match event {
-            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => self.handle_gossipsub_event(event).await,
-            SwarmEvent::Behaviour(BehaviourEvent::Request(event)) => self.handle_request_event(event).await,
+            SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(event)) => self.handle_gossipsub_event(event),
+            SwarmEvent::Behaviour(BehaviourEvent::Request(event)) => self.handle_request_event(event),
             SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => self.handle_identify_event(event),
             SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => self.handle_kademlia_event(event),
             SwarmEvent::ConnectionEstablished {peer_id, connection_id, ..} =>
@@ -855,7 +738,7 @@ impl<T: MsgContent> P2PTransport<T> {
         }
     }
 
-    async fn handle_gossipsub_event(&mut self, event: gossipsub::Event) -> Result<(), Error> {
+    fn handle_gossipsub_event(&mut self, event: gossipsub::Event) -> Result<(), Error> {
         log::debug!("Gossipsub event received: {event:?}");
         let (msg, propagation_source) = match event {
             gossipsub::Event::Message {
@@ -933,10 +816,7 @@ impl<T: MsgContent> P2PTransport<T> {
         Ok((source, topic.to_string(), msg.data))
     }
 
-    async fn handle_request_event(
-        &mut self,
-        event: request_response::Event<T, u8>,
-    ) -> Result<(), Error> {
+    fn handle_request_event(&mut self, event: request_response::Event<T, u8>) -> Result<(), Error> {
         log::debug!("Request-Response event received: {event:?}");
         let (peer_id, content, channel) = match event {
             request_response::Event::Message {

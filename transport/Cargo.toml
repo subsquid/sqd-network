@@ -1,6 +1,6 @@
 [package]
 name = "subsquid-network-transport"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 
 [[bin]]
@@ -26,7 +26,6 @@ libp2p-connection-limits = { git = "https://github.com/Wiezzel/rust-libp2p.git",
 libp2p-swarm-derive = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "299b66e4" }
 log = "0.4"
 prometheus-client = { version = "0.22.2", optional = true }
-rand = "0.8"
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "macros", "rt", "rt-multi-thread", "signal", "sync"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
