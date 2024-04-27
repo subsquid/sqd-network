@@ -1,9 +1,6 @@
-use std::future::Future;
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
-use tokio::runtime::RuntimeFlavor;
-use tokio::task::JoinHandle;
-use tokio::time::Instant;
+use tokio::{runtime::RuntimeFlavor, task::JoinHandle, time::Instant};
 
 pub use tokio_util::sync::CancellationToken;
 

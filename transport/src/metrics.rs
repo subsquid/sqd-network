@@ -1,6 +1,5 @@
 use lazy_static::lazy_static;
-use prometheus_client::metrics::gauge::Gauge;
-use prometheus_client::registry::Registry;
+use prometheus_client::{metrics::gauge::Gauge, registry::Registry};
 use std::sync::atomic::AtomicU32;
 
 lazy_static! {

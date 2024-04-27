@@ -1,6 +1,10 @@
 use libp2p::{identity::Keypair, multiaddr::Protocol, Multiaddr};
 use std::path::PathBuf;
 
+mod task_manager;
+
+pub use task_manager::TaskManager;
+
 /// Load key from file or generate and save to file.
 pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
     let path = match path {

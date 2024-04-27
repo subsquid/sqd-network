@@ -3,13 +3,14 @@ use std::time::Duration;
 use clap::Parser;
 use env_logger::Env;
 use futures::StreamExt;
-use libp2p::quic::MtuDiscoveryConfig;
 use libp2p::{
     autonat,
     gossipsub::{self, MessageAuthenticity},
     identify,
     kad::{self, store::MemoryStore, Mode},
-    ping, relay,
+    ping,
+    quic::MtuDiscoveryConfig,
+    relay,
     swarm::SwarmEvent,
     PeerId, SwarmBuilder,
 };
@@ -17,11 +18,10 @@ use libp2p_connection_limits::ConnectionLimits;
 use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::signal::unix::{signal, SignalKind};
 
-use subsquid_network_transport::transport::{DHT_PROTOCOL, MTU_DISCOVERY_MAX};
 use subsquid_network_transport::{
-    cli::{BootNode, TransportArgs},
+    protocol::DHT_PROTOCOL,
     util::{addr_is_reachable, get_keypair},
-    Keypair,
+    BootNode, Keypair, QuicConfig, TransportArgs,
 };
 
 #[derive(Parser)]
@@ -84,8 +84,9 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Start the swarm
+    let quic_config = QuicConfig::from_env();
     let mut mtu_config = MtuDiscoveryConfig::default();
-    mtu_config.upper_bound(*MTU_DISCOVERY_MAX);
+    mtu_config.upper_bound(quic_config.mtu_discovery_max);
     let mut swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
         .with_quic_config(|config| config.with_mtu_discovery_config(mtu_config))
