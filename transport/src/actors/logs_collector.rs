@@ -18,8 +18,8 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
 use std::{sync::Arc, time::Duration};
 use subsquid_messages::{
-    envelope, gateway_log_msg, Envelope, GatewayLogMsg, LogsCollected, QueryFinished, QueryLogs,
-    QuerySubmitted,
+    envelope, gateway_log_msg, Envelope, GatewayLogMsg, LogsCollected, QueryExecuted,
+    QueryFinished, QueryLogs, QuerySubmitted,
 };
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -36,7 +36,10 @@ use prometheus_client::registry::Registry;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LogsCollectorEvent {
     /// Worker reports executed queries (a bundle)
-    WorkerLogs(QueryLogs),
+    WorkerLogs {
+        peer_id: PeerId,
+        logs: Vec<QueryExecuted>,
+    },
     /// Gateway reports a submitted query
     QuerySubmitted(QuerySubmitted),
     /// Gateway reports a finished query (result received or timeout)
@@ -110,12 +113,13 @@ impl LogsCollectorBehaviour {
     fn on_worker_logs(
         &mut self,
         peer_id: PeerId,
-        mut logs: QueryLogs,
+        logs: QueryLogs,
     ) -> Option<LogsCollectorEvent> {
-        log::debug!("Got {} query logs from {peer_id}", logs.queries_executed.len());
+        let mut logs = logs.queries_executed;
+        log::debug!("Got {} query logs from {peer_id}", logs.len());
         let worker_id = peer_id.to_base58();
-        logs.queries_executed.retain(|log| log.worker_id == worker_id);
-        (!logs.queries_executed.is_empty()).then_some(LogsCollectorEvent::WorkerLogs(logs))
+        logs.retain(|log| log.worker_id == worker_id);
+        (!logs.is_empty()).then_some(LogsCollectorEvent::WorkerLogs { peer_id, logs })
     }
 
     fn on_gateway_log(
