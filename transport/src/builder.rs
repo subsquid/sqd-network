@@ -1,4 +1,4 @@
-use std::{str::FromStr, time::Duration};
+use std::time::Duration;
 
 use futures_core::Stream;
 use libp2p::{
@@ -8,56 +8,33 @@ use libp2p::{
     swarm::{dial_opts::DialOpts, NetworkBehaviour},
     yamux, Swarm, SwarmBuilder,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::{
-    actors::{
-        gateway,
-        gateway::{GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle},
-        logs_collector, scheduler, worker,
-    },
     behaviour::base::{BaseBehaviour, BaseConfig},
     cli::{BootNode, TransportArgs},
     util::get_keypair,
-    Error, Keypair, Multiaddr, PeerId,
+    Error, Keypair, Multiaddr, PeerId, QuicConfig,
 };
 
-use crate::actors::{
-    logs_collector::{
-        LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent,
-        LogsCollectorTransportHandle,
-    },
-    scheduler::{SchedulerBehaviour, SchedulerConfig, SchedulerEvent, SchedulerTransportHandle},
-    worker::{WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle},
+#[cfg(feature = "gateway")]
+use crate::actors::gateway::{
+    self, GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle,
 };
-
+#[cfg(feature = "logs-collector")]
+use crate::actors::logs_collector::{
+    self, LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent,
+    LogsCollectorTransportHandle,
+};
+#[cfg(feature = "scheduler")]
+use crate::actors::scheduler::{
+    self, SchedulerBehaviour, SchedulerConfig, SchedulerEvent, SchedulerTransportHandle,
+};
+#[cfg(feature = "worker")]
+use crate::actors::worker::{
+    self, WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
+};
 #[cfg(feature = "metrics")]
 use prometheus_client::registry::Registry;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuicConfig {
-    pub mtu_discovery_max: u16,
-    pub keep_alive_interval_ms: u32,
-    pub max_idle_timeout_ms: u32,
-}
-
-#[inline(always)]
-fn parse_var<T: FromStr>(var: &str, default: T) -> T {
-    std::env::var(var).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
-}
-
-impl QuicConfig {
-    pub fn from_env() -> Self {
-        let mtu_discovery_max = parse_var("MTU_DISCOVERY_MAX", 1452);
-        let keep_alive_interval_ms = parse_var("KEEP_ALIVE_INTERVAL_MS", 5000);
-        let max_idle_timeout_ms = parse_var("MAX_IDLE_TIMEOUT_MS", 60000);
-        Self {
-            mtu_discovery_max,
-            keep_alive_interval_ms,
-            max_idle_timeout_ms,
-        }
-    }
-}
 
 pub struct P2PTransportBuilder {
     keypair: Keypair,
@@ -217,6 +194,7 @@ impl P2PTransportBuilder {
         Ok(swarm)
     }
 
+    #[cfg(feature = "gateway")]
     pub fn build_gateway(
         self,
         config: GatewayConfig,
@@ -235,6 +213,7 @@ impl P2PTransportBuilder {
         ))
     }
 
+    #[cfg(feature = "logs-collector")]
     pub fn build_logs_collector(
         self,
         config: LogsCollectorConfig,
@@ -253,6 +232,7 @@ impl P2PTransportBuilder {
         ))
     }
 
+    #[cfg(feature = "scheduler")]
     pub fn build_scheduler(
         self,
         config: SchedulerConfig,
@@ -271,6 +251,7 @@ impl P2PTransportBuilder {
         ))
     }
 
+    #[cfg(feature = "worker")]
     pub fn build_worker(
         self,
         config: WorkerConfig,

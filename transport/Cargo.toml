@@ -37,4 +37,11 @@ tokio-util = "0.7"
 subsquid-messages = { path = "../messages", features = ["signatures"] }
 
 [features]
+actors = []
+request-client = []
+request-server = []
+gateway = ["actors", "request-client"]
+logs-collector = ["actors", "request-server"]
+scheduler = ["actors", "request-client"]
+worker = ["actors", "request-client", "request-server"]
 metrics = ["libp2p/metrics", "prometheus-client"]
