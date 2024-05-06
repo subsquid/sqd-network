@@ -33,8 +33,6 @@ use crate::actors::scheduler::{
 use crate::actors::worker::{
     self, WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
 };
-#[cfg(feature = "metrics")]
-use prometheus_client::registry::Registry;
 
 pub struct P2PTransportBuilder {
     keypair: Keypair,
@@ -129,7 +127,6 @@ impl P2PTransportBuilder {
     fn build_swarm<T: NetworkBehaviour>(
         mut self,
         behaviour: impl FnOnce(BaseBehaviour) -> T,
-        #[cfg(feature = "metrics")] registry: &mut Registry,
     ) -> Result<Swarm<T>, Error> {
         let mut swarm = SwarmBuilder::with_existing_identity(self.keypair)
             .with_tokio()
@@ -145,14 +142,8 @@ impl P2PTransportBuilder {
             .with_dns()?
             .with_relay_client(noise::Config::new, yamux::Config::default)?
             .with_behaviour(|keypair, relay| {
-                let base = BaseBehaviour::new(
-                    keypair,
-                    self.base_config,
-                    self.boot_nodes.clone(),
-                    relay,
-                    #[cfg(feature = "metrics")]
-                    registry,
-                );
+                let base =
+                    BaseBehaviour::new(keypair, self.base_config, self.boot_nodes.clone(), relay);
                 behaviour(base)
             })
             .expect("infallible")
@@ -198,75 +189,37 @@ impl P2PTransportBuilder {
     pub fn build_gateway(
         self,
         config: GatewayConfig,
-        #[cfg(feature = "metrics")] registry: &mut Registry,
     ) -> Result<(impl Stream<Item = GatewayEvent>, GatewayTransportHandle), Error> {
-        let swarm = self.build_swarm(
-            |base| GatewayBehaviour::new(base, config.clone()),
-            #[cfg(feature = "metrics")]
-            registry,
-        )?;
-        Ok(gateway::start_transport(
-            swarm,
-            config,
-            #[cfg(feature = "metrics")]
-            registry,
-        ))
+        let swarm = self.build_swarm(|base| GatewayBehaviour::new(base, config.clone()))?;
+        Ok(gateway::start_transport(swarm, config))
     }
 
     #[cfg(feature = "logs-collector")]
     pub fn build_logs_collector(
         self,
         config: LogsCollectorConfig,
-        #[cfg(feature = "metrics")] registry: &mut Registry,
     ) -> Result<(impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle), Error> {
-        let swarm = self.build_swarm(
-            |base| LogsCollectorBehaviour::new(base, config.clone()),
-            #[cfg(feature = "metrics")]
-            registry,
-        )?;
-        Ok(logs_collector::start_transport(
-            swarm,
-            config,
-            #[cfg(feature = "metrics")]
-            registry,
-        ))
+        let swarm = self.build_swarm(|base| LogsCollectorBehaviour::new(base, config.clone()))?;
+        Ok(logs_collector::start_transport(swarm, config))
     }
 
     #[cfg(feature = "scheduler")]
     pub fn build_scheduler(
         self,
         config: SchedulerConfig,
-        #[cfg(feature = "metrics")] registry: &mut Registry,
     ) -> Result<(impl Stream<Item = SchedulerEvent>, SchedulerTransportHandle), Error> {
-        let swarm = self.build_swarm(
-            |base| SchedulerBehaviour::new(base, config.clone()),
-            #[cfg(feature = "metrics")]
-            registry,
-        )?;
-        Ok(scheduler::start_transport(
-            swarm,
-            config,
-            #[cfg(feature = "metrics")]
-            registry,
-        ))
+        let swarm = self.build_swarm(|base| SchedulerBehaviour::new(base, config.clone()))?;
+        Ok(scheduler::start_transport(swarm, config))
     }
 
     #[cfg(feature = "worker")]
     pub fn build_worker(
         self,
         config: WorkerConfig,
-        #[cfg(feature = "metrics")] registry: &mut Registry,
     ) -> Result<(impl Stream<Item = WorkerEvent>, WorkerTransportHandle), Error> {
-        let swarm = self.build_swarm(
-            |base| WorkerBehaviour::new(base, config.clone()),
-            #[cfg(feature = "metrics")]
-            registry,
-        )?;
-        Ok(worker::start_transport(
-            swarm,
-            config,
-            #[cfg(feature = "metrics")]
-            registry,
-        ))
+        let local_peer_id = self.local_peer_id();
+        let swarm = self
+            .build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config.clone()))?;
+        Ok(worker::start_transport(swarm, config))
     }
 }

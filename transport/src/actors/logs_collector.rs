@@ -27,14 +27,10 @@ use crate::{
     protocol::{
         GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_WORKER_LOGS_SIZE, WORKER_LOGS_PROTOCOL,
     },
+    record_event,
     util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
-
-#[cfg(feature = "metrics")]
-use libp2p::metrics::{Metrics, Recorder};
-#[cfg(feature = "metrics")]
-use prometheus_client::registry::Registry;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LogsCollectorEvent {
@@ -191,8 +187,6 @@ struct LogsCollectorTransport {
     swarm: Swarm<Wrapped<LogsCollectorBehaviour>>,
     logs_collected_rx: mpsc::Receiver<LogsCollected>,
     events_tx: mpsc::Sender<LogsCollectorEvent>,
-    #[cfg(feature = "metrics")]
-    metrics: Metrics,
 }
 
 impl LogsCollectorTransport {
@@ -209,8 +203,7 @@ impl LogsCollectorTransport {
     }
 
     fn on_swarm_event(&mut self, ev: SwarmEvent<LogsCollectorEvent>) {
-        #[cfg(feature = "metrics")]
-        self.metrics.record(&ev);
+        record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             self.events_tx.try_send(ev).unwrap_or_else(|e| {
                 log::error!("Logs collector event queue full. Event dropped: {e:?}")
@@ -247,7 +240,6 @@ impl LogsCollectorTransportHandle {
 pub fn start_transport(
     swarm: Swarm<Wrapped<LogsCollectorBehaviour>>,
     config: LogsCollectorConfig,
-    #[cfg(feature = "metrics")] registry: &mut Registry,
 ) -> (impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle) {
     let (logs_collected_tx, logs_collected_rx) = mpsc::channel(config.logs_collected_queue_size);
     let (events_tx, events_rx) = mpsc::channel(config.events_queue_size);
@@ -255,8 +247,6 @@ pub fn start_transport(
         swarm,
         logs_collected_rx,
         events_tx,
-        #[cfg(feature = "metrics")]
-        metrics: Metrics::new(registry),
     };
     let handle =
         LogsCollectorTransportHandle::new(logs_collected_tx, transport, config.shutdown_timeout);

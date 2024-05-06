@@ -31,7 +31,9 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-use subsquid_messages::{broadcast_msg, BroadcastMsg, Envelope, LogsCollected, Ping};
+use subsquid_messages::{
+    broadcast_msg, signatures::SignedMessage, BroadcastMsg, Envelope, LogsCollected, Ping,
+};
 
 use crate::{
     behaviour::{
@@ -41,17 +43,13 @@ use crate::{
     cli::BootNode,
     codec::LegacyCodec,
     protocol::{DHT_PROTOCOL, ID_PROTOCOL, LEGACY_PROTOCOL, LOGS_TOPIC, PING_TOPIC},
+    record_event,
     util::addr_is_reachable,
     PeerId, QueueFull,
 };
 
 #[cfg(feature = "metrics")]
 use crate::metrics::ONGOING_QUERIES;
-#[cfg(feature = "metrics")]
-use libp2p::metrics::{Metrics, Recorder};
-#[cfg(feature = "metrics")]
-use prometheus_client::registry::Registry;
-use subsquid_messages::signatures::SignedMessage;
 
 pub const ACK_SIZE: u64 = 4;
 
@@ -96,8 +94,6 @@ pub struct BaseBehaviour {
     ongoing_queries: BiHashMap<PeerId, QueryId>,
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
-    #[cfg(feature = "metrics")]
-    metrics: Metrics,
 }
 
 impl BaseBehaviour {
@@ -106,7 +102,6 @@ impl BaseBehaviour {
         config: BaseConfig,
         boot_nodes: Vec<BootNode>,
         relay: relay::client::Behaviour,
-        #[cfg(feature = "metrics")] registry: &mut Registry,
     ) -> Self {
         let local_peer_id = keypair.public().to_peer_id();
         let mut inner = InnerBehaviour {
@@ -131,12 +126,7 @@ impl BaseBehaviour {
                 },
             ),
             block: Default::default(),
-            pubsub: PubsubBehaviour::new(
-                keypair.clone(),
-                #[cfg(feature = "metrics")]
-                registry,
-            )
-            .into(),
+            pubsub: PubsubBehaviour::new(keypair.clone()).into(),
             legacy: request_response::Behaviour::new(
                 vec![(LEGACY_PROTOCOL, ProtocolSupport::Full)],
                 request_response::Config::default().with_request_timeout(config.request_timeout),
@@ -154,8 +144,6 @@ impl BaseBehaviour {
             ongoing_queries: Default::default(),
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
-            #[cfg(feature = "metrics")]
-            metrics: Metrics::new(registry),
         }
     }
     pub fn subscribe_pings(&mut self) {
@@ -277,14 +265,12 @@ impl BehaviourWrapper for BaseBehaviour {
             InnerBehaviourEvent::Autonat(ev) => self.on_autonat_event(ev),
             InnerBehaviourEvent::Pubsub(ev) => self.on_pubsub_event(ev),
             InnerBehaviourEvent::Legacy(ev) => self.on_legacy_event(ev),
-            #[cfg(feature = "metrics")]
             InnerBehaviourEvent::Ping(ev) => {
-                self.metrics.record(&ev);
+                record_event(&ev);
                 None
             }
-            #[cfg(feature = "metrics")]
             InnerBehaviourEvent::Dcutr(ev) => {
-                self.metrics.record(&ev);
+                record_event(&ev);
                 None
             }
             _ => None,
@@ -331,8 +317,7 @@ impl BaseBehaviour {
 
     fn on_identify_event(&mut self, ev: identify::Event) -> Option<TToSwarm<Self>> {
         log::debug!("Identify event received: {ev:?}");
-        #[cfg(feature = "metrics")]
-        self.metrics.record(&ev);
+        record_event(&ev);
         let (peer_id, listen_addrs, protocols) = match ev {
             identify::Event::Received { peer_id, info } => {
                 (peer_id, info.listen_addrs, info.protocols)
@@ -349,8 +334,7 @@ impl BaseBehaviour {
 
     fn on_kademlia_event(&mut self, ev: kad::Event) -> Option<TToSwarm<Self>> {
         log::debug!("Kademlia event received: {ev:?}");
-        #[cfg(feature = "metrics")]
-        self.metrics.record(&ev);
+        record_event(&ev);
         let (query_id, result, finished) = match ev {
             kad::Event::OutboundQueryProgressed {
                 id,

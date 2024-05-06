@@ -9,6 +9,8 @@ pub use libp2p::{
 };
 
 #[cfg(feature = "metrics")]
+use libp2p::metrics::{Metrics, Recorder};
+#[cfg(feature = "metrics")]
 pub use prometheus_client::registry::Registry;
 
 #[cfg(feature = "actors")]
@@ -101,3 +103,18 @@ impl From<std::io::Error> for Error {
         Self::Transport(e.to_string())
     }
 }
+
+#[cfg(feature = "actors")]
+#[cfg(feature = "metrics")]
+pub(crate) fn record_event<T>(event: &T)
+where
+    Metrics: Recorder<T>,
+{
+    if let Some(metrics) = metrics::LIBP2P_METRICS.get() {
+        metrics.record(event)
+    }
+}
+
+#[cfg(feature = "actors")]
+#[cfg(not(feature = "metrics"))]
+pub(crate) fn record_event<T>(_event: T) {}

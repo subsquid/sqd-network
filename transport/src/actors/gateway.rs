@@ -33,14 +33,10 @@ use crate::{
         GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE,
         QUERY_PROTOCOL,
     },
+    record_event,
     util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
-
-#[cfg(feature = "metrics")]
-use libp2p::metrics::{Metrics, Recorder};
-#[cfg(feature = "metrics")]
-use prometheus_client::registry::Registry;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GatewayEvent {
@@ -275,8 +271,6 @@ struct GatewayTransport {
     queries_rx: mpsc::Receiver<(PeerId, Query)>,
     logs_rx: mpsc::Receiver<GatewayLogMsg>,
     events_tx: mpsc::Sender<GatewayEvent>,
-    #[cfg(feature = "metrics")]
-    metrics: Metrics,
 }
 
 impl GatewayTransport {
@@ -294,8 +288,7 @@ impl GatewayTransport {
     }
 
     fn on_swarm_event(&mut self, ev: SwarmEvent<GatewayEvent>) {
-        #[cfg(feature = "metrics")]
-        self.metrics.record(&ev);
+        record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             self.events_tx
                 .try_send(ev)
@@ -351,7 +344,6 @@ impl GatewayTransportHandle {
 pub fn start_transport(
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
     config: GatewayConfig,
-    #[cfg(feature = "metrics")] registry: &mut Registry,
 ) -> (impl Stream<Item = GatewayEvent>, GatewayTransportHandle) {
     let (queries_tx, queries_rx) = mpsc::channel(config.queries_queue_size);
     let (logs_tx, logs_rx) = mpsc::channel(config.logs_queue_size);
@@ -361,8 +353,6 @@ pub fn start_transport(
         queries_rx,
         logs_rx,
         events_tx,
-        #[cfg(feature = "metrics")]
-        metrics: Metrics::new(registry),
     };
     let handle =
         GatewayTransportHandle::new(queries_tx, logs_tx, transport, config.shutdown_timeout);

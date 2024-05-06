@@ -31,18 +31,14 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
+    protocol::{
+        MAX_PONG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, MAX_WORKER_LOGS_SIZE, PONG_PROTOCOL,
+        QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL,
+    },
+    record_event,
     util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
-
-use crate::protocol::{
-    MAX_PONG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, MAX_WORKER_LOGS_SIZE, PONG_PROTOCOL,
-    QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL,
-};
-#[cfg(feature = "metrics")]
-use libp2p::metrics::{Metrics, Recorder};
-#[cfg(feature = "metrics")]
-use prometheus_client::registry::Registry;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkerEvent {
@@ -68,7 +64,6 @@ pub struct InnerBehaviour {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerConfig {
-    pub local_peer_id: PeerId,
     pub scheduler_id: PeerId,
     pub logs_collector_id: PeerId,
     pub max_pong_size: u64,
@@ -84,9 +79,8 @@ pub struct WorkerConfig {
 }
 
 impl WorkerConfig {
-    pub fn new(local_peer_id: PeerId, scheduler_id: PeerId, logs_collector_id: PeerId) -> Self {
+    pub fn new(scheduler_id: PeerId, logs_collector_id: PeerId) -> Self {
         Self {
-            local_peer_id,
             scheduler_id,
             logs_collector_id,
             max_pong_size: MAX_PONG_SIZE,
@@ -113,7 +107,11 @@ pub struct WorkerBehaviour {
 }
 
 impl WorkerBehaviour {
-    pub fn new(mut base: BaseBehaviour, config: WorkerConfig) -> Wrapped<Self> {
+    pub fn new(
+        mut base: BaseBehaviour,
+        local_peer_id: PeerId,
+        config: WorkerConfig,
+    ) -> Wrapped<Self> {
         base.subscribe_pings();
         base.subscribe_logs_collected();
         Self {
@@ -136,7 +134,7 @@ impl WorkerBehaviour {
                 )
                 .into(),
             },
-            local_peer_id: config.local_peer_id.to_string(),
+            local_peer_id: local_peer_id.to_base58(),
             scheduler_id: config.scheduler_id,
             logs_collector_id: config.logs_collector_id,
             query_senders: Default::default(),
@@ -309,8 +307,6 @@ struct WorkerTransport {
     query_results_rx: mpsc::Receiver<QueryResult>,
     logs_rx: mpsc::Receiver<Vec<QueryExecuted>>,
     events_tx: mpsc::Sender<WorkerEvent>,
-    #[cfg(feature = "metrics")]
-    metrics: Metrics,
 }
 
 impl WorkerTransport {
@@ -329,8 +325,7 @@ impl WorkerTransport {
     }
 
     fn on_swarm_event(&mut self, ev: SwarmEvent<WorkerEvent>) {
-        #[cfg(feature = "metrics")]
-        self.metrics.record(&ev);
+        record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             self.events_tx
                 .try_send(ev)
@@ -384,7 +379,6 @@ impl WorkerTransportHandle {
 pub fn start_transport(
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
     config: WorkerConfig,
-    #[cfg(feature = "metrics")] registry: &mut Registry,
 ) -> (impl Stream<Item = WorkerEvent>, WorkerTransportHandle) {
     let (pings_tx, pings_rx) = mpsc::channel(config.pings_queue_size);
     let (query_results_tx, query_results_rx) = mpsc::channel(config.query_results_queue_size);
@@ -396,8 +390,6 @@ pub fn start_transport(
         query_results_rx,
         logs_rx,
         events_tx,
-        #[cfg(feature = "metrics")]
-        metrics: Metrics::new(registry),
     };
     let handle = WorkerTransportHandle::new(
         pings_tx,

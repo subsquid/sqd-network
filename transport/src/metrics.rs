@@ -1,6 +1,9 @@
-use lazy_static::lazy_static;
-use prometheus_client::{metrics::gauge::Gauge, registry::Registry};
 use std::sync::atomic::AtomicU32;
+
+use lazy_static::lazy_static;
+use libp2p::metrics::Metrics;
+use prometheus_client::{metrics::gauge::Gauge, registry::Registry};
+use tokio::sync::OnceCell;
 
 lazy_static! {
     pub static ref INBOUND_MSG_QUEUE_SIZE: Gauge<u32, AtomicU32> = Default::default();
@@ -14,7 +17,12 @@ lazy_static! {
     pub static ref ACTIVE_CONNECTIONS: Gauge<u32, AtomicU32> = Default::default();
 }
 
-pub(crate) fn register_metrics(registry: &mut Registry) {
+pub static LIBP2P_METRICS: OnceCell<Metrics> = OnceCell::const_new();
+
+pub fn register_metrics(registry: &mut Registry) {
+    if LIBP2P_METRICS.set(Metrics::new(registry)).is_err() {
+        panic!("Metrics already initialized");
+    }
     registry.register(
         "inbound_msg_queue_size",
         "The number of inbound messages waiting in queue to be processed",

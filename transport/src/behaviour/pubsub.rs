@@ -13,13 +13,8 @@ use libp2p::{
 
 use crate::{
     behaviour::wrapped::{BehaviourWrapper, TToSwarm},
-    PeerId,
+    record_event, PeerId,
 };
-
-#[cfg(feature = "metrics")]
-use libp2p::metrics::{Metrics, Recorder};
-#[cfg(feature = "metrics")]
-use prometheus_client::registry::Registry;
 
 struct TopicState {
     name: &'static str,
@@ -61,12 +56,10 @@ pub struct PubsubMsg {
 pub struct PubsubBehaviour {
     inner: gossipsub::Behaviour,
     topics: HashMap<TopicHash, TopicState>,
-    #[cfg(feature = "metrics")]
-    metrics: Metrics,
 }
 
 impl PubsubBehaviour {
-    pub fn new(keypair: Keypair, #[cfg(feature = "metrics")] registry: &mut Registry) -> Self {
+    pub fn new(keypair: Keypair) -> Self {
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .validate_messages()
             .message_id_fn(msg_id)
@@ -78,8 +71,6 @@ impl PubsubBehaviour {
         Self {
             inner,
             topics: Default::default(),
-            #[cfg(feature = "metrics")]
-            metrics: Metrics::new(registry),
         }
     }
 
@@ -155,8 +146,7 @@ impl BehaviourWrapper for PubsubBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         log::debug!("Gossipsub event received: {ev:?}");
-        #[cfg(feature = "metrics")]
-        self.metrics.record(&ev);
+        record_event(&ev);
         let (msg, propagation_source, message_id) = match ev {
             gossipsub::Event::Message {
                 message,

@@ -22,15 +22,11 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
+    protocol::{MAX_PONG_SIZE, PONG_PROTOCOL},
+    record_event,
     util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
-
-use crate::protocol::{MAX_PONG_SIZE, PONG_PROTOCOL};
-#[cfg(feature = "metrics")]
-use libp2p::metrics::{Metrics, Recorder};
-#[cfg(feature = "metrics")]
-use prometheus_client::registry::Registry;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SchedulerEvent {
@@ -182,8 +178,6 @@ struct SchedulerTransport {
     pongs_rx: mpsc::Receiver<(PeerId, Pong)>,
     probes_rx: mpsc::Receiver<PeerId>,
     events_tx: mpsc::Sender<SchedulerEvent>,
-    #[cfg(feature = "metrics")]
-    metrics: Metrics,
 }
 
 impl SchedulerTransport {
@@ -201,8 +195,7 @@ impl SchedulerTransport {
     }
 
     fn on_swarm_event(&mut self, ev: SwarmEvent<SchedulerEvent>) {
-        #[cfg(feature = "metrics")]
-        self.metrics.record(&ev);
+        record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             self.events_tx
                 .try_send(ev)
@@ -265,7 +258,6 @@ impl SchedulerTransportHandle {
 pub fn start_transport(
     swarm: Swarm<Wrapped<SchedulerBehaviour>>,
     config: SchedulerConfig,
-    #[cfg(feature = "metrics")] registry: &mut Registry,
 ) -> (impl Stream<Item = SchedulerEvent>, SchedulerTransportHandle) {
     let (pongs_tx, pongs_rx) = mpsc::channel(config.pongs_queue_size);
     let (probes_tx, probes_rx) = mpsc::channel(config.probes_queue_size);
@@ -275,8 +267,6 @@ pub fn start_transport(
         pongs_rx,
         probes_rx,
         events_tx,
-        #[cfg(feature = "metrics")]
-        metrics: Metrics::new(registry),
     };
     let handle =
         SchedulerTransportHandle::new(pongs_tx, probes_tx, transport, config.shutdown_timeout);
