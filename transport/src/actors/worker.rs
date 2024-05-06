@@ -31,7 +31,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
-    util::TaskManager,
+    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
 
@@ -98,7 +98,7 @@ impl WorkerConfig {
             query_results_queue_size: 100,
             logs_queue_size: 100,
             events_queue_size: 100,
-            shutdown_timeout: Duration::from_secs(10),
+            shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         }
     }
 }
@@ -261,8 +261,11 @@ impl WorkerBehaviour {
             .unwrap_or_else(|e| log::error!("Cannot send result for query {}", e.query_id));
     }
 
-    pub fn send_logs(&mut self, logs: Vec<QueryExecuted>) {
+    pub fn send_logs(&mut self, mut logs: Vec<QueryExecuted>) {
         log::debug!("Sending query logs");
+        for log in logs.iter_mut() {
+            self.inner.base.sign(log);
+        }
         // TODO: Bundle logs
         let logs = QueryLogs {
             queries_executed: logs,

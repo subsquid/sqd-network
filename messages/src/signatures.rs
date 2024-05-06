@@ -30,11 +30,11 @@ pub trait SignedMessage: ProstMsg + Sized {
     fn detach_signature(&mut self) -> Vec<u8>;
     fn attach_signature(&mut self, signature: Vec<u8>);
 
-    fn sign(&mut self, keypair: &Keypair) -> anyhow::Result<()> {
+    fn sign(&mut self, keypair: &Keypair) {
+        _ = self.detach_signature(); // To make signing idempotent
         let bytes = self.encode_to_vec();
-        let signature = keypair.sign(&bytes)?;
+        let signature = keypair.sign(&bytes).expect("infallible for Ed25519");
         self.attach_signature(signature);
-        Ok(())
     }
 
     fn verify_signature(&mut self, peer_id: &PeerId) -> bool {

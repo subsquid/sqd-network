@@ -51,6 +51,7 @@ use crate::metrics::ONGOING_QUERIES;
 use libp2p::metrics::{Metrics, Recorder};
 #[cfg(feature = "metrics")]
 use prometheus_client::registry::Registry;
+use subsquid_messages::signatures::SignedMessage;
 
 pub const ACK_SIZE: u64 = 4;
 
@@ -91,6 +92,7 @@ impl Default for BaseConfig {
 
 pub struct BaseBehaviour {
     inner: InnerBehaviour,
+    keypair: Keypair,
     ongoing_queries: BiHashMap<PeerId, QueryId>,
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
@@ -148,6 +150,7 @@ impl BaseBehaviour {
 
         Self {
             inner,
+            keypair: keypair.clone(),
             ongoing_queries: Default::default(),
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
@@ -163,7 +166,11 @@ impl BaseBehaviour {
         self.inner.pubsub.subscribe(LOGS_TOPIC, false);
     }
 
-    pub fn publish_ping(&mut self, ping: Ping) {
+    pub fn sign<T: SignedMessage>(&self, msg: &mut T) {
+        msg.sign(&self.keypair)
+    }
+    pub fn publish_ping(&mut self, mut ping: Ping) {
+        self.sign(&mut ping);
         self.inner.pubsub.publish(PING_TOPIC, ping.encode_to_vec());
     }
 
@@ -405,36 +412,13 @@ impl BaseBehaviour {
     ) -> Option<TToSwarm<Self>> {
         log::debug!("Pub-sub message received: peer_id={peer_id} topic={topic}");
         let msg = match topic {
-            PING_TOPIC => {
-                let ping = match Ping::decode(data.as_ref()) {
-                    Ok(ping) => ping,
-                    Err(e) => {
-                        log::error!("Error decoding ping: {e:?}");
-                        return None;
-                    }
-                };
-                BroadcastMsg {
-                    msg: Some(broadcast_msg::Msg::Ping(ping)),
-                }
-            }
-            LOGS_TOPIC => {
-                let logs_collected = match LogsCollected::decode(data.as_ref()) {
-                    Ok(logs_collected) => logs_collected,
-                    Err(e) => {
-                        log::error!("Error decoding logs collected: {e:?}");
-                        return None;
-                    }
-                };
-                BroadcastMsg {
-                    msg: Some(broadcast_msg::Msg::LogsCollected(logs_collected)),
-                }
-            }
+            PING_TOPIC => decode_ping(&peer_id, data)?,
+            LOGS_TOPIC => decode_logs_collected(data)?,
             _ => return None,
         };
         let ev = BaseBehaviourEvent::BroadcastMsg { peer_id, msg };
         Some(ToSwarm::GenerateEvent(ev))
     }
-
     fn on_legacy_event(
         &mut self,
         ev: request_response::Event<Vec<u8>, u8>,
@@ -473,4 +457,26 @@ impl BaseBehaviour {
         let ev = BaseBehaviourEvent::LegacyMsg { peer_id, envelope };
         Some(ToSwarm::GenerateEvent(ev))
     }
+}
+
+fn decode_ping(peer_id: &PeerId, data: Box<[u8]>) -> Option<BroadcastMsg> {
+    let mut ping = Ping::decode(data.as_ref())
+        .map_err(|e| log::error!("Error decoding ping: {e:?}"))
+        .ok()?;
+    if !ping.verify_signature(peer_id) {
+        log::warn!("Invalid ping signature from {peer_id}");
+        return None;
+    }
+    Some(BroadcastMsg {
+        msg: Some(broadcast_msg::Msg::Ping(ping)),
+    })
+}
+
+fn decode_logs_collected(data: Box<[u8]>) -> Option<BroadcastMsg> {
+    let logs_collected = LogsCollected::decode(data.as_ref())
+        .map_err(|e| log::error!("Error decoding logs collected: {e:?}"))
+        .ok()?;
+    Some(BroadcastMsg {
+        msg: Some(broadcast_msg::Msg::LogsCollected(logs_collected)),
+    })
 }

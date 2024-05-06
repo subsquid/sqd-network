@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 mod task_manager;
 
-pub use task_manager::TaskManager;
+pub use task_manager::{CancellationToken, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT};
 
 /// Load key from file or generate and save to file.
 pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {

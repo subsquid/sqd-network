@@ -33,9 +33,10 @@ use crate::{
         GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE,
         QUERY_PROTOCOL,
     },
-    util::TaskManager,
+    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
+
 #[cfg(feature = "metrics")]
 use libp2p::metrics::{Metrics, Recorder};
 #[cfg(feature = "metrics")]
@@ -43,9 +44,12 @@ use prometheus_client::registry::Registry;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GatewayEvent {
-    Ping(Ping),
+    Ping {
+        peer_id: PeerId,
+        ping: Ping,
+    },
     QueryResult {
-        worker_id: PeerId,
+        peer_id: PeerId,
         result: QueryResult,
     },
 }
@@ -83,7 +87,7 @@ impl GatewayConfig {
             queries_queue_size: 100,
             logs_queue_size: 100,
             events_queue_size: 100,
-            shutdown_timeout: Duration::from_secs(10),
+            shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         }
     }
 }
@@ -156,7 +160,7 @@ impl GatewayBehaviour {
                 return None;
             }
         }
-        Some(GatewayEvent::Ping(ping))
+        Some(GatewayEvent::Ping { peer_id, ping })
     }
 
     fn on_query_result(
@@ -176,10 +180,7 @@ impl GatewayBehaviour {
                 }
             }
         }
-        Some(GatewayEvent::QueryResult {
-            worker_id: peer_id,
-            result,
-        })
+        Some(GatewayEvent::QueryResult { peer_id, result })
     }
 
     fn on_query_event(&mut self, ev: ClientEvent<QueryResult>) -> Option<GatewayEvent> {
@@ -211,7 +212,7 @@ impl GatewayBehaviour {
         };
         log::debug!("Query {query_id} timed out");
         Some(GatewayEvent::QueryResult {
-            worker_id: peer_id,
+            peer_id,
             result: QueryResult {
                 query_id,
                 result: Some(query_result::Result::Timeout(())),
@@ -219,16 +220,19 @@ impl GatewayBehaviour {
         })
     }
 
-    pub fn send_query(&mut self, peer_id: PeerId, query: Query) {
+    pub fn send_query(&mut self, peer_id: PeerId, mut query: Query) {
         log::debug!("Sending query {query:?} to {peer_id}");
-        // Legacy workers need to be messaged via legacy protocol
-        if !self.new_workers.contains(&peer_id) {
-            return self.inner.base.send_legacy_msg(&peer_id, query);
-        }
+        // Validate if query has ID and sign it
         let query_id = match query.query_id.as_ref() {
             Some(id) => id.clone(),
             None => return log::error!("Query without ID dropped"),
         };
+        self.inner.base.sign(&mut query);
+
+        // Legacy workers need to be messaged via legacy protocol
+        if !self.new_workers.contains(&peer_id) {
+            return self.inner.base.send_legacy_msg(&peer_id, query);
+        }
         match self.inner.query.try_send_request(peer_id, query) {
             Ok(req_id) => {
                 self.query_ids.insert(req_id, query_id);

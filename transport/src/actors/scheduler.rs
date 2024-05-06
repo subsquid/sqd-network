@@ -22,7 +22,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
-    util::TaskManager,
+    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
 
@@ -35,7 +35,7 @@ use prometheus_client::registry::Registry;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SchedulerEvent {
     /// Ping received from a worker
-    Ping(Ping),
+    Ping { peer_id: PeerId, ping: Ping },
     /// Peer was probed for reachability
     PeerProbed { peer_id: PeerId, reachable: bool },
 }
@@ -66,7 +66,7 @@ impl Default for SchedulerConfig {
             pongs_queue_size: 1000,
             probes_queue_size: 1000,
             events_queue_size: 1000,
-            shutdown_timeout: Duration::from_secs(10),
+            shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         }
     }
 }
@@ -125,7 +125,7 @@ impl SchedulerBehaviour {
                 return None;
             }
         }
-        Some(SchedulerEvent::Ping(ping))
+        Some(SchedulerEvent::Ping { peer_id, ping })
     }
 
     fn on_peer_probed(&mut self, peer_id: PeerId, reachable: bool) -> Option<SchedulerEvent> {

@@ -1,13 +1,5 @@
-use crate::{
-    behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent, ACK_SIZE},
-        request_server::{Request, ServerBehaviour},
-        wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
-    },
-    codec::ProtoCodec,
-    util::TaskManager,
-    QueueFull,
-};
+use std::{sync::Arc, time::Duration};
+
 use futures::StreamExt;
 use futures_core::Stream;
 use libp2p::{
@@ -16,18 +8,29 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
-use std::{sync::Arc, time::Duration};
-use subsquid_messages::{
-    envelope, gateway_log_msg, Envelope, GatewayLogMsg, LogsCollected, QueryExecuted,
-    QueryFinished, QueryLogs, QuerySubmitted,
-};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 
-use crate::protocol::{
-    GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_WORKER_LOGS_SIZE, WORKER_LOGS_PROTOCOL,
+use subsquid_messages::{
+    envelope, gateway_log_msg, signatures::SignedMessage, Envelope, GatewayLogMsg, LogsCollected,
+    QueryExecuted, QueryFinished, QueryLogs, QuerySubmitted,
 };
+
+use crate::{
+    behaviour::{
+        base::{BaseBehaviour, BaseBehaviourEvent, ACK_SIZE},
+        request_server::{Request, ServerBehaviour},
+        wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
+    },
+    codec::ProtoCodec,
+    protocol::{
+        GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_WORKER_LOGS_SIZE, WORKER_LOGS_PROTOCOL,
+    },
+    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    QueueFull,
+};
+
 #[cfg(feature = "metrics")]
 use libp2p::metrics::{Metrics, Recorder};
 #[cfg(feature = "metrics")]
@@ -69,7 +72,7 @@ impl Default for LogsCollectorConfig {
             max_gateway_log_size: MAX_GATEWAY_LOG_SIZE,
             logs_collected_queue_size: 100,
             events_queue_size: 100,
-            shutdown_timeout: Duration::from_secs(10),
+            shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         }
     }
 }
@@ -110,15 +113,16 @@ impl LogsCollectorBehaviour {
         }
     }
 
-    fn on_worker_logs(
-        &mut self,
-        peer_id: PeerId,
-        logs: QueryLogs,
-    ) -> Option<LogsCollectorEvent> {
+    fn on_worker_logs(&mut self, peer_id: PeerId, logs: QueryLogs) -> Option<LogsCollectorEvent> {
         let mut logs = logs.queries_executed;
         log::debug!("Got {} query logs from {peer_id}", logs.len());
         let worker_id = peer_id.to_base58();
-        logs.retain(|log| log.worker_id == worker_id);
+        logs = logs
+            .into_iter()
+            .filter_map(|mut log| {
+                (log.worker_id == worker_id && log.verify_signature(&peer_id)).then_some(log)
+            })
+            .collect();
         (!logs.is_empty()).then_some(LogsCollectorEvent::WorkerLogs { peer_id, logs })
     }
 
