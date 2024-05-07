@@ -45,7 +45,7 @@ pub enum WorkerEvent {
     /// Pong message received from the scheduler
     Pong(Pong),
     /// Query received from a gateway
-    Query(Query),
+    Query { peer_id: PeerId, query: Query },
     /// Logs up to `last_seq_no` have been saved by logs collector
     LogsCollected { last_seq_no: u64 },
 }
@@ -102,6 +102,7 @@ pub struct WorkerBehaviour {
     local_peer_id: String,
     scheduler_id: PeerId,
     logs_collector_id: PeerId,
+    max_query_logs_size: usize,
     query_senders: HashMap<String, PeerId>,
     query_response_channels: HashMap<String, ResponseChannel<QueryResult>>,
 }
@@ -137,6 +138,7 @@ impl WorkerBehaviour {
             local_peer_id: local_peer_id.to_base58(),
             scheduler_id: config.scheduler_id,
             logs_collector_id: config.logs_collector_id,
+            max_query_logs_size: config.max_query_logs_size as usize,
             query_senders: Default::default(),
             query_response_channels: Default::default(),
         }
@@ -208,7 +210,7 @@ impl WorkerBehaviour {
         if let Some(resp_chan) = resp_chan {
             self.query_response_channels.insert(query_id, resp_chan);
         }
-        Some(WorkerEvent::Query(query))
+        Some(WorkerEvent::Query { peer_id, query })
     }
 
     fn on_pong_event(
@@ -264,15 +266,45 @@ impl WorkerBehaviour {
         for log in logs.iter_mut() {
             self.inner.base.sign(log);
         }
-        // TODO: Bundle logs
-        let logs = QueryLogs {
-            queries_executed: logs,
-        };
         let peer_id = self.logs_collector_id;
-        if self.inner.logs.try_send_request(peer_id, logs).is_err() {
-            log::error!("Cannot send query logs: outbound queue full")
+        for bundle in bundle_messages(logs, self.max_query_logs_size) {
+            let logs = QueryLogs {
+                queries_executed: bundle,
+            };
+            if self.inner.logs.try_send_request(peer_id, logs).is_err() {
+                log::error!("Cannot send query logs: outbound queue full")
+            }
         }
     }
+}
+
+fn bundle_messages<T: prost::Message>(
+    messages: impl IntoIterator<Item = T>,
+    size_limit: usize,
+) -> impl Iterator<Item = Vec<T>> {
+    // Compute message sizes and filter out too big messages
+    let mut iter = messages
+        .into_iter()
+        .filter_map(move |msg| {
+            let msg_size = msg.encoded_len();
+            if msg_size > size_limit {
+                log::warn!("Message too big ({msg_size} > {size_limit})");
+                return None;
+            }
+            Some((msg_size, msg))
+        })
+        .peekable();
+
+    // Bundle into chunks of at most `size_limit` total size
+    std::iter::from_fn(move || {
+        let mut bundle = Vec::new();
+        let mut remaining_cap = size_limit;
+        while let Some((size, msg)) = iter.next_if(|(size, _)| size <= &remaining_cap) {
+            bundle.push(msg);
+            remaining_cap -= size;
+        }
+        (!bundle.is_empty()).then_some(bundle)
+    })
 }
 
 impl BehaviourWrapper for WorkerBehaviour {
@@ -399,4 +431,19 @@ pub fn start_transport(
         config.shutdown_timeout,
     );
     (ReceiverStream::new(events_rx), handle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bundle_messages() {
+        let messages = vec![vec![0u8; 40], vec![0u8; 40], vec![0u8; 200], vec![0u8; 90]];
+        let bundles: Vec<Vec<Vec<u8>>> = bundle_messages(messages, 100).collect();
+
+        assert_eq!(bundles.len(), 2);
+        assert_eq!(bundles[0].len(), 2);
+        assert_eq!(bundles[1].len(), 1);
+    }
 }

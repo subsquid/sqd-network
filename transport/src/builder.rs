@@ -218,8 +218,8 @@ impl P2PTransportBuilder {
         config: WorkerConfig,
     ) -> Result<(impl Stream<Item = WorkerEvent>, WorkerTransportHandle), Error> {
         let local_peer_id = self.local_peer_id();
-        let swarm = self
-            .build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config.clone()))?;
+        let swarm =
+            self.build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config.clone()))?;
         Ok(worker::start_transport(swarm, config))
     }
 }
