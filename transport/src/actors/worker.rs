@@ -47,7 +47,7 @@ pub enum WorkerEvent {
     /// Query received from a gateway
     Query { peer_id: PeerId, query: Query },
     /// Logs up to `last_seq_no` have been saved by logs collector
-    LogsCollected { last_seq_no: u64 },
+    LogsCollected { last_seq_no: Option<u64> },
 }
 
 type PongBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Pong, u32>>>;
@@ -171,10 +171,8 @@ impl WorkerBehaviour {
         }
         log::debug!("Received logs collected message");
         // Extract last_seq_no for the local worker
-        logs_collected
-            .sequence_numbers
-            .remove(&self.local_peer_id)
-            .map(|last_seq_no| WorkerEvent::LogsCollected { last_seq_no })
+        let last_seq_no = logs_collected.sequence_numbers.remove(&self.local_peer_id);
+        Some(WorkerEvent::LogsCollected { last_seq_no })
     }
 
     fn on_query(
