@@ -164,6 +164,10 @@ impl BaseBehaviour {
     pub fn publish_ping(&mut self, mut ping: Ping) {
         self.sign(&mut ping);
         self.inner.pubsub.publish(PING_TOPIC, ping.encode_to_vec());
+        let legacy_msg = Envelope {
+            msg: Some(envelope::Msg::Ping(ping)),
+        };
+        self.inner.pubsub.publish(LEGACY_PING_TOPIC, legacy_msg.encode_to_vec());
     }
 
     pub fn publish_logs_collected(&mut self, logs_collected: LogsCollected) {
@@ -174,9 +178,9 @@ impl BaseBehaviour {
         self.inner.pubsub.publish(LEGACY_LOGS_TOPIC, legacy_msg.encode_to_vec());
     }
 
-    pub fn send_legacy_msg(&mut self, peer_id: &PeerId, msg: impl Message) {
+    pub fn send_legacy_msg(&mut self, peer_id: &PeerId, envelope: Envelope) {
         log::debug!("Sending msg to {peer_id}");
-        let msg = msg.encode_to_vec();
+        let msg = envelope.encode_to_vec();
         self.inner.legacy.send_request(peer_id, msg);
     }
 

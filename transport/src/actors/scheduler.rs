@@ -141,7 +141,11 @@ impl SchedulerBehaviour {
     pub fn send_pong(&mut self, peer_id: PeerId, pong: Pong) {
         log::debug!("Sending pong to {peer_id}");
         if self.legacy_workers.contains(&peer_id) {
-            return self.inner.base.send_legacy_msg(&peer_id, pong);
+            log::debug!("Sending pong to legacy worker {peer_id}");
+            let envelope = Envelope {
+                msg: Some(envelope::Msg::Pong(pong)),
+            };
+            return self.inner.base.send_legacy_msg(&peer_id, envelope);
         }
         if self.inner.pong.try_send_request(peer_id, pong).is_err() {
             log::error!("Cannot send pong to {peer_id}: outbound queue full")

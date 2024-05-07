@@ -245,18 +245,26 @@ impl WorkerBehaviour {
 
     pub fn send_query_result(&mut self, result: QueryResult) {
         log::debug!("Sending query result {result:?}");
-        let sender_id = match self.query_senders.remove(&result.query_id) {
+        let client_id = match self.query_senders.remove(&result.query_id) {
             Some(peer_id) => peer_id,
             None => return log::error!("Unknown query: {}", result.query_id),
         };
         let resp_chan = match self.query_response_channels.remove(&result.query_id) {
             Some(ch) => ch,
-            None => return self.inner.base.send_legacy_msg(&sender_id, result), // Handle queries from legacy clients
+            None => return self.send_legacy_result(&client_id, result),
         };
         self.inner
             .query
             .try_send_response(resp_chan, result)
             .unwrap_or_else(|e| log::error!("Cannot send result for query {}", e.query_id));
+    }
+
+    fn send_legacy_result(&mut self, peer_id: &PeerId, result: QueryResult) {
+        log::debug!("Sending query result to legacy client: {peer_id}");
+        let envelope = Envelope {
+            msg: Some(envelope::Msg::QueryResult(result)),
+        };
+        self.inner.base.send_legacy_msg(&peer_id, envelope);
     }
 
     pub fn send_logs(&mut self, mut logs: Vec<QueryExecuted>) {

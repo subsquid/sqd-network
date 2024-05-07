@@ -227,7 +227,11 @@ impl GatewayBehaviour {
 
         // Legacy workers need to be messaged via legacy protocol
         if !self.new_workers.contains(&peer_id) {
-            return self.inner.base.send_legacy_msg(&peer_id, query);
+            log::debug!("Sending query to legacy worker {peer_id}");
+            let envelope = Envelope {
+                msg: Some(envelope::Msg::Query(query)),
+            };
+            return self.inner.base.send_legacy_msg(&peer_id, envelope);
         }
         match self.inner.query.try_send_request(peer_id, query) {
             Ok(req_id) => {
