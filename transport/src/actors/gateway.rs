@@ -288,6 +288,7 @@ impl GatewayTransport {
     }
 
     fn on_swarm_event(&mut self, ev: SwarmEvent<GatewayEvent>) {
+        log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             self.events_tx

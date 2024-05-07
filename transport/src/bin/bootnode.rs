@@ -123,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
             _ = sigint.recv() => break,
             _ = sigterm.recv() => break,
         };
-        log::debug!("Swarm event: {event:?}");
+        log::trace!("Swarm event: {event:?}");
         if let SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
             peer_id,
             info: identify::Info { listen_addrs, .. },

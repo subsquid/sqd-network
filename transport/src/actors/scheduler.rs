@@ -195,6 +195,7 @@ impl SchedulerTransport {
     }
 
     fn on_swarm_event(&mut self, ev: SwarmEvent<SchedulerEvent>) {
+        log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             self.events_tx

@@ -203,6 +203,7 @@ impl LogsCollectorTransport {
     }
 
     fn on_swarm_event(&mut self, ev: SwarmEvent<LogsCollectorEvent>) {
+        log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             self.events_tx.try_send(ev).unwrap_or_else(|e| {

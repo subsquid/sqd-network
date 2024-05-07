@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    fmt::Debug,
     ops::{Deref, DerefMut},
     task::{Context, Poll},
 };
@@ -64,7 +65,11 @@ impl<T: BehaviourWrapper> DerefMut for Wrapped<T> {
     }
 }
 
-impl<T: BehaviourWrapper + 'static> NetworkBehaviour for Wrapped<T> {
+impl<T: BehaviourWrapper + 'static> NetworkBehaviour for Wrapped<T>
+where
+    <T as BehaviourWrapper>::Event: Debug,
+    <<T as BehaviourWrapper>::Inner as NetworkBehaviour>::ToSwarm: Debug,
+{
     type ConnectionHandler = THandler<T::Inner>;
     type ToSwarm = T::Event;
 
@@ -145,30 +150,35 @@ impl<T: BehaviourWrapper + 'static> NetworkBehaviour for Wrapped<T> {
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         loop {
             if let Some(ev) = self.pending_events.pop_front() {
+                log::trace!("Wrapped pending event: {ev:?}");
                 return Poll::Ready(ev);
-            }
-            match self.inner().poll(cx) {
-                Poll::Ready(ToSwarm::GenerateEvent(ev)) => {
-                    for ev in self.wrapper.on_inner_event(ev) {
-                        self.pending_events.push_back(ev)
-                    }
-                    continue;
-                }
-                Poll::Ready(ev) => {
-                    self.pending_events.push_back(ev.map_out(|_| unreachable!()));
-                    continue;
-                }
-                Poll::Pending => {}
             }
             match self.wrapper.poll(cx) {
                 Poll::Ready(events) => {
                     for ev in events {
+                        log::trace!("Wrapped inner poll event: {ev:?}");
                         self.pending_events.push_back(ev);
                     }
                     continue;
                 }
                 Poll::Pending => {}
             }
+            match self.inner().poll(cx) {
+                Poll::Ready(ToSwarm::GenerateEvent(ev)) => {
+                    log::trace!("Wrapped inner behaviour event: {ev:?}");
+                    for ev in self.wrapper.on_inner_event(ev) {
+                        self.pending_events.push_back(ev)
+                    }
+                    continue;
+                }
+                Poll::Ready(ev) => {
+                    log::trace!("Wrapped inner handler event: {ev:?}");
+                    self.pending_events.push_back(ev.map_out(|_| unreachable!()));
+                    continue;
+                }
+                Poll::Pending => {}
+            }
+            return Poll::Pending;
         }
     }
 }
