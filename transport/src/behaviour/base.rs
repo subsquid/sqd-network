@@ -28,11 +28,12 @@ use libp2p::{
     StreamProtocol,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
+use prost::bytes::Buf;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use subsquid_messages::{
-    broadcast_msg, signatures::SignedMessage, BroadcastMsg, Envelope, LogsCollected, Ping,
+    broadcast_msg, envelope, signatures::SignedMessage, BroadcastMsg, Envelope, LogsCollected, Ping,
 };
 
 use crate::{
@@ -50,6 +51,7 @@ use crate::{
 
 #[cfg(feature = "metrics")]
 use crate::metrics::ONGOING_QUERIES;
+use crate::protocol::{LEGACY_LOGS_TOPIC, LEGACY_PING_TOPIC};
 
 pub const ACK_SIZE: u64 = 4;
 
@@ -148,10 +150,12 @@ impl BaseBehaviour {
     }
     pub fn subscribe_pings(&mut self) {
         self.inner.pubsub.subscribe(PING_TOPIC, false);
+        self.inner.pubsub.subscribe(LEGACY_PING_TOPIC, false);
     }
 
     pub fn subscribe_logs_collected(&mut self) {
         self.inner.pubsub.subscribe(LOGS_TOPIC, false);
+        self.inner.pubsub.subscribe(LEGACY_LOGS_TOPIC, false);
     }
 
     pub fn sign<T: SignedMessage>(&self, msg: &mut T) {
@@ -164,6 +168,10 @@ impl BaseBehaviour {
 
     pub fn publish_logs_collected(&mut self, logs_collected: LogsCollected) {
         self.inner.pubsub.publish(LOGS_TOPIC, logs_collected.encode_to_vec());
+        let legacy_msg = Envelope {
+            msg: Some(envelope::Msg::LogsCollected(logs_collected)),
+        };
+        self.inner.pubsub.publish(LEGACY_LOGS_TOPIC, legacy_msg.encode_to_vec());
     }
 
     pub fn send_legacy_msg(&mut self, peer_id: &PeerId, msg: impl Message) {
@@ -398,6 +406,8 @@ impl BaseBehaviour {
         let msg = match topic {
             PING_TOPIC => decode_ping(&peer_id, data)?,
             LOGS_TOPIC => decode_logs_collected(data)?,
+            LEGACY_PING_TOPIC => decode_legacy_ping(&peer_id, data)?,
+            LEGACY_LOGS_TOPIC => decode_legacy_logs_collected(data)?,
             _ => return None,
         };
         let ev = BaseBehaviourEvent::BroadcastMsg { peer_id, msg };
@@ -431,21 +441,50 @@ impl BaseBehaviour {
         _ = self.inner.legacy.send_response(channel, 1u8);
 
         // Parse the message and queue the event
-        let envelope = match Envelope::decode(msg_content.as_slice()) {
-            Ok(envelope) => envelope,
-            Err(e) => {
-                log::error!("Error decoding message from {peer_id}: {e:?}");
-                return None;
-            }
-        };
-        let ev = BaseBehaviourEvent::LegacyMsg { peer_id, envelope };
-        Some(ToSwarm::GenerateEvent(ev))
+        decode_envelope(msg_content.as_slice()).map(|envelope| {
+            let ev = BaseBehaviourEvent::LegacyMsg { peer_id, envelope };
+            ToSwarm::GenerateEvent(ev)
+        })
     }
+}
+
+fn decode_envelope<T: Buf>(data: T) -> Option<Envelope> {
+    Envelope::decode(data)
+        .map_err(|e| log::warn!("Error decoding envelope: {e:?}"))
+        .ok()
+}
+
+fn decode_legacy_ping(peer_id: &PeerId, data: Box<[u8]>) -> Option<BroadcastMsg> {
+    let mut ping = match decode_envelope(data.as_ref()) {
+        Some(Envelope {
+            msg: Some(envelope::Msg::Ping(ping)),
+        }) => ping,
+        _ => return None,
+    };
+    if !ping.verify_signature(peer_id) {
+        log::warn!("Invalid ping signature from {peer_id}");
+        return None;
+    }
+    Some(BroadcastMsg {
+        msg: Some(broadcast_msg::Msg::Ping(ping)),
+    })
+}
+
+fn decode_legacy_logs_collected(data: Box<[u8]>) -> Option<BroadcastMsg> {
+    let logs_collected = match decode_envelope(data.as_ref()) {
+        Some(Envelope {
+            msg: Some(envelope::Msg::LogsCollected(logs_collected)),
+        }) => logs_collected,
+        _ => return None,
+    };
+    Some(BroadcastMsg {
+        msg: Some(broadcast_msg::Msg::LogsCollected(logs_collected)),
+    })
 }
 
 fn decode_ping(peer_id: &PeerId, data: Box<[u8]>) -> Option<BroadcastMsg> {
     let mut ping = Ping::decode(data.as_ref())
-        .map_err(|e| log::error!("Error decoding ping: {e:?}"))
+        .map_err(|e| log::warn!("Error decoding ping: {e:?}"))
         .ok()?;
     if !ping.verify_signature(peer_id) {
         log::warn!("Invalid ping signature from {peer_id}");
@@ -458,7 +497,7 @@ fn decode_ping(peer_id: &PeerId, data: Box<[u8]>) -> Option<BroadcastMsg> {
 
 fn decode_logs_collected(data: Box<[u8]>) -> Option<BroadcastMsg> {
     let logs_collected = LogsCollected::decode(data.as_ref())
-        .map_err(|e| log::error!("Error decoding logs collected: {e:?}"))
+        .map_err(|e| log::warn!("Error decoding logs collected: {e:?}"))
         .ok()?;
     Some(BroadcastMsg {
         msg: Some(broadcast_msg::Msg::LogsCollected(logs_collected)),
