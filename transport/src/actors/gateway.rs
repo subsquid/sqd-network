@@ -216,6 +216,16 @@ impl GatewayBehaviour {
         })
     }
 
+    fn on_logs_event(&mut self, ev: ClientEvent<u32>) -> Option<GatewayEvent> {
+        log::debug!("Logs event: {ev:?}");
+        match ev {
+            ClientEvent::PeerUnknown { peer_id } => self.inner.base.find_and_dial(peer_id),
+            ClientEvent::Timeout { .. } => log::warn!("Sending logs to collector timed out"),
+            _ => {}
+        }
+        None
+    }
+
     pub fn send_query(&mut self, peer_id: PeerId, mut query: Query) {
         log::debug!("Sending query {query:?} to {peer_id}");
         // Validate if query has ID and sign it
@@ -264,7 +274,7 @@ impl BehaviourWrapper for GatewayBehaviour {
         let ev = match ev {
             InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
             InnerBehaviourEvent::Query(query_res) => self.on_query_event(query_res),
-            InnerBehaviourEvent::Logs(_) => todo!(),
+            InnerBehaviourEvent::Logs(ev) => self.on_logs_event(ev),
         };
         ev.map(ToSwarm::GenerateEvent)
     }
