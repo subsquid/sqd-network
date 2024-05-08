@@ -2,26 +2,26 @@ use std::time::Duration;
 
 use clap::Parser;
 use env_logger::Env;
-use futures::{stream::FusedStream, StreamExt};
-use libp2p::quic::MtuDiscoveryConfig;
+use futures::StreamExt;
 use libp2p::{
     autonat,
     gossipsub::{self, MessageAuthenticity},
     identify,
     kad::{self, store::MemoryStore, Mode},
-    ping, relay,
-    swarm::{dial_opts::DialOpts, SwarmEvent},
+    ping,
+    quic::MtuDiscoveryConfig,
+    relay,
+    swarm::SwarmEvent,
     PeerId, SwarmBuilder,
 };
 use libp2p_connection_limits::ConnectionLimits;
 use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::signal::unix::{signal, SignalKind};
 
-use subsquid_network_transport::transport::MTU_DISCOVERY_MAX;
 use subsquid_network_transport::{
-    cli::{BootNode, TransportArgs},
+    protocol::DHT_PROTOCOL,
     util::{addr_is_reachable, get_keypair},
-    Keypair,
+    BootNode, Keypair, QuicConfig, TransportArgs,
 };
 
 #[derive(Parser)]
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         kademlia: kad::Behaviour::with_config(
             local_peer_id,
             MemoryStore::new(local_peer_id),
-            Default::default(),
+            kad::Config::new(DHT_PROTOCOL),
         ),
         relay: relay::Behaviour::new(local_peer_id, Default::default()),
         gossipsub: gossipsub::Behaviour::new(
@@ -84,8 +84,9 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Start the swarm
+    let quic_config = QuicConfig::from_env();
     let mut mtu_config = MtuDiscoveryConfig::default();
-    mtu_config.upper_bound(*MTU_DISCOVERY_MAX);
+    mtu_config.upper_bound(quic_config.mtu_discovery_max);
     let mut swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
         .with_quic_config(|config| config.with_mtu_discovery_config(mtu_config))
@@ -111,22 +112,18 @@ async fn main() -> anyhow::Result<()> {
     {
         log::info!("Connecting to boot node {peer_id} at {address}");
         swarm.behaviour_mut().kademlia.add_address(&peer_id, address.clone());
-        swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
-    }
-
-    if swarm.behaviour_mut().kademlia.bootstrap().is_err() {
-        log::warn!("No peers connected. Cannot bootstrap kademlia.")
+        swarm.dial(peer_id)?;
     }
 
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;
-    while !swarm.is_terminated() {
+    loop {
         let event = tokio::select! {
             event = swarm.select_next_some() => event,
             _ = sigint.recv() => break,
             _ = sigterm.recv() => break,
         };
-        log::debug!("Swarm event: {event:?}");
+        log::trace!("Swarm event: {event:?}");
         if let SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
             peer_id,
             info: identify::Info { listen_addrs, .. },

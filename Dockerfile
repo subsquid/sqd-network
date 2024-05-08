@@ -1,10 +1,11 @@
-FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.62-rust-1.75-slim-bookworm AS chef
+FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.66-rust-1.78-slim-bookworm AS chef
 WORKDIR /app
 
 FROM --platform=$BUILDPLATFORM chef AS planner
 
 COPY Cargo.toml .
 COPY Cargo.lock .
+COPY messages ./messages
 COPY transport ./transport
 
 RUN cargo chef prepare --recipe-path recipe.json

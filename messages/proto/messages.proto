@@ -1,0 +1,173 @@
+syntax = "proto3";
+package messages;
+import "google/protobuf/empty.proto";
+
+
+message Envelope {
+  option deprecated = true;
+  oneof msg {
+    // router <-> worker
+    Pong pong = 3;
+    Ping ping = 4;
+
+    // client <-> worker
+    Query query = 5;
+    QueryResult query_result = 6;
+
+    // client metrics
+    QuerySubmitted query_submitted = 8;
+    QueryFinished query_finished = 9;
+
+    // collector <-> worker
+    QueryLogs query_logs = 11;
+    LogsCollected logs_collected = 12;
+  }
+}
+
+message GatewayLogMsg {
+  oneof msg {
+    QuerySubmitted query_submitted = 1;
+    QueryFinished query_finished = 2;
+  }
+}
+
+message BroadcastMsg {
+  oneof msg {
+    Ping ping = 1;
+    LogsCollected logs_collected = 2;
+  }
+}
+
+
+message Range {
+  uint32 begin = 1;
+  uint32 end = 2;
+}
+
+message RangeSet {
+  repeated Range ranges = 1;
+}
+
+message WorkerState {
+  map<string, RangeSet> datasets = 1;
+}
+
+message DatasetRanges {
+  string url = 1;
+  repeated Range ranges = 2;
+}
+
+message Ping {
+  optional string worker_id = 1;
+  optional string version = 2;
+  optional uint64 stored_bytes = 3;
+  repeated DatasetRanges stored_ranges = 4;
+  bytes signature = 5;
+}
+
+message DatasetChunks {
+  string dataset_url = 1;
+  repeated string chunks = 2;
+}
+
+message WorkerAssignment {
+  repeated DatasetChunks dataset_chunks = 1;
+}
+
+message Pong {
+  bytes ping_hash = 1;
+  oneof status {
+    google.protobuf.Empty not_registered = 2;
+    google.protobuf.Empty unsupported_version = 3;
+
+    WorkerState active = 5 [deprecated = true];
+    string jailed = 6;
+    WorkerAssignment active_v2 = 7;
+  }
+}
+
+message Query {// Optional fields enforce serializing default values
+  optional string query_id = 1;
+  optional string dataset = 2;
+  optional string query = 3;
+  optional bool profiling = 4;
+  optional string client_state_json = 5;
+  bytes signature = 6;
+}
+
+message QueryResult {
+  string query_id = 1;
+  oneof result {
+    OkResult ok = 2;
+    string bad_request = 3;
+    string server_error = 4;
+    google.protobuf.Empty no_allocation = 5;
+    google.protobuf.Empty timeout = 6;
+  }
+}
+
+message OkResult {
+  bytes data = 1;
+  optional bytes exec_plan = 2;
+}
+
+message QuerySubmitted {
+  string client_id = 1;
+  string worker_id = 2;
+  string query_id = 3;
+
+  string dataset = 4;
+  string query = 5;
+  bytes query_hash = 6;
+}
+
+message QueryFinished {
+  string client_id = 1;
+  string worker_id = 2;
+  string query_id = 3;
+
+  uint32 exec_time_ms = 4;
+  oneof result {
+    SizeAndHash ok = 5;
+    string bad_request = 6;
+    string server_error = 7;
+    google.protobuf.Empty timeout = 8;
+    google.protobuf.Empty no_allocation = 9;
+  }
+}
+
+message QueryExecuted {
+  string client_id = 1;
+  string worker_id = 2;
+
+  Query query = 3;
+  bytes query_hash = 5;
+
+  optional uint32 exec_time_ms = 6; // optional to enforce serializing 0
+  oneof result {
+    InputAndOutput ok = 7;
+    string bad_request = 8;
+    string server_error = 9;
+  }
+  optional uint64 seq_no = 10; // optional to enforce serializing 0
+  optional uint64 timestamp_ms = 11; // optional to enforce serializing 0
+  bytes signature = 12;
+}
+
+message QueryLogs {
+  repeated QueryExecuted queries_executed = 1;
+}
+
+message InputAndOutput {
+  optional uint32 num_read_chunks = 1; // optional to enforce serializing 0
+  SizeAndHash output = 2;
+}
+
+message SizeAndHash {
+  optional uint32 size = 1; // optional to enforce serializing 0
+  bytes sha3_256 = 2;
+}
+
+message LogsCollected {
+  map<string, uint64> sequence_numbers = 1; // peer ID -> last saved seq no
+}

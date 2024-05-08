@@ -758,10 +758,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastrand"
+version = "2.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "658bd65b1cf4c852a3cc96f18a8ce7b5640f6b703f905c7d74532294c2a63984"
+
+[[package]]
 name = "fiat-crypto"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c007b1ae3abe1cb6f85a16305acd418b7ca6343b953633fee2b76d8f108b830f"
+
+[[package]]
+name = "fixedbitset"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
 name = "fnv"
@@ -798,6 +810,15 @@ name = "futures-bounded"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e1e2774cc104e198ef3d3e1ff4ab40f86fa3245d6cb6a3a46174f21463cee173"
+dependencies = [
+ "futures-timer",
+ "futures-util",
+]
+
+[[package]]
+name = "futures-bounded"
+version = "0.2.3"
+source = "git+https://github.com/Wiezzel/rust-futures-bounded.git?rev=579106d#579106d700faac4c52d42dcfb29c711078ba8552"
 dependencies = [
  "futures-timer",
  "futures-util",
@@ -1004,6 +1025,9 @@ name = "hex"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "hex_fmt"
@@ -1265,6 +1289,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f518f335dce6725a761382244631d86cf0ccb2863413590b31338feb467f9c3"
 
 [[package]]
+name = "itertools"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1277,6 +1310,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29c15563dc2726973df627357ce0c9ddddbea194836909d655df6a75d2cf296d"
 dependencies = [
  "wasm-bindgen",
+]
+
+[[package]]
+name = "keccak"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ecc2af9a1119c51f12a14607e783cb977bde58bc069ff0c3da1095e635d70654"
+dependencies = [
+ "cpufeatures",
 ]
 
 [[package]]
@@ -1407,7 +1449,7 @@ dependencies = [
  "asynchronous-codec",
  "either",
  "futures",
- "futures-bounded",
+ "futures-bounded 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-timer",
  "instant",
  "libp2p-core",
@@ -1475,7 +1517,7 @@ dependencies = [
  "asynchronous-codec",
  "either",
  "futures",
- "futures-bounded",
+ "futures-bounded 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-timer",
  "libp2p-core",
  "libp2p-identity",
@@ -1519,7 +1561,7 @@ dependencies = [
  "either",
  "fnv",
  "futures",
- "futures-bounded",
+ "futures-bounded 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-timer",
  "instant",
  "libp2p-core",
@@ -1651,7 +1693,7 @@ dependencies = [
  "bytes",
  "either",
  "futures",
- "futures-bounded",
+ "futures-bounded 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-timer",
  "instant",
  "libp2p-core",
@@ -1673,7 +1715,7 @@ source = "git+https://github.com/Wiezzel/rust-libp2p.git?rev=299b66e4#299b66e477
 dependencies = [
  "async-trait",
  "futures",
- "futures-bounded",
+ "futures-bounded 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-timer",
  "instant",
  "libp2p-core",
@@ -1905,6 +1947,12 @@ dependencies = [
  "serde",
  "unsigned-varint 0.7.2",
 ]
+
+[[package]]
+name = "multimap"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "defc4c55412d89136f966bbb339008b474350e5e6e78d2714439c386b3137a03"
 
 [[package]]
 name = "multistream-select"
@@ -2139,6 +2187,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
+name = "petgraph"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1d3afd2628e69da2be385eb6f2fd57c8ac7977ceeff6dc166ff1657b0e386a9"
+dependencies = [
+ "fixedbitset",
+ "indexmap",
+]
+
+[[package]]
 name = "pin-project"
 version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2237,6 +2295,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b40af805b3121feab8a3c29f04d8ad262fa8e0561883e7653e024ae4479e6de"
 
 [[package]]
+name = "prettyplease"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d3928fb5db768cb86f891ff014f0144589297e3c6a1aba6ed7cecfdace270c7"
+dependencies = [
+ "proc-macro2",
+ "syn 2.0.58",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2266,6 +2334,59 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.58",
+]
+
+[[package]]
+name = "prost"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0f5d036824e4761737860779c906171497f6d55681139d8312388f8fe398922"
+dependencies = [
+ "bytes",
+ "prost-derive",
+]
+
+[[package]]
+name = "prost-build"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80b776a1b2dc779f5ee0641f8ade0125bc1298dd41a9a0c16d8bd57b42d222b1"
+dependencies = [
+ "bytes",
+ "heck 0.5.0",
+ "itertools",
+ "log",
+ "multimap",
+ "once_cell",
+ "petgraph",
+ "prettyplease",
+ "prost",
+ "prost-types",
+ "regex",
+ "syn 2.0.58",
+ "tempfile",
+]
+
+[[package]]
+name = "prost-derive"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19de2de2a00075bf566bee3bd4db014b11587e84184d3f7a791bc17f1a8e9e48"
+dependencies = [
+ "anyhow",
+ "itertools",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.58",
+]
+
+[[package]]
+name = "prost-types"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3235c33eb02c1f1e212abdbe34c78b264b038fb58ca612664343271e36e55ffe"
+dependencies = [
+ "prost",
 ]
 
 [[package]]
@@ -2616,6 +2737,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.10.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
+dependencies = [
+ "digest",
+ "keccak",
+]
+
+[[package]]
 name = "signal-hook-registry"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2710,8 +2841,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
+name = "subsquid-messages"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "hex",
+ "libp2p",
+ "prost",
+ "prost-build",
+ "semver",
+ "serde",
+ "sha3",
+]
+
+[[package]]
 name = "subsquid-network-transport"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2720,6 +2865,7 @@ dependencies = [
  "derivative",
  "env_logger",
  "futures",
+ "futures-bounded 0.2.3 (git+https://github.com/Wiezzel/rust-futures-bounded.git?rev=579106d)",
  "futures-core",
  "lazy_static",
  "libp2p",
@@ -2727,7 +2873,9 @@ dependencies = [
  "libp2p-swarm-derive",
  "log",
  "prometheus-client",
- "rand",
+ "prost",
+ "serde",
+ "subsquid-messages",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -2792,6 +2940,18 @@ checksum = "a75fb188eb626b924683e3b95e3a48e63551fcfb51949de2f06a9d91dbee93c9"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "tempfile"
+version = "3.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85b77fafb263dd9d05cbeac119526425676db3784113aa9295c88498cbf8bff1"
+dependencies = [
+ "cfg-if",
+ "fastrand",
+ "rustix",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
