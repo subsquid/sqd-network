@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
@@ -65,5 +66,16 @@ impl Ping {
             .as_ref()
             .and_then(|v| v.parse().ok())
             .unwrap_or_else(|| semver::Version::new(0, 0, 1))
+    }
+}
+
+impl Debug for OkResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "OkResult {{ data: <{} bytes>, exec_plan: <{} bytes> }}",
+            self.data.len(),
+            self.exec_plan.as_ref().map(|b| b.len()).unwrap_or_default()
+        )
     }
 }

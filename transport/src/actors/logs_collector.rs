@@ -105,6 +105,14 @@ impl LogsCollectorBehaviour {
                 peer_id,
                 envelope: Envelope {msg: Some(envelope::Msg::QueryLogs(logs))}
             } => self.on_worker_logs(peer_id, logs),
+            BaseBehaviourEvent::LegacyMsg {
+                peer_id,
+                envelope: Envelope{ msg: Some(envelope::Msg::QuerySubmitted(log))}
+            } if log.client_id == peer_id.to_base58() => Some(LogsCollectorEvent::QuerySubmitted(log)),
+            BaseBehaviourEvent::LegacyMsg {
+                peer_id,
+                envelope: Envelope{ msg: Some(envelope::Msg::QueryFinished(log))}
+            } if log.client_id == peer_id.to_base58() => Some(LogsCollectorEvent::QueryFinished(log)),
             _ => None
         }
     }
@@ -137,7 +145,7 @@ impl LogsCollectorBehaviour {
                 Some(LogsCollectorEvent::QuerySubmitted(log))
             }
             _ => {
-                log::warn!("Invalid gateway log messsage: {log_msg:?}");
+                log::warn!("Invalid gateway log message: {log_msg:?}");
                 None
             }
         }
