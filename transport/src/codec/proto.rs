@@ -5,6 +5,8 @@ use futures::{AsyncReadExt, AsyncWriteExt};
 use libp2p::request_response;
 use prost::Message;
 
+pub const ACK_SIZE: u64 = 4;
+
 pub struct ProtoCodec<Req, Res> {
     _req: PhantomData<Req>,
     _res: PhantomData<Res>,

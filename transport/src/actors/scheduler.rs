@@ -17,11 +17,11 @@ use subsquid_messages::{broadcast_msg, envelope, BroadcastMsg, Envelope, Ping, P
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent, ACK_SIZE},
+        base::{BaseBehaviour, BaseBehaviourEvent},
         request_client::{ClientBehaviour, ClientConfig, ClientEvent},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    codec::ProtoCodec,
+    codec::{ProtoCodec, ACK_SIZE},
     protocol::{MAX_PONG_SIZE, PONG_PROTOCOL},
     record_event,
     util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},

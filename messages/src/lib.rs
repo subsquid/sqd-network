@@ -1,6 +1,6 @@
-use std::fmt::{Debug, Formatter};
 use std::{
     collections::HashMap,
+    fmt::{Debug, Formatter},
     ops::{Deref, DerefMut},
 };
 

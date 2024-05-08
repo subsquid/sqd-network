@@ -35,6 +35,10 @@ pub use crate::actors::gateway::{
 pub use crate::actors::logs_collector::{
     LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent, LogsCollectorTransportHandle,
 };
+#[cfg(feature = "observer")]
+pub use crate::actors::observer::{
+    ObserverBehaviour, ObserverConfig, ObserverEvent, ObserverTransportHandle,
+};
 #[cfg(feature = "scheduler")]
 pub use crate::actors::scheduler::{
     SchedulerBehaviour, SchedulerConfig, SchedulerEvent, SchedulerTransportHandle,

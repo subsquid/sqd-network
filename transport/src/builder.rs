@@ -25,6 +25,10 @@ use crate::actors::logs_collector::{
     self, LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent,
     LogsCollectorTransportHandle,
 };
+#[cfg(feature = "observer")]
+use crate::actors::observer::{
+    self, ObserverBehaviour, ObserverConfig, ObserverEvent, ObserverTransportHandle,
+};
 #[cfg(feature = "scheduler")]
 use crate::actors::scheduler::{
     self, SchedulerBehaviour, SchedulerConfig, SchedulerEvent, SchedulerTransportHandle,
@@ -201,6 +205,16 @@ impl P2PTransportBuilder {
     ) -> Result<(impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle), Error> {
         let swarm = self.build_swarm(|base| LogsCollectorBehaviour::new(base, config.clone()))?;
         Ok(logs_collector::start_transport(swarm, config))
+    }
+
+    #[cfg(feature = "observer")]
+    pub fn build_observer(
+        self,
+        config: ObserverConfig,
+    ) -> Result<(impl Stream<Item = ObserverEvent>, ObserverTransportHandle), Error> {
+        let swarm =
+            self.build_swarm(|base| ObserverBehaviour::new(base, config.logs_collector_id))?;
+        Ok(observer::start_transport(swarm, config))
     }
 
     #[cfg(feature = "scheduler")]

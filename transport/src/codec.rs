@@ -1,5 +1,7 @@
 mod legacy;
-mod proto;
-
 pub use legacy::LegacyCodec;
-pub use proto::ProtoCodec;
+
+#[cfg(feature = "proto")]
+mod proto;
+#[cfg(feature = "proto")]
+pub use proto::{ProtoCodec, ACK_SIZE};

@@ -2,6 +2,8 @@
 pub mod gateway;
 #[cfg(feature = "logs-collector")]
 pub mod logs_collector;
+#[cfg(feature = "observer")]
+pub mod observer;
 #[cfg(feature = "scheduler")]
 pub mod scheduler;
 #[cfg(feature = "worker")]

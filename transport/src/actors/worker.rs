@@ -25,12 +25,12 @@ use subsquid_messages::{
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent, ACK_SIZE},
+        base::{BaseBehaviour, BaseBehaviourEvent},
         request_client::{ClientBehaviour, ClientConfig, ClientEvent},
         request_server::{Request, ServerBehaviour},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    codec::ProtoCodec,
+    codec::{ProtoCodec, ACK_SIZE},
     protocol::{
         MAX_PONG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, MAX_WORKER_LOGS_SIZE, PONG_PROTOCOL,
         QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL,
@@ -294,6 +294,7 @@ fn bundle_messages<T: prost::Message>(
         .filter_map(move |msg| {
             let msg_size = msg.encoded_len();
             if msg_size > size_limit {
+                // TODO: Send oversized messages back as events, don't drop
                 log::warn!("Message too big ({msg_size} > {size_limit})");
                 return None;
             }

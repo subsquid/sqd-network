@@ -98,6 +98,7 @@ impl<M: MsgContent> request_response::Codec for LegacyCodec<M> {
     }
 }
 
+#[allow(dead_code)]
 pub trait MsgContent: Sized + Send + Debug + 'static {
     fn new(size: usize) -> Self;
     fn as_slice(&self) -> &[u8];

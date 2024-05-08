@@ -19,11 +19,11 @@ use subsquid_messages::{
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent, ACK_SIZE},
+        base::{BaseBehaviour, BaseBehaviourEvent},
         request_server::{Request, ServerBehaviour},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    codec::ProtoCodec,
+    codec::{ProtoCodec, ACK_SIZE},
     protocol::{
         GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_WORKER_LOGS_SIZE, WORKER_LOGS_PROTOCOL,
     },

@@ -28,8 +28,7 @@ use libp2p::{
     StreamProtocol,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
-use prost::bytes::Buf;
-use prost::Message;
+use prost::{bytes::Buf, Message};
 use serde::{Deserialize, Serialize};
 
 use subsquid_messages::{
@@ -52,8 +51,6 @@ use crate::{
 #[cfg(feature = "metrics")]
 use crate::metrics::ONGOING_QUERIES;
 use crate::protocol::{LEGACY_LOGS_TOPIC, LEGACY_PING_TOPIC};
-
-pub const ACK_SIZE: u64 = 4;
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
@@ -98,6 +95,7 @@ pub struct BaseBehaviour {
     probe_timeouts: FuturesMap<PeerId, ()>,
 }
 
+#[allow(dead_code)]
 impl BaseBehaviour {
     pub fn new(
         keypair: &Keypair,
@@ -421,7 +419,6 @@ impl BaseBehaviour {
         &mut self,
         ev: request_response::Event<Vec<u8>, u8>,
     ) -> Option<TToSwarm<Self>> {
-        log::debug!("Request-Response event received: {ev:?}");
         let (peer_id, msg_content, channel) = match ev {
             request_response::Event::Message {
                 peer,
@@ -440,6 +437,7 @@ impl BaseBehaviour {
             }
             _ => return None,
         };
+        log::debug!("Legacy message ({} bytes) received from {peer_id}", msg_content.len());
 
         // Send minimal response to prevent errors being emitted on the sender side
         _ = self.inner.legacy.send_response(channel, 1u8);

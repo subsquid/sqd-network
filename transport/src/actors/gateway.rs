@@ -24,11 +24,11 @@ use subsquid_messages::{
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent, ACK_SIZE},
+        base::{BaseBehaviour, BaseBehaviourEvent},
         request_client::{ClientBehaviour, ClientConfig, ClientEvent},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    codec::ProtoCodec,
+    codec::{ProtoCodec, ACK_SIZE},
     protocol::{
         GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE,
         QUERY_PROTOCOL,

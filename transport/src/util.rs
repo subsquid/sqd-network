@@ -1,5 +1,8 @@
-use libp2p::identity::ed25519;
-use libp2p::{identity::Keypair, multiaddr::Protocol, Multiaddr};
+use libp2p::{
+    identity::{ed25519, Keypair},
+    multiaddr::Protocol,
+    Multiaddr,
+};
 use std::path::PathBuf;
 
 mod task_manager;
