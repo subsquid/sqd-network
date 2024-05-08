@@ -2856,7 +2856,7 @@ dependencies = [
 
 [[package]]
 name = "subsquid-network-transport"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2874,6 +2874,7 @@ dependencies = [
  "log",
  "prometheus-client",
  "prost",
+ "semver",
  "serde",
  "subsquid-messages",
  "thiserror",

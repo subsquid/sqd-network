@@ -29,6 +29,7 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use prost::{bytes::Buf, Message};
+use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 
 use subsquid_messages::{
@@ -146,12 +147,13 @@ impl BaseBehaviour {
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
         }
     }
+
     pub fn subscribe_pings(&mut self) {
         self.inner.pubsub.subscribe(PING_TOPIC, false);
         self.inner.pubsub.subscribe(LEGACY_PING_TOPIC, false);
     }
 
-    pub fn subscribe_logs_collected(&mut self) {
+    pub fn subscribe_logs(&mut self) {
         self.inner.pubsub.subscribe(LOGS_TOPIC, false);
         self.inner.pubsub.subscribe(LEGACY_LOGS_TOPIC, false);
     }
@@ -159,6 +161,7 @@ impl BaseBehaviour {
     pub fn sign<T: SignedMessage>(&self, msg: &mut T) {
         msg.sign(&self.keypair)
     }
+
     pub fn publish_ping(&mut self, mut ping: Ping) {
         self.sign(&mut ping);
         self.inner.pubsub.publish(PING_TOPIC, ping.encode_to_vec());
@@ -173,6 +176,8 @@ impl BaseBehaviour {
         let legacy_msg = Envelope {
             msg: Some(envelope::Msg::LogsCollected(logs_collected)),
         };
+        // Logs collected should be published on legacy topic as well,
+        // so that legacy workers can receive them
         self.inner.pubsub.publish(LEGACY_LOGS_TOPIC, legacy_msg.encode_to_vec());
     }
 
@@ -409,7 +414,7 @@ impl BaseBehaviour {
             PING_TOPIC => decode_ping(&peer_id, data)?,
             LOGS_TOPIC => decode_logs_collected(data)?,
             LEGACY_PING_TOPIC => decode_legacy_ping(&peer_id, data)?,
-            LEGACY_LOGS_TOPIC => decode_legacy_logs_collected(data)?,
+            // Ignore messages from LEGACY_LOGS_TOPIC, they're only for legacy workers
             _ => return None,
         };
         let ev = BaseBehaviourEvent::BroadcastMsg { peer_id, msg };
@@ -463,24 +468,16 @@ fn decode_legacy_ping(peer_id: &PeerId, data: Box<[u8]>) -> Option<BroadcastMsg>
         }) => ping,
         _ => return None,
     };
+    // HACK: New workers publish pings both on new and legacy topic, so we skip this do deduplicate
+    if VersionReq::parse(">=0.4.0").unwrap().matches(&ping.sem_version()) {
+        return None;
+    }
     if !ping.verify_signature(peer_id) {
         log::warn!("Invalid ping signature from {peer_id}");
         return None;
     }
     Some(BroadcastMsg {
         msg: Some(broadcast_msg::Msg::Ping(ping)),
-    })
-}
-
-fn decode_legacy_logs_collected(data: Box<[u8]>) -> Option<BroadcastMsg> {
-    let logs_collected = match decode_envelope(data.as_ref()) {
-        Some(Envelope {
-            msg: Some(envelope::Msg::LogsCollected(logs_collected)),
-        }) => logs_collected,
-        _ => return None,
-    };
-    Some(BroadcastMsg {
-        msg: Some(broadcast_msg::Msg::LogsCollected(logs_collected)),
     })
 }
 

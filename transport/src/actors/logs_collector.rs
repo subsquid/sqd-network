@@ -80,7 +80,7 @@ pub struct LogsCollectorBehaviour {
 impl LogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour, config: LogsCollectorConfig) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.subscribe_logs_collected();
+        base.subscribe_logs();
         Self {
             inner: InnerBehaviour {
                 base: base.into(),

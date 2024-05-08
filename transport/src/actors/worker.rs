@@ -114,7 +114,7 @@ impl WorkerBehaviour {
         config: WorkerConfig,
     ) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.subscribe_logs_collected();
+        base.subscribe_logs();
         Self {
             inner: InnerBehaviour {
                 base: base.into(),

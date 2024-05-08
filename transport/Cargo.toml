@@ -1,6 +1,6 @@
 [package]
 name = "subsquid-network-transport"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 
 [[bin]]
@@ -28,13 +28,14 @@ libp2p-swarm-derive = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev 
 log = "0.4"
 prometheus-client = { version = "0.22.2", optional = true }
 prost = { version = "0.12", features = ["derive"] }
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "macros", "rt", "rt-multi-thread", "signal", "sync"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-util = "0.7"
 
-subsquid-messages = { path = "../messages", features = ["signatures"] }
+subsquid-messages = { path = "../messages", features = ["signatures", "semver"] }
 
 [features]
 actors = []
