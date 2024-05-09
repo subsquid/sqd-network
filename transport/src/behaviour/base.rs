@@ -23,7 +23,9 @@ use libp2p::{
     ping, relay, request_response,
     request_response::ProtocolSupport,
     swarm::{
-        behaviour::ConnectionEstablished, ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm,
+        behaviour::ConnectionEstablished,
+        dial_opts::{DialOpts, PeerCondition},
+        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm,
     },
     StreamProtocol,
 };
@@ -369,20 +371,14 @@ impl BaseBehaviour {
             Err(GetClosestPeersError::Timeout { peers, .. }) => peers,
         };
 
-        // Query reached the peer that was looked for. Try to dial the peer now.
-        if peers.contains(&peer_id) {
+        // Query finished, or the peer has already been found. Try to dial the peer now.
+        if finished || peers.contains(&peer_id) {
             self.ongoing_queries.remove_by_right(&query_id);
             #[cfg(feature = "metrics")]
             ONGOING_QUERIES.dec();
             return Some(ToSwarm::Dial {
-                opts: peer_id.into(),
+                opts: DialOpts::peer_id(peer_id).condition(PeerCondition::NotDialing).build(),
             });
-        }
-        // Query finished and the peer wasn't found.
-        else if finished {
-            self.ongoing_queries.remove_by_right(&query_id);
-            #[cfg(feature = "metrics")]
-            ONGOING_QUERIES.dec();
         }
         None
     }
