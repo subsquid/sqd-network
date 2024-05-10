@@ -1,6 +1,6 @@
 [package]
 name = "subsquid-network-transport"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 
 [[bin]]
@@ -19,7 +19,7 @@ clap = { version = "4", features = ["derive", "env"] }
 derivative = "2"
 env_logger = "0.11"
 futures = "0.3"
-futures-bounded = { git = "https://github.com/Wiezzel/rust-futures-bounded.git", rev = "579106d" }
+futures-bounded = { git = "https://github.com/Wiezzel/rust-futures-bounded.git", version = "0.2.3-dev" }
 futures-core = "0.3"
 lazy_static = { version = "1" }
 libp2p = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "299b66e4", features = ["dns", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde", "autonat", "quic"] }

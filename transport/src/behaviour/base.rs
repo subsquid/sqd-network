@@ -7,6 +7,7 @@ use std::{
 
 use bimap::BiHashMap;
 use futures_bounded::FuturesMap;
+use libp2p::swarm::DialFailure;
 use libp2p::{
     allow_block_list,
     allow_block_list::BlockedPeers,
@@ -268,6 +269,13 @@ impl BehaviourWrapper for BaseBehaviour {
                 endpoint: ConnectedPoint::Dialer { .. },
                 ..
             }) => self.on_outbound_closed(peer_id),
+            FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
+                log::debug!(
+                    "Failed to dial {}: {error:?}",
+                    peer_id.map(|id| id.to_base58()).unwrap_or_default()
+                );
+                None
+            }
             _ => None,
         }
     }
@@ -314,6 +322,7 @@ impl BaseBehaviour {
         log::debug!("Established outbound connection to {peer_id}");
         *self.outbound_conns.entry(peer_id).or_default() += 1;
         if self.probe_timeouts.remove(peer_id).is_some() {
+            log::debug!("Probe for {peer_id} succeeded");
             Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::PeerProbed {
                 peer_id,
                 reachable: true,
@@ -366,13 +375,14 @@ impl BaseBehaviour {
             None => return None,
             Some(peer_id) => peer_id.to_owned(),
         };
-        let peers = match result {
-            Ok(GetClosestPeersOk { peers, .. }) => peers,
-            Err(GetClosestPeersError::Timeout { peers, .. }) => peers,
+        let peer_found = match result {
+            Ok(GetClosestPeersOk { peers, .. }) => peers.contains(&peer_id),
+            Err(GetClosestPeersError::Timeout { peers, .. }) => peers.contains(&peer_id),
         };
 
         // Query finished, or the peer has already been found. Try to dial the peer now.
-        if finished || peers.contains(&peer_id) {
+        if finished || peer_found {
+            log::debug!("Query for peer {peer_id} finished. peer_found={peer_found}");
             self.ongoing_queries.remove_by_right(&query_id);
             #[cfg(feature = "metrics")]
             ONGOING_QUERIES.dec();
@@ -429,11 +439,11 @@ impl BaseBehaviour {
                     },
             } => (peer, request, channel),
             request_response::Event::InboundFailure { error, peer, .. } => {
-                log::error!("Inbound message failure (peer_id={peer}): {error:?}");
+                log::debug!("Inbound message failure (peer_id={peer}): {error:?}");
                 return None;
             }
             request_response::Event::OutboundFailure { error, peer, .. } => {
-                log::error!("Outbound message failure: (peer_id={peer}): {error:?}");
+                log::debug!("Outbound message failure: (peer_id={peer}): {error:?}");
                 return None;
             }
             _ => return None,
