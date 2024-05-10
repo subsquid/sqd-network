@@ -65,13 +65,27 @@ message Ping {
   bytes signature = 5;
 }
 
+message HttpHeader {
+  string name = 1;
+  string value = 2;
+}
+
+message AssignedChunk {
+  string path = 1;  // "0000000000/0000808640-0000816499-b0486318"
+  repeated uint32 filenames = 2;  // index in known_filenames array
+}
+
 message DatasetChunks {
-  string dataset_url = 1;
-  repeated string chunks = 2;
+  string dataset_id = 1;  // "s3://moonbeam-evm-1"
+  string download_url = 3;  // "https://moonbeam-evm-1.sqd-datasets.io/"
+  repeated string chunks_legacy = 2 [deprecated = true];  // used in workers <=0.4.0
+  repeated AssignedChunk chunks = 4;
 }
 
 message WorkerAssignment {
   repeated DatasetChunks dataset_chunks = 1;
+  repeated HttpHeader http_headers = 2;
+  repeated string known_filenames = 3;  // "blocks.parquet"
 }
 
 message Pong {
