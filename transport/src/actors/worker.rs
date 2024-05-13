@@ -14,8 +14,6 @@ use libp2p::{
 use libp2p_swarm_derive::NetworkBehaviour;
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
@@ -36,7 +34,7 @@ use crate::{
         QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL,
     },
     record_event,
-    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
 
@@ -342,10 +340,10 @@ impl BehaviourWrapper for WorkerBehaviour {
 
 struct WorkerTransport {
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
-    pings_rx: mpsc::Receiver<Ping>,
-    query_results_rx: mpsc::Receiver<QueryResult>,
-    logs_rx: mpsc::Receiver<Vec<QueryExecuted>>,
-    events_tx: mpsc::Sender<WorkerEvent>,
+    pings_rx: Receiver<Ping>,
+    query_results_rx: Receiver<QueryResult>,
+    logs_rx: Receiver<Vec<QueryExecuted>>,
+    events_tx: Sender<WorkerEvent>,
 }
 
 impl WorkerTransport {
@@ -367,26 +365,24 @@ impl WorkerTransport {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
-            self.events_tx
-                .try_send(ev)
-                .unwrap_or_else(|e| log::error!("Worker event queue full. Event dropped: {e:?}"))
+            self.events_tx.send_lossy(ev)
         }
     }
 }
 
 #[derive(Clone)]
 pub struct WorkerTransportHandle {
-    pings_tx: mpsc::Sender<Ping>,
-    query_results_tx: mpsc::Sender<QueryResult>,
-    logs_tx: mpsc::Sender<Vec<QueryExecuted>>,
+    pings_tx: Sender<Ping>,
+    query_results_tx: Sender<QueryResult>,
+    logs_tx: Sender<Vec<QueryExecuted>>,
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
 }
 
 impl WorkerTransportHandle {
     fn new(
-        pings_tx: mpsc::Sender<Ping>,
-        query_results_tx: mpsc::Sender<QueryResult>,
-        logs_tx: mpsc::Sender<Vec<QueryExecuted>>,
+        pings_tx: Sender<Ping>,
+        query_results_tx: Sender<QueryResult>,
+        logs_tx: Sender<Vec<QueryExecuted>>,
         transport: WorkerTransport,
         shutdown_timeout: Duration,
     ) -> Self {
@@ -420,10 +416,11 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
     config: WorkerConfig,
 ) -> (impl Stream<Item = WorkerEvent>, WorkerTransportHandle) {
-    let (pings_tx, pings_rx) = mpsc::channel(config.pings_queue_size);
-    let (query_results_tx, query_results_rx) = mpsc::channel(config.query_results_queue_size);
-    let (logs_tx, logs_rx) = mpsc::channel(config.logs_queue_size);
-    let (events_tx, events_rx) = mpsc::channel(config.events_queue_size);
+    let (pings_tx, pings_rx) = new_queue(config.pings_queue_size, "pings");
+    let (query_results_tx, query_results_rx) =
+        new_queue(config.query_results_queue_size, "query_results");
+    let (logs_tx, logs_rx) = new_queue(config.logs_queue_size, "logs");
+    let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = WorkerTransport {
         swarm,
         pings_rx,
@@ -438,7 +435,7 @@ pub fn start_transport(
         transport,
         config.shutdown_timeout,
     );
-    (ReceiverStream::new(events_rx), handle)
+    (events_rx, handle)
 }
 
 #[cfg(test)]

@@ -9,8 +9,6 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{broadcast_msg, envelope, BroadcastMsg, Envelope, Ping, Pong};
@@ -24,7 +22,7 @@ use crate::{
     codec::{ProtoCodec, ACK_SIZE},
     protocol::{MAX_PONG_SIZE, PONG_PROTOCOL},
     record_event,
-    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
 
@@ -184,9 +182,9 @@ impl BehaviourWrapper for SchedulerBehaviour {
 
 struct SchedulerTransport {
     swarm: Swarm<Wrapped<SchedulerBehaviour>>,
-    pongs_rx: mpsc::Receiver<(PeerId, Pong)>,
-    probes_rx: mpsc::Receiver<PeerId>,
-    events_tx: mpsc::Sender<SchedulerEvent>,
+    pongs_rx: Receiver<(PeerId, Pong)>,
+    probes_rx: Receiver<PeerId>,
+    events_tx: Sender<SchedulerEvent>,
 }
 
 impl SchedulerTransport {
@@ -207,25 +205,17 @@ impl SchedulerTransport {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
-            self.events_tx
-                .try_send(ev)
-                .unwrap_or_else(|e| log::error!("Scheduler event queue full. Event dropped: {e:?}"))
+            self.events_tx.send_lossy(ev)
         }
     }
 
     fn probe_peer(&mut self, peer_id: PeerId) {
         log::debug!("Probing peer {peer_id}");
         match self.swarm.behaviour_mut().try_probe_peer(peer_id) {
-            Ok(true) => self
-                .events_tx
-                .try_send(SchedulerEvent::PeerProbed {
-                    peer_id,
-                    reachable: true,
-                })
-                .unwrap_or_else(|_| {
-                    log::error!("Scheduler event queue full. Probe result dropped.")
-                }),
-
+            Ok(true) => self.events_tx.send_lossy(SchedulerEvent::PeerProbed {
+                peer_id,
+                reachable: true,
+            }),
             Ok(false) => {}
             Err(_) => log::error!("Too many active probes. Cannot schedule next one."),
         }
@@ -234,15 +224,15 @@ impl SchedulerTransport {
 
 #[derive(Clone)]
 pub struct SchedulerTransportHandle {
-    pongs_tx: mpsc::Sender<(PeerId, Pong)>,
-    probes_tx: mpsc::Sender<PeerId>,
+    pongs_tx: Sender<(PeerId, Pong)>,
+    probes_tx: Sender<PeerId>,
     _task_manager: Arc<TaskManager>,
 }
 
 impl SchedulerTransportHandle {
     fn new(
-        pongs_tx: mpsc::Sender<(PeerId, Pong)>,
-        probes_tx: mpsc::Sender<PeerId>,
+        pongs_tx: Sender<(PeerId, Pong)>,
+        probes_tx: Sender<PeerId>,
         transport: SchedulerTransport,
         shutdown_timeout: Duration,
     ) -> Self {
@@ -269,9 +259,9 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<SchedulerBehaviour>>,
     config: SchedulerConfig,
 ) -> (impl Stream<Item = SchedulerEvent>, SchedulerTransportHandle) {
-    let (pongs_tx, pongs_rx) = mpsc::channel(config.pongs_queue_size);
-    let (probes_tx, probes_rx) = mpsc::channel(config.probes_queue_size);
-    let (events_tx, events_rx) = mpsc::channel(config.events_queue_size);
+    let (pongs_tx, pongs_rx) = new_queue(config.pongs_queue_size, "pongs");
+    let (probes_tx, probes_rx) = new_queue(config.probes_queue_size, "probes");
+    let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = SchedulerTransport {
         swarm,
         pongs_rx,
@@ -280,5 +270,5 @@ pub fn start_transport(
     };
     let handle =
         SchedulerTransportHandle::new(pongs_tx, probes_tx, transport, config.shutdown_timeout);
-    (ReceiverStream::new(events_rx), handle)
+    (events_rx, handle)
 }

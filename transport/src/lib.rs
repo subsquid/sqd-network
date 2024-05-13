@@ -9,7 +9,7 @@ pub use libp2p::{
 };
 
 #[cfg(feature = "metrics")]
-use libp2p::metrics::{Metrics, Recorder};
+pub use libp2p::metrics::{Metrics, Recorder};
 #[cfg(feature = "metrics")]
 pub use prometheus_client::registry::Registry;
 

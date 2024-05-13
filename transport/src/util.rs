@@ -5,8 +5,10 @@ use libp2p::{
 };
 use std::path::PathBuf;
 
+mod queue;
 mod task_manager;
 
+pub use queue::{new_queue, Receiver, Sender};
 pub use task_manager::{CancellationToken, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT};
 
 /// Load key from file or generate and save to file.

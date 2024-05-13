@@ -13,8 +13,6 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
@@ -34,7 +32,7 @@ use crate::{
         QUERY_PROTOCOL,
     },
     record_event,
-    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
 
@@ -282,9 +280,9 @@ impl BehaviourWrapper for GatewayBehaviour {
 
 struct GatewayTransport {
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
-    queries_rx: mpsc::Receiver<(PeerId, Query)>,
-    logs_rx: mpsc::Receiver<GatewayLogMsg>,
-    events_tx: mpsc::Sender<GatewayEvent>,
+    queries_rx: Receiver<(PeerId, Query)>,
+    logs_rx: Receiver<GatewayLogMsg>,
+    events_tx: Sender<GatewayEvent>,
 }
 
 impl GatewayTransport {
@@ -305,24 +303,22 @@ impl GatewayTransport {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
-            self.events_tx
-                .try_send(ev)
-                .unwrap_or_else(|e| log::error!("Gateway event queue full. Event dropped: {e:?}"))
+            self.events_tx.send_lossy(ev)
         }
     }
 }
 
 #[derive(Clone)]
 pub struct GatewayTransportHandle {
-    queries_tx: mpsc::Sender<(PeerId, Query)>,
-    logs_tx: mpsc::Sender<GatewayLogMsg>,
+    queries_tx: Sender<(PeerId, Query)>,
+    logs_tx: Sender<GatewayLogMsg>,
     _task_manager: Arc<TaskManager>,
 }
 
 impl GatewayTransportHandle {
     fn new(
-        queries_tx: mpsc::Sender<(PeerId, Query)>,
-        logs_tx: mpsc::Sender<GatewayLogMsg>,
+        queries_tx: Sender<(PeerId, Query)>,
+        logs_tx: Sender<GatewayLogMsg>,
         transport: GatewayTransport,
         shutdown_timeout: Duration,
     ) -> Self {
@@ -360,9 +356,9 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
     config: GatewayConfig,
 ) -> (impl Stream<Item = GatewayEvent>, GatewayTransportHandle) {
-    let (queries_tx, queries_rx) = mpsc::channel(config.queries_queue_size);
-    let (logs_tx, logs_rx) = mpsc::channel(config.logs_queue_size);
-    let (events_tx, events_rx) = mpsc::channel(config.events_queue_size);
+    let (queries_tx, queries_rx) = new_queue(config.queries_queue_size, "queries");
+    let (logs_tx, logs_rx) = new_queue(config.logs_queue_size, "logs");
+    let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = GatewayTransport {
         swarm,
         queries_rx,
@@ -371,5 +367,5 @@ pub fn start_transport(
     };
     let handle =
         GatewayTransportHandle::new(queries_tx, logs_tx, transport, config.shutdown_timeout);
-    (ReceiverStream::new(events_rx), handle)
+    (events_rx, handle)
 }

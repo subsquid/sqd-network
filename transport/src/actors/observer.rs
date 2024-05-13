@@ -7,8 +7,6 @@ use libp2p::{
     PeerId, Swarm,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{broadcast_msg, BroadcastMsg, LogsCollected, Ping};
@@ -19,7 +17,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     record_event,
-    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,7 +95,7 @@ impl BehaviourWrapper for ObserverBehaviour {
 
 struct ObserverTransport {
     swarm: Swarm<Wrapped<ObserverBehaviour>>,
-    events_tx: mpsc::Sender<ObserverEvent>,
+    events_tx: Sender<ObserverEvent>,
 }
 
 impl ObserverTransport {
@@ -116,9 +114,7 @@ impl ObserverTransport {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
-            self.events_tx
-                .try_send(ev)
-                .unwrap_or_else(|e| log::error!("Observer event queue full. Event dropped: {e:?}"))
+            self.events_tx.send_lossy(ev)
         }
     }
 }
@@ -142,8 +138,8 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<ObserverBehaviour>>,
     config: ObserverConfig,
 ) -> (impl Stream<Item = ObserverEvent>, ObserverTransportHandle) {
-    let (events_tx, events_rx) = mpsc::channel(config.events_queue_size);
+    let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = ObserverTransport { swarm, events_tx };
     let handle = ObserverTransportHandle::new(transport, config.shutdown_timeout);
-    (ReceiverStream::new(events_rx), handle)
+    (events_rx, handle)
 }

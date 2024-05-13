@@ -8,8 +8,6 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
@@ -28,7 +26,7 @@ use crate::{
         GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_WORKER_LOGS_SIZE, WORKER_LOGS_PROTOCOL,
     },
     record_event,
-    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
 
@@ -193,8 +191,8 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
 
 struct LogsCollectorTransport {
     swarm: Swarm<Wrapped<LogsCollectorBehaviour>>,
-    logs_collected_rx: mpsc::Receiver<LogsCollected>,
-    events_tx: mpsc::Sender<LogsCollectorEvent>,
+    logs_collected_rx: Receiver<LogsCollected>,
+    events_tx: Sender<LogsCollectorEvent>,
 }
 
 impl LogsCollectorTransport {
@@ -214,22 +212,20 @@ impl LogsCollectorTransport {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
-            self.events_tx.try_send(ev).unwrap_or_else(|e| {
-                log::error!("Logs collector event queue full. Event dropped: {e:?}")
-            })
+            self.events_tx.send_lossy(ev)
         }
     }
 }
 
 #[derive(Clone)]
 pub struct LogsCollectorTransportHandle {
-    logs_collected_tx: mpsc::Sender<LogsCollected>,
+    logs_collected_tx: Sender<LogsCollected>,
     _task_manager: Arc<TaskManager>,
 }
 
 impl LogsCollectorTransportHandle {
     fn new(
-        logs_collected_tx: mpsc::Sender<LogsCollected>,
+        logs_collected_tx: Sender<LogsCollected>,
         transport: LogsCollectorTransport,
         shutdown_timeout: Duration,
     ) -> Self {
@@ -250,8 +246,9 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<LogsCollectorBehaviour>>,
     config: LogsCollectorConfig,
 ) -> (impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle) {
-    let (logs_collected_tx, logs_collected_rx) = mpsc::channel(config.logs_collected_queue_size);
-    let (events_tx, events_rx) = mpsc::channel(config.events_queue_size);
+    let (logs_collected_tx, logs_collected_rx) =
+        new_queue(config.logs_collected_queue_size, "logs_collected");
+    let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = LogsCollectorTransport {
         swarm,
         logs_collected_rx,
@@ -259,5 +256,5 @@ pub fn start_transport(
     };
     let handle =
         LogsCollectorTransportHandle::new(logs_collected_tx, transport, config.shutdown_timeout);
-    (ReceiverStream::new(events_rx), handle)
+    (events_rx, handle)
 }

@@ -1,20 +1,21 @@
-use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU32, AtomicU64};
 
 use lazy_static::lazy_static;
 use libp2p::metrics::Metrics;
-use prometheus_client::{metrics::gauge::Gauge, registry::Registry};
+use prometheus_client::{
+    metrics::{counter::Counter, family::Family, gauge::Gauge},
+    registry::Registry,
+};
 use tokio::sync::OnceCell;
 
 lazy_static! {
-    pub static ref INBOUND_MSG_QUEUE_SIZE: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref OUTBOUND_MSG_QUEUE_SIZE: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref DIAL_QUEUE_SIZE: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref PENDING_DIALS: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref ONGOING_DIALS: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref ONGOING_QUERIES: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref PENDING_MESSAGES: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref SUBSCRIBED_TOPICS: Gauge<u32, AtomicU32> = Default::default();
     pub static ref ACTIVE_CONNECTIONS: Gauge<u32, AtomicU32> = Default::default();
+    pub static ref ONGOING_PROBES: Gauge<u32, AtomicU32> = Default::default();
+    pub static ref ONGOING_QUERIES: Gauge<u32, AtomicU32> = Default::default();
+    pub static ref QUEUE_SIZE: Family<Vec<(&'static str, &'static str)>, Gauge<u32, AtomicU32>> =
+        Default::default();
+    pub static ref DROPPED: Family<Vec<(&'static str, &'static str)>, Counter<u64, AtomicU64>> =
+        Default::default();
 }
 
 pub static LIBP2P_METRICS: OnceCell<Metrics> = OnceCell::const_new();
@@ -24,43 +25,24 @@ pub fn register_metrics(registry: &mut Registry) {
         panic!("Metrics already initialized");
     }
     registry.register(
-        "inbound_msg_queue_size",
-        "The number of inbound messages waiting in queue to be processed",
-        INBOUND_MSG_QUEUE_SIZE.clone(),
-    );
-    registry.register(
-        "outbound_msg_queue_size",
-        "The number of outbound messages waiting in queue to be sent",
-        OUTBOUND_MSG_QUEUE_SIZE.clone(),
-    );
-    registry.register(
-        "dial_queue_size",
-        "The number of dial requests waiting in queue to be dispatched",
-        DIAL_QUEUE_SIZE.clone(),
-    );
-    registry.register(
-        "pending_dials",
-        "The number of dials which are pending because peer address is unknown",
-        PENDING_DIALS.clone(),
-    );
-    registry.register(
-        "ongoing_dials",
-        "The number of ongoing dial attempts",
-        ONGOING_DIALS.clone(),
-    );
-    registry.register(
-        "pending_messages",
-        "The number of outbound messages which are pending because peer address is unknown",
-        PENDING_MESSAGES.clone(),
-    );
-    registry.register(
-        "subscribed_topic",
-        "The number of gossipsub topics the node is subscribed to",
-        SUBSCRIBED_TOPICS.clone(),
-    );
-    registry.register(
         "active_connections",
         "The number of active p2p connections (both incoming and outgoing)",
         ACTIVE_CONNECTIONS.clone(),
     );
+    registry.register(
+        "ongoing_probes",
+        "The number of ongoing peer reachability probes",
+        ONGOING_PROBES.clone(),
+    );
+    registry.register(
+        "ongoing_queries",
+        "The number of ongoing kademlia DHT queries",
+        ONGOING_QUERIES.clone(),
+    );
+    registry.register(
+        "queue_size",
+        "The number of messages/events waiting to be processed",
+        QUEUE_SIZE.clone(),
+    );
+    registry.register("dropped", "The number of dropped messages/events", DROPPED.clone())
 }

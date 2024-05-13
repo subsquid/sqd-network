@@ -46,15 +46,17 @@ use crate::{
     },
     cli::BootNode,
     codec::LegacyCodec,
-    protocol::{DHT_PROTOCOL, ID_PROTOCOL, LEGACY_PROTOCOL, LOGS_TOPIC, PING_TOPIC},
+    protocol::{
+        DHT_PROTOCOL, ID_PROTOCOL, LEGACY_LOGS_TOPIC, LEGACY_PING_TOPIC, LEGACY_PROTOCOL,
+        LOGS_TOPIC, PING_TOPIC,
+    },
     record_event,
     util::addr_is_reachable,
     PeerId, QueueFull,
 };
 
 #[cfg(feature = "metrics")]
-use crate::metrics::ONGOING_QUERIES;
-use crate::protocol::{LEGACY_LOGS_TOPIC, LEGACY_PING_TOPIC};
+use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_PROBES, ONGOING_QUERIES};
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
@@ -219,6 +221,8 @@ impl BaseBehaviour {
             return Err(QueueFull);
         }
         log::debug!("Probing peer {peer_id}");
+        #[cfg(feature = "metrics")]
+        ONGOING_PROBES.inc();
         self.find_and_dial(peer_id);
         Ok(false)
     }
@@ -259,16 +263,8 @@ impl BehaviourWrapper for BaseBehaviour {
 
     fn on_swarm_event(&mut self, ev: FromSwarm) -> impl IntoIterator<Item = TToSwarm<Self>> {
         match ev {
-            FromSwarm::ConnectionEstablished(ConnectionEstablished {
-                peer_id,
-                endpoint: ConnectedPoint::Dialer { .. },
-                ..
-            }) => self.on_outbound_established(peer_id),
-            FromSwarm::ConnectionClosed(ConnectionClosed {
-                peer_id,
-                endpoint: ConnectedPoint::Dialer { .. },
-                ..
-            }) => self.on_outbound_closed(peer_id),
+            FromSwarm::ConnectionEstablished(conn) => self.on_connection_established(conn),
+            FromSwarm::ConnectionClosed(conn) => self.on_connection_closed(conn),
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
                 log::debug!(
                     "Failed to dial {}: {error:?}",
@@ -305,6 +301,8 @@ impl BehaviourWrapper for BaseBehaviour {
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
         match self.probe_timeouts.poll_unpin(cx) {
             Poll::Ready((peer_id, Err(_))) => {
+                #[cfg(feature = "metrics")]
+                ONGOING_PROBES.dec();
                 log::debug!("Probe for peer {peer_id} timed out");
                 Poll::Ready(Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::PeerProbed {
                     peer_id,
@@ -318,10 +316,18 @@ impl BehaviourWrapper for BaseBehaviour {
 }
 
 impl BaseBehaviour {
-    fn on_outbound_established(&mut self, peer_id: PeerId) -> Option<TToSwarm<Self>> {
+    fn on_connection_established(&mut self, conn: ConnectionEstablished) -> Option<TToSwarm<Self>> {
+        #[cfg(feature = "metrics")]
+        ACTIVE_CONNECTIONS.inc();
+        let peer_id = match conn.endpoint {
+            ConnectedPoint::Dialer { .. } => conn.peer_id,
+            _ => return None,
+        };
         log::debug!("Established outbound connection to {peer_id}");
         *self.outbound_conns.entry(peer_id).or_default() += 1;
         if self.probe_timeouts.remove(peer_id).is_some() {
+            #[cfg(feature = "metrics")]
+            ONGOING_PROBES.dec();
             log::debug!("Probe for {peer_id} succeeded");
             Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::PeerProbed {
                 peer_id,
@@ -332,7 +338,13 @@ impl BaseBehaviour {
         }
     }
 
-    fn on_outbound_closed(&mut self, peer_id: PeerId) -> Option<TToSwarm<Self>> {
+    fn on_connection_closed(&mut self, conn: ConnectionClosed) -> Option<TToSwarm<Self>> {
+        #[cfg(feature = "metrics")]
+        ACTIVE_CONNECTIONS.dec();
+        let peer_id = match conn.endpoint {
+            ConnectedPoint::Dialer { .. } => conn.peer_id,
+            _ => return None,
+        };
         log::debug!("Closed outbound connection to {peer_id}");
         match self.outbound_conns.get_mut(&peer_id) {
             Some(x) => *x -= 1,
