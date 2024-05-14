@@ -4,7 +4,6 @@ use futures_core::Stream;
 use libp2p::{
     multiaddr::Protocol,
     noise,
-    quic::MtuDiscoveryConfig,
     swarm::{dial_opts::DialOpts, NetworkBehaviour},
     yamux, Swarm, SwarmBuilder,
 };
@@ -135,9 +134,7 @@ impl P2PTransportBuilder {
         let mut swarm = SwarmBuilder::with_existing_identity(self.keypair)
             .with_tokio()
             .with_quic_config(|config| {
-                let mut mtu_config = MtuDiscoveryConfig::default();
-                mtu_config.upper_bound(self.quic_config.mtu_discovery_max);
-                let mut config = config.with_mtu_discovery_config(mtu_config);
+                let mut config = config.with_mtu_upper_bound(self.quic_config.mtu_discovery_max);
                 config.keep_alive_interval =
                     Duration::from_millis(self.quic_config.keep_alive_interval_ms as u64);
                 config.max_idle_timeout = self.quic_config.max_idle_timeout_ms;

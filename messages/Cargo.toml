@@ -1,6 +1,6 @@
 [package]
 name = "subsquid-messages"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 
 [features]
@@ -14,7 +14,7 @@ semver = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"] }
 sha3 = "0.10"
 
-libp2p = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "299b66e4", optional = true }
+libp2p = { workspace = true, optional = true }
 
 [build-dependencies]
 prost-build = "0.12"

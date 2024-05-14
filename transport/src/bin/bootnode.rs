@@ -8,9 +8,7 @@ use libp2p::{
     gossipsub::{self, MessageAuthenticity},
     identify,
     kad::{self, store::MemoryStore, Mode},
-    ping,
-    quic::MtuDiscoveryConfig,
-    relay,
+    ping, relay,
     swarm::SwarmEvent,
     PeerId, SwarmBuilder,
 };
@@ -59,16 +57,19 @@ async fn main() -> anyhow::Result<()> {
         throttle_clients_peer_max: 16,
         ..Default::default()
     };
+    let mut kad_config = kad::Config::new(DHT_PROTOCOL);
+    kad_config.set_replication_factor(20.try_into().unwrap());
     let behaviour = |keypair: &Keypair| Behaviour {
         identify: identify::Behaviour::new(
             identify::Config::new("/subsquid/0.0.1".to_string(), keypair.public())
                 .with_interval(Duration::from_secs(60))
-                .with_push_listen_addr_updates(true),
+                .with_push_listen_addr_updates(true)
+                .with_cache_size(1024),
         ),
         kademlia: kad::Behaviour::with_config(
             local_peer_id,
             MemoryStore::new(local_peer_id),
-            kad::Config::new(DHT_PROTOCOL),
+            kad_config,
         ),
         relay: relay::Behaviour::new(local_peer_id, Default::default()),
         gossipsub: gossipsub::Behaviour::new(
@@ -85,11 +86,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the swarm
     let quic_config = QuicConfig::from_env();
-    let mut mtu_config = MtuDiscoveryConfig::default();
-    mtu_config.upper_bound(quic_config.mtu_discovery_max);
     let mut swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
-        .with_quic_config(|config| config.with_mtu_discovery_config(mtu_config))
+        .with_quic_config(|config| config.with_mtu_upper_bound(quic_config.mtu_discovery_max))
         .with_dns()?
         .with_behaviour(behaviour)
         .expect("infallible")

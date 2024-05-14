@@ -102,6 +102,8 @@ impl BaseBehaviour {
         relay: relay::client::Behaviour,
     ) -> Self {
         let local_peer_id = keypair.public().to_peer_id();
+        let mut kad_config = kad::Config::new(DHT_PROTOCOL);
+        kad_config.set_replication_factor(20.try_into().unwrap());
         let mut inner = InnerBehaviour {
             identify: identify::Behaviour::new(
                 identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
@@ -111,7 +113,7 @@ impl BaseBehaviour {
             kademlia: kad::Behaviour::with_config(
                 local_peer_id,
                 MemoryStore::new(local_peer_id),
-                kad::Config::new(DHT_PROTOCOL),
+                kad_config,
             ),
             relay,
             dcutr: dcutr::Behaviour::new(local_peer_id),
