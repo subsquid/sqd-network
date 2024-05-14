@@ -11,13 +11,13 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
-    envelope, gateway_log_msg, signatures::SignedMessage, Envelope, GatewayLogMsg, LogsCollected,
-    QueryExecuted, QueryFinished, QueryLogs, QuerySubmitted,
+    gateway_log_msg, signatures::SignedMessage, GatewayLogMsg, LogsCollected, QueryExecuted,
+    QueryFinished, QueryLogs, QuerySubmitted,
 };
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent},
+        base::BaseBehaviour,
         request_server::{Request, ServerBehaviour},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
@@ -96,24 +96,6 @@ impl LogsCollectorBehaviour {
         }
         .into()
     }
-    #[rustfmt::skip]
-    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<LogsCollectorEvent> {
-        match ev {
-            BaseBehaviourEvent::LegacyMsg {
-                peer_id,
-                envelope: Envelope {msg: Some(envelope::Msg::QueryLogs(logs))}
-            } => self.on_worker_logs(peer_id, logs),
-            BaseBehaviourEvent::LegacyMsg {
-                peer_id,
-                envelope: Envelope{ msg: Some(envelope::Msg::QuerySubmitted(log))}
-            } if log.client_id == peer_id.to_base58() => Some(LogsCollectorEvent::QuerySubmitted(log)),
-            BaseBehaviourEvent::LegacyMsg {
-                peer_id,
-                envelope: Envelope{ msg: Some(envelope::Msg::QueryFinished(log))}
-            } if log.client_id == peer_id.to_base58() => Some(LogsCollectorEvent::QueryFinished(log)),
-            _ => None
-        }
-    }
 
     fn on_worker_logs(&mut self, peer_id: PeerId, logs: QueryLogs) -> Option<LogsCollectorEvent> {
         let mut logs = logs.queries_executed;
@@ -167,7 +149,7 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
-            InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
+            InnerBehaviourEvent::Base(_) => None,
             InnerBehaviourEvent::WorkerLogs(Request {
                 peer_id,
                 request,
@@ -238,7 +220,7 @@ impl LogsCollectorTransportHandle {
     }
     pub fn logs_collected(&self, logs_collected: LogsCollected) -> Result<(), QueueFull> {
         log::debug!("Queueing LogsCollected message: {logs_collected:?}");
-        Ok(self.logs_collected_tx.try_send(logs_collected)?)
+        self.logs_collected_tx.try_send(logs_collected)
     }
 }
 

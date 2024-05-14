@@ -20,7 +20,7 @@ mod behaviour;
 #[cfg(feature = "actors")]
 mod builder;
 mod cli;
-#[cfg(feature = "actors")]
+#[cfg(feature = "proto")]
 mod codec;
 #[cfg(feature = "metrics")]
 pub mod metrics;

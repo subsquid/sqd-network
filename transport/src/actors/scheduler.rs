@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use futures::StreamExt;
 
@@ -11,7 +11,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{broadcast_msg, envelope, BroadcastMsg, Envelope, Ping, Pong};
+use subsquid_messages::{broadcast_msg, BroadcastMsg, Ping, Pong};
 
 use crate::{
     behaviour::{
@@ -67,7 +67,6 @@ impl Default for SchedulerConfig {
 
 pub struct SchedulerBehaviour {
     inner: InnerBehaviour,
-    new_workers: HashSet<PeerId>, // workers supporting new pong protocol
 }
 
 impl SchedulerBehaviour {
@@ -83,7 +82,6 @@ impl SchedulerBehaviour {
                 )
                 .into(),
             },
-            new_workers: Default::default(),
         }
         .into()
     }
@@ -94,21 +92,7 @@ impl SchedulerBehaviour {
             BaseBehaviourEvent::BroadcastMsg {
                 peer_id,
                 msg:  BroadcastMsg{ msg: Some(broadcast_msg::Msg::Ping(ping)) },
-            } => {
-                self.on_ping(peer_id, ping)
-            },
-            BaseBehaviourEvent::LegacyMsg {
-                peer_id,
-                envelope: Envelope { msg: Some(envelope::Msg::Ping(ping))},
-            } => {
-                self.on_ping(peer_id, ping)
-            },
-            BaseBehaviourEvent::PeerProtocols { peer_id, protocols } => {
-                if protocols.iter().any(|p| *p == PONG_PROTOCOL) {
-                    self.new_workers.insert(peer_id);
-                }
-                None
-            }
+            } => self.on_ping(peer_id, ping),
             BaseBehaviourEvent::PeerProbed { peer_id, reachable } => self.on_peer_probed(peer_id, reachable),
             _ => None
         }
@@ -141,14 +125,6 @@ impl SchedulerBehaviour {
     }
 
     pub fn send_pong(&mut self, peer_id: PeerId, pong: Pong) {
-        if !self.new_workers.contains(&peer_id) {
-            log::debug!("Sending pong to legacy worker {peer_id}");
-            let envelope = Envelope {
-                msg: Some(envelope::Msg::Pong(pong)),
-            };
-            return self.inner.base.send_legacy_msg(&peer_id, envelope);
-        }
-
         log::debug!("Sending pong to {peer_id}");
         if self.inner.pong.try_send_request(peer_id, pong).is_err() {
             log::error!("Cannot send pong to {peer_id}: outbound queue full")
@@ -246,12 +222,12 @@ impl SchedulerTransportHandle {
     }
     pub fn send_pong(&self, peer_id: PeerId, pong: Pong) -> Result<(), QueueFull> {
         log::debug!("Queueing pong to {peer_id}: {pong:?}");
-        Ok(self.pongs_tx.try_send((peer_id, pong))?)
+        self.pongs_tx.try_send((peer_id, pong))
     }
 
     pub fn probe_peer(&self, peer_id: PeerId) -> Result<(), QueueFull> {
         log::debug!("Queueing probe of peer {peer_id}");
-        Ok(self.probes_tx.try_send(peer_id)?)
+        self.probes_tx.try_send(peer_id)
     }
 }
 

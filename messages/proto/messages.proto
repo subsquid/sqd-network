@@ -2,28 +2,6 @@ syntax = "proto3";
 package messages;
 import "google/protobuf/empty.proto";
 
-
-message Envelope {
-  option deprecated = true;
-  oneof msg {
-    // router <-> worker
-    Pong pong = 3;
-    Ping ping = 4;
-
-    // client <-> worker
-    Query query = 5;
-    QueryResult query_result = 6;
-
-    // client metrics
-    QuerySubmitted query_submitted = 8;
-    QueryFinished query_finished = 9;
-
-    // collector <-> worker
-    QueryLogs query_logs = 11;
-    LogsCollected logs_collected = 12;
-  }
-}
-
 message GatewayLogMsg {
   oneof msg {
     QuerySubmitted query_submitted = 1;
@@ -38,17 +16,18 @@ message BroadcastMsg {
   }
 }
 
-
 message Range {
   uint32 begin = 1;
   uint32 end = 2;
 }
 
 message RangeSet {
+  option deprecated = true;
   repeated Range ranges = 1;
 }
 
 message WorkerState {
+  option deprecated = true;
   map<string, RangeSet> datasets = 1;
 }
 
@@ -93,10 +72,8 @@ message Pong {
   oneof status {
     google.protobuf.Empty not_registered = 2;
     google.protobuf.Empty unsupported_version = 3;
-
-    WorkerState active = 5 [deprecated = true];
     string jailed = 6;
-    WorkerAssignment active_v2 = 7;
+    WorkerAssignment active = 7;
   }
 }
 

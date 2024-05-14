@@ -1,8 +1,4 @@
-use std::{
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use futures_core::Stream;
@@ -17,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
-    broadcast_msg, envelope, signatures::SignedMessage, BroadcastMsg, Envelope, LogsCollected,
-    Ping, Pong, Query, QueryExecuted, QueryLogs, QueryResult,
+    broadcast_msg, signatures::SignedMessage, BroadcastMsg, LogsCollected, Ping, Pong, Query,
+    QueryExecuted, QueryLogs, QueryResult,
 };
 
 use crate::{
@@ -101,7 +97,6 @@ pub struct WorkerBehaviour {
     scheduler_id: PeerId,
     logs_collector_id: PeerId,
     max_query_logs_size: usize,
-    query_senders: HashMap<String, PeerId>,
     query_response_channels: HashMap<String, ResponseChannel<QueryResult>>,
 }
 
@@ -137,7 +132,6 @@ impl WorkerBehaviour {
             scheduler_id: config.scheduler_id,
             logs_collector_id: config.logs_collector_id,
             max_query_logs_size: config.max_query_logs_size as usize,
-            query_senders: Default::default(),
             query_response_channels: Default::default(),
         }
         .into()
@@ -149,10 +143,6 @@ impl WorkerBehaviour {
                 peer_id,
                 msg: BroadcastMsg{ msg: Some(broadcast_msg::Msg::LogsCollected(msg)) },
             } => self.on_logs_collected(peer_id, msg),
-            BaseBehaviourEvent::LegacyMsg {
-                peer_id,
-                envelope: Envelope{ msg: Some(envelope::Msg::Query(query)) },
-            } => self.on_query(peer_id, query, None),
             _ => None
         }
     }
@@ -192,16 +182,6 @@ impl WorkerBehaviour {
                 return None;
             }
         };
-        // Check if query ID is not duplicated
-        match self.query_senders.entry(query_id.clone()) {
-            Entry::Occupied(e) => {
-                log::warn!("Duplicate query ID: {}", e.key());
-                return None;
-            }
-            Entry::Vacant(e) => {
-                e.insert(peer_id);
-            }
-        }
         log::debug!("Query {query_id} verified");
         if let Some(resp_chan) = resp_chan {
             self.query_response_channels.insert(query_id, resp_chan);
@@ -243,26 +223,14 @@ impl WorkerBehaviour {
 
     pub fn send_query_result(&mut self, result: QueryResult) {
         log::debug!("Sending query result {result:?}");
-        let client_id = match self.query_senders.remove(&result.query_id) {
-            Some(peer_id) => peer_id,
-            None => return log::error!("Unknown query: {}", result.query_id),
-        };
         let resp_chan = match self.query_response_channels.remove(&result.query_id) {
             Some(ch) => ch,
-            None => return self.send_legacy_result(&client_id, result),
+            None => return log::error!("No response channel for query: {}", result.query_id),
         };
         self.inner
             .query
             .try_send_response(resp_chan, result)
             .unwrap_or_else(|e| log::error!("Cannot send result for query {}", e.query_id));
-    }
-
-    fn send_legacy_result(&mut self, peer_id: &PeerId, result: QueryResult) {
-        log::debug!("Sending query result to legacy client: {peer_id}");
-        let envelope = Envelope {
-            msg: Some(envelope::Msg::QueryResult(result)),
-        };
-        self.inner.base.send_legacy_msg(&peer_id, envelope);
     }
 
     pub fn send_logs(&mut self, mut logs: Vec<QueryExecuted>) {
@@ -398,17 +366,17 @@ impl WorkerTransportHandle {
 
     pub fn send_ping(&self, ping: Ping) -> Result<(), QueueFull> {
         log::debug!("Queueing ping {ping:?}");
-        Ok(self.pings_tx.try_send(ping)?)
+        self.pings_tx.try_send(ping)
     }
 
     pub fn send_query_result(&self, result: QueryResult) -> Result<(), QueueFull> {
         log::debug!("Queueing query result {result:?}");
-        Ok(self.query_results_tx.try_send(result)?)
+        self.query_results_tx.try_send(result)
     }
 
     pub fn send_logs(&self, logs: Vec<QueryExecuted>) -> Result<(), QueueFull> {
         log::debug!("Queueing {} query logs", logs.len());
-        Ok(self.logs_tx.try_send(logs)?)
+        self.logs_tx.try_send(logs)
     }
 }
 

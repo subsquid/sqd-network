@@ -1,8 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use futures_core::Stream;
@@ -16,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
-    broadcast_msg, envelope, gateway_log_msg, query_result, BroadcastMsg, Envelope, GatewayLogMsg,
-    Ping, Query, QueryFinished, QueryResult, QuerySubmitted,
+    broadcast_msg, gateway_log_msg, query_result, BroadcastMsg, GatewayLogMsg, Ping, Query,
+    QueryFinished, QueryResult, QuerySubmitted,
 };
 
 use crate::{
@@ -90,7 +86,6 @@ pub struct GatewayBehaviour {
     inner: InnerBehaviour,
     logs_collector_id: PeerId,
     query_ids: BTreeMap<OutboundRequestId, String>,
-    new_workers: HashSet<PeerId>, // workers supporting new query protocol
 }
 
 impl GatewayBehaviour {
@@ -115,7 +110,6 @@ impl GatewayBehaviour {
             inner,
             logs_collector_id: config.logs_collector_id,
             query_ids: Default::default(),
-            new_workers: Default::default(),
         }
         .into()
     }
@@ -128,19 +122,6 @@ impl GatewayBehaviour {
                         msg: Some(broadcast_msg::Msg::Ping(ping)),
                     },
             } => self.on_ping(peer_id, ping),
-            BaseBehaviourEvent::LegacyMsg {
-                peer_id,
-                envelope:
-                    Envelope {
-                        msg: Some(envelope::Msg::QueryResult(result)),
-                    },
-            } => self.on_query_result(peer_id, result, None),
-            BaseBehaviourEvent::PeerProtocols { peer_id, protocols } => {
-                if protocols.iter().any(|p| *p == QUERY_PROTOCOL) {
-                    self.new_workers.insert(peer_id);
-                }
-                None
-            }
             _ => None,
         }
     }
@@ -232,15 +213,6 @@ impl GatewayBehaviour {
             None => return log::error!("Query without ID dropped"),
         };
         self.inner.base.sign(&mut query);
-
-        // Legacy workers need to be messaged via legacy protocol
-        if !self.new_workers.contains(&peer_id) {
-            log::debug!("Sending query to legacy worker {peer_id}");
-            let envelope = Envelope {
-                msg: Some(envelope::Msg::Query(query)),
-            };
-            return self.inner.base.send_legacy_msg(&peer_id, envelope);
-        }
         match self.inner.query.try_send_request(peer_id, query) {
             Ok(req_id) => {
                 self.query_ids.insert(req_id, query_id);
@@ -332,7 +304,7 @@ impl GatewayTransportHandle {
     }
     pub fn send_query(&self, peer_id: PeerId, query: Query) -> Result<(), QueueFull> {
         log::debug!("Queueing query {query:?}");
-        Ok(self.queries_tx.try_send((peer_id, query))?)
+        self.queries_tx.try_send((peer_id, query))
     }
 
     pub fn query_submitted(&self, msg: QuerySubmitted) -> Result<(), QueueFull> {
@@ -340,7 +312,7 @@ impl GatewayTransportHandle {
         let msg = GatewayLogMsg {
             msg: Some(gateway_log_msg::Msg::QuerySubmitted(msg)),
         };
-        Ok(self.logs_tx.try_send(msg)?)
+        self.logs_tx.try_send(msg)
     }
 
     pub fn query_finished(&self, msg: QueryFinished) -> Result<(), QueueFull> {
@@ -348,7 +320,7 @@ impl GatewayTransportHandle {
         let msg = GatewayLogMsg {
             msg: Some(gateway_log_msg::Msg::QueryFinished(msg)),
         };
-        Ok(self.logs_tx.try_send(msg)?)
+        self.logs_tx.try_send(msg)
     }
 }
 
