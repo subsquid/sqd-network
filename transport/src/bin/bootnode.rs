@@ -19,7 +19,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::signal::unix::{signal, SignalKind};
 
 use subsquid_network_transport::{
-    protocol::dht_protocol,
+    protocol::{dht_protocol, ID_PROTOCOL},
     util::{addr_is_reachable, get_keypair},
     BootNode, Keypair, QuicConfig, TransportArgs,
 };
@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
     kad_config.set_replication_factor(20.try_into().unwrap());
     let behaviour = |keypair: &Keypair| Behaviour {
         identify: identify::Behaviour::new(
-            identify::Config::new("/subsquid/0.0.1".to_string(), keypair.public())
+            identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
                 .with_interval(Duration::from_secs(60))
                 .with_push_listen_addr_updates(true),
         ),

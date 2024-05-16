@@ -214,6 +214,7 @@ impl BaseBehaviour {
         self.inner.allow.allow_peer(peer_id);
     }
 
+    // TODO: Refactor into a separate behaviour to reuse in bootnode
     fn on_nodes_update(&mut self, result: Result<HashSet<PeerId>, contract_client::ClientError>) {
         let nodes = match result {
             Err(e) => {
