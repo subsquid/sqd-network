@@ -163,7 +163,9 @@ impl BaseBehaviour {
     }
 
     pub fn subscribe_logs(&mut self) {
-        self.inner.pubsub.subscribe(LOGS_TOPIC, false);
+        // Unordered messages need to be allowed, because we're interested in all messages from
+        // each worker, not only the most recent one (as in the case of pings).
+        self.inner.pubsub.subscribe(LOGS_TOPIC, true);
     }
 
     // TODO: Remove after 1.0.0-rc1 support is dropped
