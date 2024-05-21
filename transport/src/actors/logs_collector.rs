@@ -17,7 +17,7 @@ use subsquid_messages::{
 
 use crate::{
     behaviour::{
-        base::BaseBehaviour,
+        base::{BaseBehaviour, BaseBehaviourEvent},
         request_server::{Request, ServerBehaviour},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
@@ -46,13 +46,13 @@ pub enum LogsCollectorEvent {
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
-    worker_logs: Wrapped<ServerBehaviour<ProtoCodec<QueryLogs, u32>>>,
+    worker_logs: Wrapped<ServerBehaviour<ProtoCodec<QueryLogs, u32>>>, // TODO: Remove after 1.0.0-rc1 support is dropped
     gateway_logs: Wrapped<ServerBehaviour<ProtoCodec<GatewayLogMsg, u32>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogsCollectorConfig {
-    pub max_worker_logs_size: u64,
+    pub max_worker_logs_size: u64, // TODO: Remove after 1.0.0-rc1 support is dropped
     pub max_gateway_log_size: u64,
     pub logs_collected_queue_size: usize,
     pub events_queue_size: usize,
@@ -79,6 +79,7 @@ impl LogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour, config: LogsCollectorConfig) -> Wrapped<Self> {
         base.subscribe_pings();
         base.subscribe_logs();
+        base.subscribe_legacy_logs(); // TODO: Remove after 1.0.0-rc1 support is dropped
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
@@ -149,7 +150,10 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
-            InnerBehaviourEvent::Base(_) => None,
+            InnerBehaviourEvent::Base(BaseBehaviourEvent::WorkerQueryLogs {
+                peer_id,
+                query_logs,
+            }) => self.on_worker_logs(peer_id, query_logs),
             InnerBehaviourEvent::WorkerLogs(Request {
                 peer_id,
                 request,
@@ -166,6 +170,7 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
                 _ = self.inner.gateway_logs.try_send_response(response_channel, 1);
                 self.on_gateway_log(peer_id, request)
             }
+            _ => None,
         };
         ev.map(ToSwarm::GenerateEvent)
     }

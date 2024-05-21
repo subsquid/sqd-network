@@ -35,7 +35,8 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use subsquid_messages::{
-    broadcast_msg, signatures::SignedMessage, BroadcastMsg, LogsCollected, Ping,
+    signatures::SignedMessage, worker_logs_msg, LogsCollected, Ping, QueryExecuted, QueryLogs,
+    WorkerLogsMsg,
 };
 
 use crate::{
@@ -44,7 +45,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{ID_PROTOCOL, LOGS_TOPIC, PING_TOPIC},
+    protocol::{ID_PROTOCOL, LEGACY_LOGS_TOPIC, LOGS_TOPIC, MAX_PUBSUB_MSG_SIZE, PING_TOPIC},
     record_event,
     util::addr_is_reachable,
     PeerId, QueueFull,
@@ -73,6 +74,7 @@ pub struct BaseConfig {
     pub request_timeout: Duration,
     pub probe_timeout: Duration,
     pub max_concurrent_probes: usize,
+    pub max_pubsub_msg_size: usize,
 }
 
 impl Default for BaseConfig {
@@ -84,6 +86,7 @@ impl Default for BaseConfig {
             request_timeout: Duration::from_secs(60),
             probe_timeout: Duration::from_secs(60),
             max_concurrent_probes: 1000,
+            max_pubsub_msg_size: MAX_PUBSUB_MSG_SIZE,
         }
     }
 }
@@ -96,6 +99,7 @@ pub struct BaseBehaviour {
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_nodes: HashSet<PeerId>,
     active_nodes_stream: NodeStream,
+    max_pubsub_msg_size: usize,
 }
 
 #[allow(dead_code)]
@@ -133,7 +137,7 @@ impl BaseBehaviour {
                 },
             ),
             allow: Default::default(),
-            pubsub: PubsubBehaviour::new(keypair.clone()).into(),
+            pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
         };
 
         for boot_node in boot_nodes {
@@ -150,6 +154,7 @@ impl BaseBehaviour {
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_nodes: Default::default(),
             active_nodes_stream: contract_client.network_nodes_stream(config.nodes_update_interval),
+            max_pubsub_msg_size: config.max_pubsub_msg_size,
         }
     }
 
@@ -161,6 +166,11 @@ impl BaseBehaviour {
         self.inner.pubsub.subscribe(LOGS_TOPIC, false);
     }
 
+    // TODO: Remove after 1.0.0-rc1 support is dropped
+    pub fn subscribe_legacy_logs(&mut self) {
+        self.inner.pubsub.subscribe(LEGACY_LOGS_TOPIC, false);
+    }
+
     pub fn sign<T: SignedMessage>(&self, msg: &mut T) {
         msg.sign(&self.keypair)
     }
@@ -170,8 +180,20 @@ impl BaseBehaviour {
         self.inner.pubsub.publish(PING_TOPIC, ping.encode_to_vec());
     }
 
+    pub fn publish_worker_logs(&mut self, mut logs: Vec<QueryExecuted>) {
+        for log in logs.iter_mut() {
+            self.sign(log);
+        }
+        for bundle in bundle_messages(logs, self.max_pubsub_msg_size) {
+            let msg: WorkerLogsMsg = bundle.into();
+            self.inner.pubsub.publish(LOGS_TOPIC, msg.encode_to_vec());
+        }
+    }
+
     pub fn publish_logs_collected(&mut self, logs_collected: LogsCollected) {
-        self.inner.pubsub.publish(LOGS_TOPIC, logs_collected.encode_to_vec());
+        self.inner.pubsub.publish(LEGACY_LOGS_TOPIC, logs_collected.encode_to_vec());
+        let msg: WorkerLogsMsg = logs_collected.into();
+        self.inner.pubsub.publish(LOGS_TOPIC, msg.encode_to_vec());
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -244,9 +266,17 @@ impl BaseBehaviour {
 
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
-    BroadcastMsg {
+    Ping {
         peer_id: PeerId,
-        msg: BroadcastMsg,
+        ping: Ping,
+    },
+    WorkerQueryLogs {
+        peer_id: PeerId,
+        query_logs: QueryLogs,
+    },
+    LogsCollected {
+        peer_id: PeerId,
+        logs_collected: LogsCollected,
     },
     PeerProbed {
         peer_id: PeerId,
@@ -447,34 +477,88 @@ impl BaseBehaviour {
         }: PubsubMsg,
     ) -> Option<TToSwarm<Self>> {
         log::debug!("Pub-sub message received: peer_id={peer_id} topic={topic}");
-        let msg = match topic {
-            PING_TOPIC => decode_ping(&peer_id, data)?,
-            LOGS_TOPIC => decode_logs_collected(data)?,
+        let ev = match topic {
+            PING_TOPIC => decode_ping(peer_id, data)?,
+            LOGS_TOPIC => decode_worker_logs_msg(peer_id, data)?,
             _ => return None,
         };
-        let ev = BaseBehaviourEvent::BroadcastMsg { peer_id, msg };
         Some(ToSwarm::GenerateEvent(ev))
     }
 }
 
-fn decode_ping(peer_id: &PeerId, data: Box<[u8]>) -> Option<BroadcastMsg> {
+fn decode_ping(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
     let mut ping = Ping::decode(data.as_ref())
         .map_err(|e| log::warn!("Error decoding ping: {e:?}"))
         .ok()?;
-    if !ping.verify_signature(peer_id) {
+    if !ping.verify_signature(&peer_id) {
         log::warn!("Invalid ping signature from {peer_id}");
         return None;
     }
-    Some(BroadcastMsg {
-        msg: Some(broadcast_msg::Msg::Ping(ping)),
+    Some(BaseBehaviourEvent::Ping { peer_id, ping })
+}
+
+fn decode_worker_logs_msg(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
+    let msg = WorkerLogsMsg::decode(data.as_ref())
+        .map_err(|e| log::warn!("Error decoding logs collected: {e:?}"))
+        .ok()?;
+    match msg.msg {
+        Some(worker_logs_msg::Msg::QueryLogs(query_logs)) => {
+            Some(BaseBehaviourEvent::WorkerQueryLogs {
+                peer_id,
+                query_logs,
+            })
+        }
+        Some(worker_logs_msg::Msg::LogsCollected(logs_collected)) => {
+            Some(BaseBehaviourEvent::LogsCollected {
+                peer_id,
+                logs_collected,
+            })
+        }
+        _ => None,
+    }
+}
+
+fn bundle_messages<T: prost::Message>(
+    messages: impl IntoIterator<Item = T>,
+    size_limit: usize,
+) -> impl Iterator<Item = Vec<T>> {
+    // Compute message sizes and filter out too big messages
+    let mut iter = messages
+        .into_iter()
+        .filter_map(move |msg| {
+            let msg_size = msg.encoded_len();
+            if msg_size > size_limit {
+                // TODO: Send oversized messages back as events, don't drop
+                log::warn!("Message too big ({msg_size} > {size_limit})");
+                return None;
+            }
+            Some((msg_size, msg))
+        })
+        .peekable();
+
+    // Bundle into chunks of at most `size_limit` total size
+    std::iter::from_fn(move || {
+        let mut bundle = Vec::new();
+        let mut remaining_cap = size_limit;
+        while let Some((size, msg)) = iter.next_if(|(size, _)| size <= &remaining_cap) {
+            bundle.push(msg);
+            remaining_cap -= size;
+        }
+        (!bundle.is_empty()).then_some(bundle)
     })
 }
 
-fn decode_logs_collected(data: Box<[u8]>) -> Option<BroadcastMsg> {
-    let logs_collected = LogsCollected::decode(data.as_ref())
-        .map_err(|e| log::warn!("Error decoding logs collected: {e:?}"))
-        .ok()?;
-    Some(BroadcastMsg {
-        msg: Some(broadcast_msg::Msg::LogsCollected(logs_collected)),
-    })
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bundle_messages() {
+        let messages = vec![vec![0u8; 40], vec![0u8; 40], vec![0u8; 200], vec![0u8; 90]];
+        let bundles: Vec<Vec<Vec<u8>>> = bundle_messages(messages, 100).collect();
+
+        assert_eq!(bundles.len(), 2);
+        assert_eq!(bundles[0].len(), 2);
+        assert_eq!(bundles[1].len(), 1);
+    }
 }

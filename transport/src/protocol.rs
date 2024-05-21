@@ -2,18 +2,21 @@ use contract_client::Network;
 use libp2p::StreamProtocol;
 
 pub const PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
-pub const LOGS_TOPIC: &str = "/subsquid/worker_query_logs/1.0.0";
+pub const LOGS_TOPIC: &str = "/subsquid/worker_query_logs/1.1.0";
+pub const LEGACY_LOGS_TOPIC: &str = "/subsquid/worker_query_logs/1.0.0"; // TODO: Remove after 1.0.0-rc1 support is dropped
+
 pub const ID_PROTOCOL: &str = "/subsquid/1.0.0";
 pub const QUERY_PROTOCOL: &str = "/subsquid/query/1.0.0";
 pub const GATEWAY_LOGS_PROTOCOL: &str = "/subsquid/gateway-logs/1.0.0";
-pub const WORKER_LOGS_PROTOCOL: &str = "/subsquid/worker-logs/1.0.0";
+pub const WORKER_LOGS_PROTOCOL: &str = "/subsquid/worker-logs/1.0.0"; // TODO: Remove after 1.0.0-rc1 support is dropped
 pub const PONG_PROTOCOL: &str = "/subsquid/pong/1.0.0";
 
 pub const MAX_QUERY_SIZE: u64 = 1024 * 1024;
 pub const MAX_QUERY_RESULT_SIZE: u64 = 100 * 1024 * 1024;
 pub const MAX_GATEWAY_LOG_SIZE: u64 = 1024 * 1024;
-pub const MAX_WORKER_LOGS_SIZE: u64 = 1024 * 1024;
 pub const MAX_PONG_SIZE: u64 = 1024 * 1024;
+pub const MAX_WORKER_LOGS_SIZE: u64 = 1024 * 1024; // TODO: Remove after 1.0.0-rc1 support is dropped
+pub const MAX_PUBSUB_MSG_SIZE: usize = 65536;
 
 pub const fn dht_protocol(network: Network) -> StreamProtocol {
     match network {

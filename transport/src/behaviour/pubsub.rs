@@ -59,10 +59,11 @@ pub struct PubsubBehaviour {
 }
 
 impl PubsubBehaviour {
-    pub fn new(keypair: Keypair) -> Self {
+    pub fn new(keypair: Keypair, max_msg_size: usize) -> Self {
         let gossipsub_config = gossipsub::ConfigBuilder::default()
             .validate_messages()
             .message_id_fn(msg_id)
+            .max_transmit_size(max_msg_size)
             .build()
             .expect("config should be valid");
         let inner =

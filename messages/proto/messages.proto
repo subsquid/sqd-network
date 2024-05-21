@@ -9,9 +9,9 @@ message GatewayLogMsg {
   }
 }
 
-message BroadcastMsg {
+message WorkerLogsMsg {
   oneof msg {
-    Ping ping = 1;
+    QueryLogs query_logs = 1;
     LogsCollected logs_collected = 2;
   }
 }

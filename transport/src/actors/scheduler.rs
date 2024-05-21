@@ -11,7 +11,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{broadcast_msg, BroadcastMsg, Ping, Pong};
+use subsquid_messages::{Ping, Pong};
 
 use crate::{
     behaviour::{
@@ -89,10 +89,7 @@ impl SchedulerBehaviour {
     #[rustfmt::skip]
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<SchedulerEvent> {
         match ev {
-            BaseBehaviourEvent::BroadcastMsg {
-                peer_id,
-                msg:  BroadcastMsg{ msg: Some(broadcast_msg::Msg::Ping(ping)) },
-            } => self.on_ping(peer_id, ping),
+            BaseBehaviourEvent::Ping { peer_id, ping } => self.on_ping(peer_id, ping),
             BaseBehaviourEvent::PeerProbed { peer_id, reachable } => self.on_peer_probed(peer_id, reachable),
             _ => None
         }

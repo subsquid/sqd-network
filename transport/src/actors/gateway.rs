@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
-    broadcast_msg, gateway_log_msg, query_result, BroadcastMsg, GatewayLogMsg, Ping, Query,
-    QueryFinished, QueryResult, QuerySubmitted,
+    gateway_log_msg, query_result, GatewayLogMsg, Ping, Query, QueryFinished, QueryResult,
+    QuerySubmitted,
 };
 
 use crate::{
@@ -116,13 +116,7 @@ impl GatewayBehaviour {
     }
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<GatewayEvent> {
         match ev {
-            BaseBehaviourEvent::BroadcastMsg {
-                peer_id,
-                msg:
-                    BroadcastMsg {
-                        msg: Some(broadcast_msg::Msg::Ping(ping)),
-                    },
-            } => self.on_ping(peer_id, ping),
+            BaseBehaviourEvent::Ping { peer_id, ping } => self.on_ping(peer_id, ping),
             _ => None,
         }
     }
@@ -189,10 +183,7 @@ impl GatewayBehaviour {
         log::debug!("Query {query_id} timed out");
         Some(GatewayEvent::QueryResult {
             peer_id,
-            result: QueryResult {
-                query_id,
-                result: Some(query_result::Result::Timeout(())),
-            },
+            result: QueryResult::new(query_id, query_result::Result::Timeout(())),
         })
     }
 
@@ -310,17 +301,13 @@ impl GatewayTransportHandle {
 
     pub fn query_submitted(&self, msg: QuerySubmitted) -> Result<(), QueueFull> {
         log::debug!("Queueing QuerySubmitted message: {msg:?}");
-        let msg = GatewayLogMsg {
-            msg: Some(gateway_log_msg::Msg::QuerySubmitted(msg)),
-        };
+        let msg = gateway_log_msg::Msg::QuerySubmitted(msg).into();
         self.logs_tx.try_send(msg)
     }
 
     pub fn query_finished(&self, msg: QueryFinished) -> Result<(), QueueFull> {
         log::debug!("Queueing QueryFinished message: {msg:?}");
-        let msg = GatewayLogMsg {
-            msg: Some(gateway_log_msg::Msg::QueryFinished(msg)),
-        };
+        let msg = gateway_log_msg::Msg::QueryFinished(msg).into();
         self.logs_tx.try_send(msg)
     }
 }

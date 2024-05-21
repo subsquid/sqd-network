@@ -13,21 +13,18 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
-    broadcast_msg, signatures::SignedMessage, BroadcastMsg, LogsCollected, Ping, Pong, Query,
-    QueryExecuted, QueryLogs, QueryResult,
+    signatures::SignedMessage, LogsCollected, Ping, Pong, Query, QueryExecuted, QueryResult,
 };
 
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent},
-        request_client::{ClientBehaviour, ClientConfig, ClientEvent},
         request_server::{Request, ServerBehaviour},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::{ProtoCodec, ACK_SIZE},
     protocol::{
-        MAX_PONG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, MAX_WORKER_LOGS_SIZE, PONG_PROTOCOL,
-        QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL,
+        MAX_PONG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, PONG_PROTOCOL, QUERY_PROTOCOL,
     },
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
@@ -46,14 +43,12 @@ pub enum WorkerEvent {
 
 type PongBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Pong, u32>>>;
 type QueryBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Query, QueryResult>>>;
-type LogsBehaviour = Wrapped<ClientBehaviour<ProtoCodec<QueryLogs, u32>>>;
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
     pong: PongBehaviour,
     query: QueryBehaviour,
-    logs: LogsBehaviour,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,8 +58,6 @@ pub struct WorkerConfig {
     pub max_pong_size: u64,
     pub max_query_size: u64,
     pub max_query_result_size: u64,
-    pub max_query_logs_size: u64,
-    pub logs_config: ClientConfig,
     pub pings_queue_size: usize,
     pub query_results_queue_size: usize,
     pub logs_queue_size: usize,
@@ -80,8 +73,6 @@ impl WorkerConfig {
             max_pong_size: MAX_PONG_SIZE,
             max_query_size: MAX_QUERY_SIZE,
             max_query_result_size: MAX_QUERY_RESULT_SIZE,
-            max_query_logs_size: MAX_WORKER_LOGS_SIZE,
-            logs_config: Default::default(),
             pings_queue_size: 100,
             query_results_queue_size: 100,
             logs_queue_size: 100,
@@ -96,7 +87,6 @@ pub struct WorkerBehaviour {
     local_peer_id: String,
     scheduler_id: PeerId,
     logs_collector_id: PeerId,
-    max_query_logs_size: usize,
     query_response_channels: HashMap<String, ResponseChannel<QueryResult>>,
 }
 
@@ -123,29 +113,22 @@ impl WorkerBehaviour {
                     QUERY_PROTOCOL,
                 )
                 .into(),
-                logs: ClientBehaviour::new(
-                    ProtoCodec::new(config.max_query_logs_size, ACK_SIZE),
-                    WORKER_LOGS_PROTOCOL,
-                    config.logs_config,
-                )
-                .into(),
             },
             local_peer_id: local_peer_id.to_base58(),
             scheduler_id: config.scheduler_id,
             logs_collector_id: config.logs_collector_id,
-            max_query_logs_size: config.max_query_logs_size as usize,
             query_response_channels: Default::default(),
         }
         .into()
     }
-    #[rustfmt::skip]
+
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<WorkerEvent> {
         match ev {
-            BaseBehaviourEvent::BroadcastMsg {
+            BaseBehaviourEvent::LogsCollected {
                 peer_id,
-                msg: BroadcastMsg{ msg: Some(broadcast_msg::Msg::LogsCollected(msg)) },
-            } => self.on_logs_collected(peer_id, msg),
-            _ => None
+                logs_collected,
+            } => self.on_logs_collected(peer_id, logs_collected),
+            _ => None,
         }
     }
 
@@ -208,15 +191,6 @@ impl WorkerBehaviour {
         Some(WorkerEvent::Pong(request))
     }
 
-    fn on_logs_event(&mut self, ev: ClientEvent<u32>) -> Option<WorkerEvent> {
-        match ev {
-            ClientEvent::Response { .. } => {} // response is just ACK, no useful information
-            ClientEvent::PeerUnknown { peer_id } => self.inner.base.find_and_dial(peer_id),
-            ClientEvent::Timeout { .. } => log::error!("Sending logs failed"),
-        }
-        None
-    }
-
     pub fn send_ping(&mut self, ping: Ping) {
         self.inner.base.publish_ping(ping);
     }
@@ -233,51 +207,10 @@ impl WorkerBehaviour {
             .unwrap_or_else(|e| log::error!("Cannot send result for query {}", e.query_id));
     }
 
-    pub fn send_logs(&mut self, mut logs: Vec<QueryExecuted>) {
+    pub fn send_logs(&mut self, logs: Vec<QueryExecuted>) {
         log::debug!("Sending query logs");
-        for log in logs.iter_mut() {
-            self.inner.base.sign(log);
-        }
-        let peer_id = self.logs_collector_id;
-        for bundle in bundle_messages(logs, self.max_query_logs_size) {
-            let logs = QueryLogs {
-                queries_executed: bundle,
-            };
-            if self.inner.logs.try_send_request(peer_id, logs).is_err() {
-                log::error!("Cannot send query logs: outbound queue full")
-            }
-        }
+        self.inner.base.publish_worker_logs(logs);
     }
-}
-
-fn bundle_messages<T: prost::Message>(
-    messages: impl IntoIterator<Item = T>,
-    size_limit: usize,
-) -> impl Iterator<Item = Vec<T>> {
-    // Compute message sizes and filter out too big messages
-    let mut iter = messages
-        .into_iter()
-        .filter_map(move |msg| {
-            let msg_size = msg.encoded_len();
-            if msg_size > size_limit {
-                // TODO: Send oversized messages back as events, don't drop
-                log::warn!("Message too big ({msg_size} > {size_limit})");
-                return None;
-            }
-            Some((msg_size, msg))
-        })
-        .peekable();
-
-    // Bundle into chunks of at most `size_limit` total size
-    std::iter::from_fn(move || {
-        let mut bundle = Vec::new();
-        let mut remaining_cap = size_limit;
-        while let Some((size, msg)) = iter.next_if(|(size, _)| size <= &remaining_cap) {
-            bundle.push(msg);
-            remaining_cap -= size;
-        }
-        (!bundle.is_empty()).then_some(bundle)
-    })
 }
 
 impl BehaviourWrapper for WorkerBehaviour {
@@ -300,7 +233,6 @@ impl BehaviourWrapper for WorkerBehaviour {
                 request,
                 response_channel,
             }) => self.on_query(peer_id, request, Some(response_channel)),
-            InnerBehaviourEvent::Logs(ev) => self.on_logs_event(ev),
         };
         ev.map(ToSwarm::GenerateEvent)
     }
@@ -404,19 +336,4 @@ pub fn start_transport(
         config.shutdown_timeout,
     );
     (events_rx, handle)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_bundle_messages() {
-        let messages = vec![vec![0u8; 40], vec![0u8; 40], vec![0u8; 200], vec![0u8; 90]];
-        let bundles: Vec<Vec<Vec<u8>>> = bundle_messages(messages, 100).collect();
-
-        assert_eq!(bundles.len(), 2);
-        assert_eq!(bundles[0].len(), 2);
-        assert_eq!(bundles[1].len(), 1);
-    }
 }

@@ -79,3 +79,42 @@ impl Debug for OkResult {
         )
     }
 }
+
+impl From<LogsCollected> for WorkerLogsMsg {
+    fn from(msg: LogsCollected) -> Self {
+        worker_logs_msg::Msg::LogsCollected(msg).into()
+    }
+}
+
+impl From<worker_logs_msg::Msg> for WorkerLogsMsg {
+    fn from(msg: worker_logs_msg::Msg) -> Self {
+        Self { msg: Some(msg) }
+    }
+}
+
+impl From<Vec<QueryExecuted>> for WorkerLogsMsg {
+    fn from(queries_executed: Vec<QueryExecuted>) -> Self {
+        worker_logs_msg::Msg::QueryLogs(queries_executed.into()).into()
+    }
+}
+
+impl From<gateway_log_msg::Msg> for GatewayLogMsg {
+    fn from(msg: gateway_log_msg::Msg) -> Self {
+        Self { msg: Some(msg) }
+    }
+}
+
+impl From<Vec<QueryExecuted>> for QueryLogs {
+    fn from(queries_executed: Vec<QueryExecuted>) -> Self {
+        Self { queries_executed }
+    }
+}
+
+impl QueryResult {
+    pub fn new(query_id: String, result: query_result::Result) -> Self {
+        Self {
+            query_id,
+            result: Some(result),
+        }
+    }
+}

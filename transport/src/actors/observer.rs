@@ -9,7 +9,7 @@ use libp2p::{
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{broadcast_msg, BroadcastMsg, LogsCollected, Ping};
+use subsquid_messages::{LogsCollected, Ping};
 
 use crate::{
     behaviour::{
@@ -61,17 +61,15 @@ impl ObserverBehaviour {
     }
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<ObserverEvent> {
-        let (peer_id, msg) = match ev {
-            BaseBehaviourEvent::BroadcastMsg {
+        match ev {
+            BaseBehaviourEvent::LogsCollected {
                 peer_id,
-                msg: BroadcastMsg { msg: Some(msg) },
-            } => (peer_id, msg),
-            _ => return None,
-        };
-        match msg {
-            broadcast_msg::Msg::Ping(ping) => Some(ObserverEvent::Ping { peer_id, ping }),
-            broadcast_msg::Msg::LogsCollected(logs) if peer_id == self.logs_collector_id => {
-                Some(ObserverEvent::LogsCollected(logs))
+                logs_collected,
+            } if peer_id == self.logs_collector_id => {
+                Some(ObserverEvent::LogsCollected(logs_collected))
+            }
+            BaseBehaviourEvent::Ping { peer_id, ping } => {
+                Some(ObserverEvent::Ping { peer_id, ping })
             }
             _ => None,
         }
