@@ -23,7 +23,13 @@ COPY transport ./transport
 
 FROM builder as builder
 
-RUN cargo build --release --bin bootnode --bin keygen
+RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && apt-get update \
+    && apt-get -y install build-essential
+
+RUN cargo build --release --bin bootnode --bin keygen --features tikv-jemallocator
 
 FROM --platform=$BUILDPLATFORM debian:bookworm-slim as base
 

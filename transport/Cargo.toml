@@ -47,3 +47,6 @@ observer = ["actors"]
 scheduler = ["actors", "request-client", "proto"]
 worker = ["actors", "request-server", "proto"]
 metrics = ["libp2p/metrics", "prometheus-client"]
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { version = "0.5", optional = true }
