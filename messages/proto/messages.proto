@@ -12,7 +12,7 @@ message GatewayLogMsg {
 message WorkerLogsMsg {
   oneof msg {
     QueryLogs query_logs = 1;
-    LogsCollected logs_collected = 2;
+    LogsCollected logs_collected = 2 [deprecated = true];
   }
 }
 
@@ -57,7 +57,6 @@ message AssignedChunk {
 message DatasetChunks {
   string dataset_id = 1;  // "s3://moonbeam-evm-1"
   string download_url = 3;  // "https://moonbeam-evm-1.sqd-datasets.io/"
-  repeated string chunks_legacy = 2 [deprecated = true];  // used in workers <=0.4.0
   repeated AssignedChunk chunks = 4;
 }
 

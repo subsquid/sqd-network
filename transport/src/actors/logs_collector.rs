@@ -22,9 +22,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::{ProtoCodec, ACK_SIZE},
-    protocol::{
-        GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_WORKER_LOGS_SIZE, WORKER_LOGS_PROTOCOL,
-    },
+    protocol::{GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE},
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
@@ -46,13 +44,11 @@ pub enum LogsCollectorEvent {
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
-    worker_logs: Wrapped<ServerBehaviour<ProtoCodec<QueryLogs, u32>>>, // TODO: Remove after 1.0.0-rc1 support is dropped
     gateway_logs: Wrapped<ServerBehaviour<ProtoCodec<GatewayLogMsg, u32>>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogsCollectorConfig {
-    pub max_worker_logs_size: u64, // TODO: Remove after 1.0.0-rc1 support is dropped
     pub max_gateway_log_size: u64,
     pub logs_collected_queue_size: usize,
     pub events_queue_size: usize,
@@ -62,7 +58,6 @@ pub struct LogsCollectorConfig {
 impl Default for LogsCollectorConfig {
     fn default() -> Self {
         Self {
-            max_worker_logs_size: MAX_WORKER_LOGS_SIZE,
             max_gateway_log_size: MAX_GATEWAY_LOG_SIZE,
             logs_collected_queue_size: 100,
             events_queue_size: 100,
@@ -77,17 +72,11 @@ pub struct LogsCollectorBehaviour {
 
 impl LogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour, config: LogsCollectorConfig) -> Wrapped<Self> {
-        base.subscribe_pings();
-        base.subscribe_logs();
-        base.subscribe_legacy_logs(); // TODO: Remove after 1.0.0-rc1 support is dropped
+        base.subscribe_worker_logs();
+        base.subscribe_logs_collected();
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
-                worker_logs: ServerBehaviour::new(
-                    ProtoCodec::new(config.max_worker_logs_size, ACK_SIZE),
-                    WORKER_LOGS_PROTOCOL,
-                )
-                .into(),
                 gateway_logs: ServerBehaviour::new(
                     ProtoCodec::new(config.max_gateway_log_size, ACK_SIZE),
                     GATEWAY_LOGS_PROTOCOL,
@@ -154,14 +143,6 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
                 peer_id,
                 query_logs,
             }) => self.on_worker_logs(peer_id, query_logs),
-            InnerBehaviourEvent::WorkerLogs(Request {
-                peer_id,
-                request,
-                response_channel,
-            }) => {
-                _ = self.inner.worker_logs.try_send_response(response_channel, 1);
-                self.on_worker_logs(peer_id, request)
-            }
             InnerBehaviourEvent::GatewayLogs(Request {
                 peer_id,
                 request,

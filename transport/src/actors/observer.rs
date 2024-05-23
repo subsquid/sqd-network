@@ -9,7 +9,7 @@ use libp2p::{
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{LogsCollected, Ping};
+use subsquid_messages::{LogsCollected, Ping, QueryLogs};
 
 use crate::{
     behaviour::{
@@ -22,8 +22,15 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObserverEvent {
-    Ping { peer_id: PeerId, ping: Ping },
+    Ping {
+        peer_id: PeerId,
+        ping: Ping,
+    },
     LogsCollected(LogsCollected),
+    WorkerQueryLogs {
+        peer_id: PeerId,
+        query_logs: QueryLogs,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,7 +58,8 @@ pub struct ObserverBehaviour {
 impl ObserverBehaviour {
     pub fn new(mut base: BaseBehaviour, logs_collector_id: PeerId) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.subscribe_logs();
+        base.subscribe_worker_logs();
+        base.subscribe_logs_collected();
         base.allow_peer(logs_collector_id);
         Self {
             base: base.into(),
@@ -71,6 +79,13 @@ impl ObserverBehaviour {
             BaseBehaviourEvent::Ping { peer_id, ping } => {
                 Some(ObserverEvent::Ping { peer_id, ping })
             }
+            BaseBehaviourEvent::WorkerQueryLogs {
+                peer_id,
+                query_logs,
+            } => Some(ObserverEvent::WorkerQueryLogs {
+                peer_id,
+                query_logs,
+            }),
             _ => None,
         }
     }

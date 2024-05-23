@@ -45,7 +45,9 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{ID_PROTOCOL, LEGACY_LOGS_TOPIC, LOGS_TOPIC, MAX_PUBSUB_MSG_SIZE, PING_TOPIC},
+    protocol::{
+        ID_PROTOCOL, LOGS_COLLECTED_TOPIC, MAX_PUBSUB_MSG_SIZE, PING_TOPIC, WORKER_LOGS_TOPIC,
+    },
     record_event,
     util::addr_is_reachable,
     PeerId, QueueFull,
@@ -162,15 +164,14 @@ impl BaseBehaviour {
         self.inner.pubsub.subscribe(PING_TOPIC, false);
     }
 
-    pub fn subscribe_logs(&mut self) {
+    pub fn subscribe_worker_logs(&mut self) {
         // Unordered messages need to be allowed, because we're interested in all messages from
         // each worker, not only the most recent one (as in the case of pings).
-        self.inner.pubsub.subscribe(LOGS_TOPIC, true);
+        self.inner.pubsub.subscribe(WORKER_LOGS_TOPIC, true);
     }
 
-    // TODO: Remove after 1.0.0-rc1 support is dropped
-    pub fn subscribe_legacy_logs(&mut self) {
-        self.inner.pubsub.subscribe(LEGACY_LOGS_TOPIC, false);
+    pub fn subscribe_logs_collected(&mut self) {
+        self.inner.pubsub.subscribe(LOGS_COLLECTED_TOPIC, false);
     }
 
     pub fn sign<T: SignedMessage>(&self, msg: &mut T) {
@@ -188,14 +189,14 @@ impl BaseBehaviour {
         }
         for bundle in bundle_messages(logs, self.max_pubsub_msg_size) {
             let msg: WorkerLogsMsg = bundle.into();
-            self.inner.pubsub.publish(LOGS_TOPIC, msg.encode_to_vec());
+            self.inner.pubsub.publish(WORKER_LOGS_TOPIC, msg.encode_to_vec());
         }
     }
 
     pub fn publish_logs_collected(&mut self, logs_collected: LogsCollected) {
-        self.inner.pubsub.publish(LEGACY_LOGS_TOPIC, logs_collected.encode_to_vec());
+        self.inner.pubsub.publish(LOGS_COLLECTED_TOPIC, logs_collected.encode_to_vec());
         let msg: WorkerLogsMsg = logs_collected.into();
-        self.inner.pubsub.publish(LOGS_TOPIC, msg.encode_to_vec());
+        self.inner.pubsub.publish(WORKER_LOGS_TOPIC, msg.encode_to_vec()); // TODO: remove after dropping support for v1.0.0-rc2
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -481,7 +482,8 @@ impl BaseBehaviour {
         log::debug!("Pub-sub message received: peer_id={peer_id} topic={topic}");
         let ev = match topic {
             PING_TOPIC => decode_ping(peer_id, data)?,
-            LOGS_TOPIC => decode_worker_logs_msg(peer_id, data)?,
+            WORKER_LOGS_TOPIC => decode_worker_logs_msg(peer_id, data)?,
+            LOGS_COLLECTED_TOPIC => decode_logs_collected(peer_id, data)?,
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
@@ -501,7 +503,7 @@ fn decode_ping(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
 
 fn decode_worker_logs_msg(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
     let msg = WorkerLogsMsg::decode(data.as_ref())
-        .map_err(|e| log::warn!("Error decoding logs collected: {e:?}"))
+        .map_err(|e| log::warn!("Error decoding worker logs: {e:?}"))
         .ok()?;
     match msg.msg {
         Some(worker_logs_msg::Msg::QueryLogs(query_logs)) => {
@@ -510,14 +512,18 @@ fn decode_worker_logs_msg(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehavi
                 query_logs,
             })
         }
-        Some(worker_logs_msg::Msg::LogsCollected(logs_collected)) => {
-            Some(BaseBehaviourEvent::LogsCollected {
-                peer_id,
-                logs_collected,
-            })
-        }
         _ => None,
     }
+}
+
+fn decode_logs_collected(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
+    let logs_collected = LogsCollected::decode(data.as_ref())
+        .map_err(|e| log::warn!("Error decoding logs collected msg: {e:?}"))
+        .ok()?;
+    Some(BaseBehaviourEvent::LogsCollected {
+        peer_id,
+        logs_collected,
+    })
 }
 
 fn bundle_messages<T: prost::Message>(

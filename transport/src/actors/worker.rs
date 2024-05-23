@@ -97,7 +97,8 @@ impl WorkerBehaviour {
         config: WorkerConfig,
     ) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.subscribe_logs();
+        base.subscribe_worker_logs();
+        base.subscribe_logs_collected();
         base.allow_peer(config.logs_collector_id);
         base.allow_peer(config.scheduler_id);
         Self {
