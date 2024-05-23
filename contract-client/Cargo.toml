@@ -1,5 +1,6 @@
 [package]
 name = "contract-client"
+license = "AGPL-3.0-or-later"
 version = "1.0.0-rc1"
 edition = "2021"
 
