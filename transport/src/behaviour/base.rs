@@ -46,7 +46,8 @@ use crate::{
     },
     cli::BootNode,
     protocol::{
-        ID_PROTOCOL, LOGS_COLLECTED_TOPIC, MAX_PUBSUB_MSG_SIZE, PING_TOPIC, WORKER_LOGS_TOPIC,
+        ID_PROTOCOL, KEEP_LAST_WORKER_LOGS, LOGS_COLLECTED_TOPIC, MAX_PUBSUB_MSG_SIZE, PING_TOPIC,
+        WORKER_LOGS_TOPIC,
     },
     record_event,
     util::addr_is_reachable,
@@ -161,17 +162,17 @@ impl BaseBehaviour {
     }
 
     pub fn subscribe_pings(&mut self) {
-        self.inner.pubsub.subscribe(PING_TOPIC, false);
+        self.inner.pubsub.subscribe(PING_TOPIC, 1);
     }
 
     pub fn subscribe_worker_logs(&mut self) {
         // Unordered messages need to be allowed, because we're interested in all messages from
         // each worker, not only the most recent one (as in the case of pings).
-        self.inner.pubsub.subscribe(WORKER_LOGS_TOPIC, true);
+        self.inner.pubsub.subscribe(WORKER_LOGS_TOPIC, KEEP_LAST_WORKER_LOGS);
     }
 
     pub fn subscribe_logs_collected(&mut self) {
-        self.inner.pubsub.subscribe(LOGS_COLLECTED_TOPIC, false);
+        self.inner.pubsub.subscribe(LOGS_COLLECTED_TOPIC, 1);
     }
 
     pub fn sign<T: SignedMessage>(&self, msg: &mut T) {

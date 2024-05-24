@@ -19,29 +19,19 @@ use crate::{
 struct TopicState {
     name: &'static str,
     topic: Sha256Topic,
-    msg_ordering: MsgOrdering,
+    sequence_numbers: HashMap<PeerId, u64>, // FIXME: Potential memory leak
+    keep_last: u64,
 }
 
 impl TopicState {
-    pub fn new(name: &'static str, allow_unordered: bool) -> Self {
+    pub fn new(name: &'static str, keep_last: u64) -> Self {
         Self {
             name,
             topic: Sha256Topic::new(name),
-            msg_ordering: match allow_unordered {
-                true => MsgOrdering::Unordered,
-                false => MsgOrdering::Ordered {
-                    sequence_numbers: Default::default(),
-                },
-            },
+            sequence_numbers: Default::default(),
+            keep_last,
         }
     }
-}
-
-enum MsgOrdering {
-    Unordered,
-    Ordered {
-        sequence_numbers: HashMap<PeerId, u64>, // FIXME: Potential memory leak
-    },
 }
 
 #[derive(Derivative, Clone)]
@@ -75,9 +65,9 @@ impl PubsubBehaviour {
         }
     }
 
-    pub fn subscribe(&mut self, topic_name: &'static str, allow_unordered: bool) {
+    pub fn subscribe(&mut self, topic_name: &'static str, keep_last: u64) {
         log::info!("Subscribing to topic {topic_name}");
-        let topic = TopicState::new(topic_name, allow_unordered);
+        let topic = TopicState::new(topic_name, keep_last);
         let topic_hash = topic.topic.hash();
         if self.topics.contains_key(&topic_hash) {
             log::warn!("Topic {topic_name} already subscribed");
@@ -115,16 +105,17 @@ impl PubsubBehaviour {
             Some(x) => x,
             None => return Err("message with unknown topic"),
         };
-        if let MsgOrdering::Ordered { sequence_numbers } = &mut topic_state.msg_ordering {
-            let last_seq_no = sequence_numbers.get(&peer_id).copied().unwrap_or_default();
-            match msg.sequence_number {
-                None => return Err("message without sequence number"),
-                // Sequence numbers should be timestamp-based, can't be from the future
-                Some(seq_no) if seq_no > timestamp_now() => return Err("invalid sequence number"),
-                Some(seq_no) if seq_no <= last_seq_no => return Err("old message"),
-                Some(seq_no) => sequence_numbers.insert(peer_id, seq_no),
-            };
-        }
+        let last_seq_no = topic_state.sequence_numbers.entry(peer_id).or_default();
+        match msg.sequence_number {
+            None => return Err("message without sequence number"),
+            // Sequence numbers should be timestamp-based, can't be from the future
+            Some(seq_no) if seq_no > timestamp_now() => return Err("invalid sequence number"),
+            Some(seq_no) if seq_no + topic_state.keep_last <= *last_seq_no => {
+                return Err("old message")
+            }
+            Some(seq_no) if seq_no > *last_seq_no => *last_seq_no = seq_no,
+            _ => {}
+        };
 
         Ok(PubsubMsg {
             peer_id,
