@@ -28,10 +28,10 @@ impl<T: Debug> Sender<T> {
 
     /// Lossy send. Drops the message if queue is full.
     pub fn send_lossy(&self, msg: T) {
-        self.try_send(msg).unwrap_or_else(|e| {
+        self.try_send(msg).unwrap_or_else(|_| {
             #[cfg(feature = "metrics")]
             DROPPED.get_or_create(&vec![(QUEUE_NAME, self.name)]).inc();
-            log::warn!("Queue {} full. Message dropped: {e:?}", self.name);
+            log::warn!("Queue {} full. Message dropped", self.name);
         });
     }
 
