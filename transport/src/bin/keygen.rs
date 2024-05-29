@@ -1,10 +1,20 @@
-use libp2p::{identity::ed25519, PeerId};
-use std::io::Write;
+use clap::{self, command, Parser};
+use libp2p::PeerId;
+use std::path::PathBuf;
+use subsquid_network_transport::util;
 
-fn main() -> std::io::Result<()> {
-    let keypair = ed25519::Keypair::generate();
+#[derive(Parser)]
+#[command(version)]
+struct Cli {
+    /// Path to the generated key
+    filename: PathBuf,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let filename = Cli::parse().filename;
+    let keypair = util::get_keypair(Some(filename)).await?;
     let peer_id = PeerId::from_public_key(&keypair.public().into());
-    eprintln!("Your peer ID: {peer_id}");
-    std::io::stdout().write_all(&keypair.to_bytes())?;
+    println!("{peer_id}");
     Ok(())
 }
