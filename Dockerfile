@@ -49,3 +49,8 @@ ENV P2P_LISTEN_ADDRS="/ip4/0.0.0.0/udp/12345/quic-v1"
 COPY p2p_healthcheck.sh ./healthcheck.sh
 RUN chmod +x ./healthcheck.sh
 HEALTHCHECK --interval=5s CMD ./healthcheck.sh
+
+
+FROM --platform=$BUILDPLATFORM base as keygen
+COPY --from=builder /app/target/release/keygen /usr/local/bin/keygen
+ENTRYPOINT ["keygen"]
