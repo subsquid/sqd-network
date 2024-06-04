@@ -69,7 +69,7 @@ pub struct InnerBehaviour {
     pubsub: Wrapped<PubsubBehaviour>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BaseConfig {
     pub nodes_update_interval: Duration,
     pub autonat_timeout: Duration,
@@ -145,7 +145,6 @@ impl BaseBehaviour {
 
         for boot_node in boot_nodes {
             inner.allow.allow_peer(boot_node.peer_id);
-            inner.kademlia.add_address(&boot_node.peer_id, boot_node.address.clone());
             inner.autonat.add_server(boot_node.peer_id, Some(boot_node.address));
         }
 
@@ -185,7 +184,7 @@ impl BaseBehaviour {
     }
 
     pub fn publish_worker_logs(&mut self, mut logs: Vec<QueryExecuted>) {
-        for log in logs.iter_mut() {
+        for log in &mut logs {
             self.sign(log);
         }
         for bundle in bundle_messages(logs, self.max_pubsub_msg_size) {
@@ -307,7 +306,7 @@ impl BehaviourWrapper for BaseBehaviour {
             FromSwarm::DialFailure(DialFailure { peer_id, error, .. }) => {
                 log::debug!(
                     "Failed to dial {}: {error:?}",
-                    peer_id.map(|id| id.to_base58()).unwrap_or_default()
+                    peer_id.map(PeerId::to_base58).unwrap_or_default()
                 );
                 None
             }
@@ -426,14 +425,14 @@ impl BaseBehaviour {
     fn on_kademlia_event(&mut self, ev: kad::Event) -> Option<TToSwarm<Self>> {
         log::debug!("Kademlia event received: {ev:?}");
         record_event(&ev);
-        let (query_id, result, finished) = match ev {
-            kad::Event::OutboundQueryProgressed {
-                id,
-                result: QueryResult::GetClosestPeers(result),
-                step: ProgressStep { last, .. },
-                ..
-            } => (id, result, last),
-            _ => return None,
+        let kad::Event::OutboundQueryProgressed {
+            id: query_id,
+            result: QueryResult::GetClosestPeers(result),
+            step: ProgressStep { last, .. },
+            ..
+        } = ev
+        else {
+            return None;
         };
 
         let peer_id = match self.ongoing_queries.get_by_right(&query_id) {
@@ -441,17 +440,19 @@ impl BaseBehaviour {
             Some(peer_id) => peer_id.to_owned(),
         };
         let peer_found = match result {
-            Ok(GetClosestPeersOk { peers, .. }) => peers.contains(&peer_id),
-            Err(GetClosestPeersError::Timeout { peers, .. }) => peers.contains(&peer_id),
+            Ok(GetClosestPeersOk { peers, .. })
+            | Err(GetClosestPeersError::Timeout { peers, .. }) => peers.contains(&peer_id),
         };
 
         // Query finished, or the peer has already been found. Try to dial the peer now.
-        if finished || peer_found {
+        if last || peer_found {
             log::debug!("Query for peer {peer_id} finished. peer_found={peer_found}");
             self.ongoing_queries.remove_by_right(&query_id);
             #[cfg(feature = "metrics")]
             ONGOING_QUERIES.dec();
             return Some(ToSwarm::Dial {
+                // Not using the default condition (`DisconnectedAndNotDialing`), because we may want
+                // to establish an outbound connection to the peer despite existing inbound connection.
                 opts: DialOpts::peer_id(peer_id).condition(PeerCondition::NotDialing).build(),
             });
         }
@@ -460,9 +461,8 @@ impl BaseBehaviour {
 
     fn on_autonat_event(&mut self, ev: autonat::Event) -> Option<TToSwarm<Self>> {
         log::debug!("AutoNAT event received: {ev:?}");
-        let status = match ev {
-            autonat::Event::StatusChanged { new, .. } => new,
-            _ => return None,
+        let autonat::Event::StatusChanged { new: status, .. } = ev else {
+            return None;
         };
         match status {
             NatStatus::Public(addr) => log::info!("Public address confirmed: {addr}"),
@@ -481,6 +481,7 @@ impl BaseBehaviour {
         }: PubsubMsg,
     ) -> Option<TToSwarm<Self>> {
         log::debug!("Pub-sub message received: peer_id={peer_id} topic={topic}");
+        let data = data.as_ref();
         let ev = match topic {
             PING_TOPIC => decode_ping(peer_id, data)?,
             WORKER_LOGS_TOPIC => decode_worker_logs_msg(peer_id, data)?,
@@ -491,10 +492,8 @@ impl BaseBehaviour {
     }
 }
 
-fn decode_ping(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
-    let mut ping = Ping::decode(data.as_ref())
-        .map_err(|e| log::warn!("Error decoding ping: {e:?}"))
-        .ok()?;
+fn decode_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
+    let mut ping = Ping::decode(data).map_err(|e| log::warn!("Error decoding ping: {e:?}")).ok()?;
     if !ping.verify_signature(&peer_id) {
         log::warn!("Invalid ping signature from {peer_id}");
         return None;
@@ -502,8 +501,8 @@ fn decode_ping(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
     Some(BaseBehaviourEvent::Ping { peer_id, ping })
 }
 
-fn decode_worker_logs_msg(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
-    let msg = WorkerLogsMsg::decode(data.as_ref())
+fn decode_worker_logs_msg(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
+    let msg = WorkerLogsMsg::decode(data)
         .map_err(|e| log::warn!("Error decoding worker logs: {e:?}"))
         .ok()?;
     match msg.msg {
@@ -517,8 +516,8 @@ fn decode_worker_logs_msg(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehavi
     }
 }
 
-fn decode_logs_collected(peer_id: PeerId, data: Box<[u8]>) -> Option<BaseBehaviourEvent> {
-    let logs_collected = LogsCollected::decode(data.as_ref())
+fn decode_logs_collected(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
+    let logs_collected = LogsCollected::decode(data)
         .map_err(|e| log::warn!("Error decoding logs collected msg: {e:?}"))
         .ok()?;
     Some(BaseBehaviourEvent::LogsCollected {

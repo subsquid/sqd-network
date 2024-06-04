@@ -42,7 +42,7 @@ pub struct InnerBehaviour {
     pong: PongBehaviour,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SchedulerConfig {
     pub pong_config: ClientConfig,
     pub max_pong_size: u64,

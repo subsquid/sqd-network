@@ -97,13 +97,11 @@ impl PubsubBehaviour {
         &mut self,
         msg: gossipsub::Message,
     ) -> Result<PubsubMsg, &'static str> {
-        let peer_id = match msg.source {
-            Some(peer_id) => peer_id,
-            None => return Err("anonymous message"),
+        let Some(peer_id) = msg.source else {
+            return Err("anonymous message");
         };
-        let topic_state = match self.topics.get_mut(&msg.topic) {
-            Some(x) => x,
-            None => return Err("message with unknown topic"),
+        let Some(topic_state) = self.topics.get_mut(&msg.topic) else {
+            return Err("message with unknown topic");
         };
         let last_seq_no = topic_state.sequence_numbers.entry(peer_id).or_default();
         match msg.sequence_number {
@@ -139,16 +137,16 @@ impl BehaviourWrapper for PubsubBehaviour {
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         log::debug!("Gossipsub event received: {ev:?}");
         record_event(&ev);
-        let (msg, propagation_source, message_id) = match ev {
-            gossipsub::Event::Message {
-                message,
-                propagation_source,
-                message_id,
-            } => (message, propagation_source, message_id),
-            _ => return None,
+        let gossipsub::Event::Message {
+            message,
+            propagation_source,
+            message_id,
+        } = ev
+        else {
+            return None;
         };
 
-        match self.validate_gossipsub_msg(msg) {
+        match self.validate_gossipsub_msg(message) {
             Ok(msg) => {
                 let _ = self.inner.report_message_validation_result(
                     &message_id,
@@ -186,5 +184,7 @@ fn timestamp_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("we're after 1970")
-        .as_nanos() as u64
+        .as_nanos()
+        .try_into()
+        .expect("not that far in the future")
 }

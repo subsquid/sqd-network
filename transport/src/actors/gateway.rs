@@ -51,7 +51,7 @@ pub struct InnerBehaviour {
     logs: Wrapped<ClientBehaviour<ProtoCodec<GatewayLogMsg, u32>>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GatewayConfig {
     pub logs_collector_id: PeerId,
     pub query_config: ClientConfig,
@@ -173,12 +173,9 @@ impl GatewayBehaviour {
         req_id: OutboundRequestId,
         peer_id: PeerId,
     ) -> Option<GatewayEvent> {
-        let query_id = match self.query_ids.remove(&req_id) {
-            Some(id) => id,
-            None => {
-                log::error!("Unknown request ID: {req_id}");
-                return None;
-            }
+        let Some(query_id) = self.query_ids.remove(&req_id) else {
+            log::error!("Unknown request ID: {req_id}");
+            return None;
         };
         log::debug!("Query {query_id} timed out");
         Some(GatewayEvent::QueryResult {
@@ -205,11 +202,10 @@ impl GatewayBehaviour {
             None => return log::error!("Query without ID dropped"),
         };
         self.inner.base.sign(&mut query);
-        match self.inner.query.try_send_request(peer_id, query) {
-            Ok(req_id) => {
-                self.query_ids.insert(req_id, query_id);
-            }
-            Err(_) => log::error!("Outbound message queue full. Query {query_id} dropped."),
+        if let Ok(req_id) = self.inner.query.try_send_request(peer_id, query) {
+            self.query_ids.insert(req_id, query_id);
+        } else {
+            log::error!("Outbound message queue full. Query {query_id} dropped.")
         }
     }
 

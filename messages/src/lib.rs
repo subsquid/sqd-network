@@ -64,7 +64,7 @@ impl From<&query_result::Result> for query_finished::Result {
 
 impl SizeAndHash {
     pub fn compute(data: impl AsRef<[u8]>) -> Self {
-        let size = data.as_ref().len() as u32;
+        let size = u32::try_from(data.as_ref().len()).expect("Data size above u32::MAX");
         let mut hasher = Sha3_256::new();
         hasher.update(data);
         let hash = hasher.finalize();
@@ -91,7 +91,7 @@ impl Debug for OkResult {
             f,
             "OkResult {{ data: <{} bytes>, exec_plan: <{} bytes> }}",
             self.data.len(),
-            self.exec_plan.as_ref().map(|b| b.len()).unwrap_or_default()
+            self.exec_plan.as_ref().map(Vec::len).unwrap_or_default()
         )
     }
 }

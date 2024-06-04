@@ -28,8 +28,8 @@ pub enum TransportError {
 impl Display for TransportError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            TransportError::Http(e) => Display::fmt(e, f),
-            TransportError::Ws(e) => Display::fmt(e, f),
+            Self::Http(e) => Display::fmt(e, f),
+            Self::Ws(e) => Display::fmt(e, f),
         }
     }
 }
@@ -37,15 +37,15 @@ impl Display for TransportError {
 impl RpcError for TransportError {
     fn as_error_response(&self) -> Option<&JsonRpcError> {
         match self {
-            TransportError::Http(e) => e.as_error_response(),
-            TransportError::Ws(e) => e.as_error_response(),
+            Self::Http(e) => e.as_error_response(),
+            Self::Ws(e) => e.as_error_response(),
         }
     }
 
     fn as_serde_error(&self) -> Option<&Error> {
         match self {
-            TransportError::Http(e) => e.as_serde_error(),
-            TransportError::Ws(e) => e.as_serde_error(),
+            Self::Http(e) => e.as_serde_error(),
+            Self::Ws(e) => e.as_serde_error(),
         }
     }
 }
@@ -62,9 +62,9 @@ impl From<TransportError> for ProviderError {
 impl Transport {
     pub async fn connect(rpc_url: &str) -> Result<Arc<Provider<Self>>, ClientError> {
         let transport = if rpc_url.starts_with("http") {
-            Transport::Http(Http::new(Url::parse(rpc_url)?))
+            Self::Http(Http::new(Url::parse(rpc_url)?))
         } else if rpc_url.starts_with("ws") {
-            Transport::Ws(Ws::connect(rpc_url).await?)
+            Self::Ws(Ws::connect(rpc_url).await?)
         } else {
             return Err(ClientError::InvalidProtocol);
         };
@@ -81,21 +81,15 @@ impl JsonRpcClient for Transport {
         params: T,
     ) -> Pin<Box<dyn Future<Output = Result<R, Self::Error>> + Send + 'async_trait>>
     where
-        T: Debug + Serialize + Send + Sync,
-        R: DeserializeOwned + Send,
-        T: 'async_trait,
-        R: 'async_trait,
+        T: Debug + Serialize + Send + Sync + 'async_trait,
+        R: DeserializeOwned + Send + 'async_trait,
         'life0: 'async_trait,
         'life1: 'async_trait,
         Self: 'async_trait,
     {
         match self {
-            Transport::Http(provider) => {
-                Box::pin(provider.request(method, params).map_err(Into::into))
-            }
-            Transport::Ws(provider) => {
-                Box::pin(provider.request(method, params).map_err(Into::into))
-            }
+            Self::Http(provider) => Box::pin(provider.request(method, params).map_err(Into::into)),
+            Self::Ws(provider) => Box::pin(provider.request(method, params).map_err(Into::into)),
         }
     }
 }

@@ -79,36 +79,37 @@ pub enum Network {
 impl Network {
     pub fn gateway_registry_default_addr(&self) -> Address {
         match self {
-            Network::Tethys => "0xAB46F688AbA4FcD1920F21E9BD16B229316D8b0a".parse().unwrap(),
-            Network::Mainnet => "0x8A90A1cE5fa8Cf71De9e6f76B7d3c0B72feB8c4b".parse().unwrap(),
+            Self::Tethys => "0xAB46F688AbA4FcD1920F21E9BD16B229316D8b0a".parse().unwrap(),
+            Self::Mainnet => "0x8A90A1cE5fa8Cf71De9e6f76B7d3c0B72feB8c4b".parse().unwrap(),
         }
     }
 
     pub fn worker_registration_default_addr(&self) -> Address {
         match self {
-            Network::Tethys => "0xCD8e983F8c4202B0085825Cf21833927D1e2b6Dc".parse().unwrap(),
-            Network::Mainnet => "0x36E2B147Db67E76aB67a4d07C293670EbeFcAE4E".parse().unwrap(),
+            Self::Tethys => "0xCD8e983F8c4202B0085825Cf21833927D1e2b6Dc".parse().unwrap(),
+            Self::Mainnet => "0x36E2B147Db67E76aB67a4d07C293670EbeFcAE4E".parse().unwrap(),
         }
     }
 
     pub fn network_controller_default_addr(&self) -> Address {
         match self {
-            Network::Tethys => "0x68Fc7E375945d8C8dFb0050c337Ff09E962D976D".parse().unwrap(),
-            Network::Mainnet => "0x4cf58097D790B193D22ed633bF8b15c9bc4F0da7".parse().unwrap(),
+            Self::Tethys => "0x68Fc7E375945d8C8dFb0050c337Ff09E962D976D".parse().unwrap(),
+            Self::Mainnet => "0x4cf58097D790B193D22ed633bF8b15c9bc4F0da7".parse().unwrap(),
         }
     }
 
     pub fn allocations_viewer_default_addr(&self) -> Address {
         match self {
-            Network::Tethys => "0xC0Af6432947db51e0C179050dAF801F19d40D2B7".parse().unwrap(),
-            Network::Mainnet => "0x88CE6D8D70df9Fe049315fd9D6c3d59108C15c4C".parse().unwrap(),
+            Self::Tethys => "0xC0Af6432947db51e0C179050dAF801F19d40D2B7".parse().unwrap(),
+            Self::Mainnet => "0x88CE6D8D70df9Fe049315fd9D6c3d59108C15c4C".parse().unwrap(),
         }
     }
 
     pub fn multicall_default_addr(&self) -> Address {
         match self {
-            Network::Tethys => "0xcA11bde05977b3631167028862bE2a173976CA11".parse().unwrap(),
-            Network::Mainnet => "0xcA11bde05977b3631167028862bE2a173976CA11".parse().unwrap(),
+            Self::Tethys | Self::Mainnet => {
+                "0xcA11bde05977b3631167028862bE2a173976CA11".parse().unwrap()
+            }
         }
     }
 }

@@ -21,7 +21,7 @@ use crate::{
 };
 
 #[derive(Derivative)]
-#[derivative(Debug)]
+#[derivative(Debug, Clone, Copy)]
 pub enum ClientEvent<T> {
     Response {
         peer_id: PeerId,
@@ -38,7 +38,7 @@ pub enum ClientEvent<T> {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ClientConfig {
     pub max_buffered: usize,
     pub send_timeout: Duration,
@@ -124,12 +124,12 @@ where
     fn on_timeout(&mut self, peer_id: PeerId) -> Vec<TToSwarm<Self>> {
         let buffered = self.waiting_for_connection.remove(&peer_id).unwrap_or_default();
         log::debug!("Lookup for peer {peer_id} timed out, dropping {} requests", buffered.len());
-        for req_id in buffered.iter() {
-            self.original_requests.remove(req_id);
-        }
         buffered
             .into_iter()
-            .map(|req_id| ToSwarm::GenerateEvent(ClientEvent::Timeout { peer_id, req_id }))
+            .map(|req_id| {
+                self.original_requests.remove(&req_id);
+                ToSwarm::GenerateEvent(ClientEvent::Timeout { peer_id, req_id })
+            })
             .collect()
     }
 
@@ -138,12 +138,9 @@ where
         let buffered = self.waiting_for_connection.remove(&peer_id).unwrap_or_default();
         log::debug!("Peer {peer_id} connected, sending {} requests", buffered.len());
         for old_id in buffered {
-            let request = match self.original_requests.remove(&old_id) {
-                Some(req) => req,
-                None => {
-                    log::error!("Unknown request: {old_id}");
-                    continue;
-                }
+            let Some(request) = self.original_requests.remove(&old_id) else {
+                log::error!("Unknown request: {old_id}");
+                continue;
             };
             // Resubmit, keep the old ID in map to match the response with request
             let new_id = self.inner.send_request(&peer_id, request);

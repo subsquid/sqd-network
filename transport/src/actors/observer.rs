@@ -33,7 +33,7 @@ pub enum ObserverEvent {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ObserverConfig {
     pub logs_collector_id: PeerId,
     pub events_queue_size: usize,

@@ -51,7 +51,7 @@ pub struct InnerBehaviour {
     query: QueryBehaviour,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct WorkerConfig {
     pub scheduler_id: PeerId,
     pub logs_collector_id: PeerId,
@@ -198,9 +198,8 @@ impl WorkerBehaviour {
 
     pub fn send_query_result(&mut self, result: QueryResult) {
         log::debug!("Sending query result {result:?}");
-        let resp_chan = match self.query_response_channels.remove(&result.query_id) {
-            Some(ch) => ch,
-            None => return log::error!("No response channel for query: {}", result.query_id),
+        let Some(resp_chan) = self.query_response_channels.remove(&result.query_id) else {
+            return log::error!("No response channel for query: {}", result.query_id);
         };
         self.inner
             .query

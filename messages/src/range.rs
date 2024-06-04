@@ -5,13 +5,13 @@ pub use crate::{Range, RangeSet};
 impl Range {
     pub fn new(begin: u32, end: u32) -> Self {
         assert!(begin <= end);
-        Range { begin, end }
+        Self { begin, end }
     }
 }
 
 impl RangeSet {
     pub fn empty() -> Self {
-        Default::default()
+        Self::default()
     }
 
     pub fn has(&self, point: u32) -> bool {
@@ -47,7 +47,7 @@ impl RangeSet {
 
 impl<T: IntoIterator<Item = Range>> From<T> for RangeSet {
     fn from(iter: T) -> Self {
-        let mut range_set = RangeSet::empty();
+        let mut range_set = Self::empty();
         range_set.extend(iter);
         range_set
     }

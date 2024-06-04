@@ -3,6 +3,22 @@ members = ["contract-client", "messages", "transport"]
 resolver = "2"
 
 [workspace.dependencies]
-libp2p = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "d03dec17" }
-libp2p-connection-limits = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "d03dec17" }
-libp2p-swarm-derive = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "d03dec17" }
+libp2p = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "4d5e0eea" }
+libp2p-connection-limits = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "4d5e0eea" }
+libp2p-swarm-derive = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "4d5e0eea" }
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+cast_possible_truncation = "warn"
+dbg_macro = "warn"
+explicit_iter_loop = "warn"
+inefficient_to_string = "warn"
+manual_let_else = "warn"
+match_same_arms = "warn"
+needless_pass_by_value = "warn"
+redundant_closure_for_method_calls = "warn"
+type_repetition_in_bounds = "warn"
+use_self = "warn"
+used_underscore_binding = "warn"

@@ -12,7 +12,7 @@ impl DataChunk {
     pub fn new(top: u32, first_block: u32, last_block: u32, last_hash: String) -> Self {
         assert!(top <= first_block);
         assert!(first_block <= last_block);
-        DataChunk {
+        Self {
             top,
             first_block,
             last_block,
@@ -48,7 +48,7 @@ impl std::fmt::Display for DataChunk {
 
 impl std::fmt::Debug for DataChunk {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(f, "{self}")
     }
 }
 
@@ -65,7 +65,7 @@ impl std::str::FromStr for DataChunk {
         let end: u32 = range_split.get(1).ok_or(())?.parse().or(Err(()))?;
         let hash = range_split.get(2).ok_or(())?;
         if top <= beg && beg <= end {
-            Ok(DataChunk::new(top, beg, end, hash.to_string()))
+            Ok(Self::new(top, beg, end, (*hash).to_string()))
         } else {
             Err(())
         }
@@ -74,6 +74,6 @@ impl std::str::FromStr for DataChunk {
 
 impl From<DataChunk> for Range {
     fn from(chunk: DataChunk) -> Self {
-        Range::new(chunk.first_block, chunk.last_block)
+        Self::new(chunk.first_block, chunk.last_block)
     }
 }

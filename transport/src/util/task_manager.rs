@@ -60,8 +60,7 @@ impl TaskManager {
     /// Panics if `.cancel()` or `.await_stop()` has been already called.
     pub fn spawn_periodic<F, T>(&mut self, mut f: F, interval: Duration)
     where
-        F: FnMut(CancellationToken) -> T,
-        F: Send + 'static,
+        F: Send + 'static + FnMut(CancellationToken) -> T,
         T: Future<Output = ()> + Send,
     {
         let mut interval = tokio::time::interval_at(Instant::now() + interval, interval);

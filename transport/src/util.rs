@@ -13,9 +13,8 @@ pub use task_manager::{CancellationToken, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT}
 
 /// Load key from file or generate and save to file.
 pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
-    let path = match path {
-        Some(path) => path,
-        None => return Ok(Keypair::generate_ed25519()),
+    let Some(path) = path else {
+        return Ok(Keypair::generate_ed25519());
     };
     match tokio::fs::metadata(&path).await {
         Ok(meta) if meta.is_file() => {
@@ -44,10 +43,9 @@ pub fn addr_is_reachable(addr: &Multiaddr) -> bool {
             &&(!addr.is_private() || std::env::var("PRIVATE_NETWORK").is_ok())
         }
         Some(Protocol::Ip6(addr)) => !addr.is_loopback(),
-        Some(Protocol::Dns(_)) => true,
-        Some(Protocol::Dns4(_)) => true,
-        Some(Protocol::Dns6(_)) => true,
-        Some(Protocol::Dnsaddr(_)) => true,
+        Some(Protocol::Dns(_) | Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Dnsaddr(_)) => {
+            true
+        }
         _ => false,
     }
 }

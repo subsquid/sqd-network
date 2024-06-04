@@ -68,16 +68,15 @@ impl SignedMessage for QueryExecuted {
     }
 
     fn attach_signature(&mut self, signature: Vec<u8>) {
-        self.signature = signature
+        self.signature = signature;
     }
 
     fn verify_signature(&mut self, peer_id: &PeerId) -> bool {
         if !verify_signature(peer_id, self) {
             return false;
         }
-        let client_id = match self.client_id.parse() {
-            Ok(id) => id,
-            Err(_) => return false,
+        let Ok(client_id) = self.client_id.parse() else {
+            return false;
         };
         self.query.as_mut().is_some_and(|q| verify_signature(&client_id, q))
     }

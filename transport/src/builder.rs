@@ -183,7 +183,7 @@ impl P2PTransportBuilder {
         self,
         config: GatewayConfig,
     ) -> Result<(impl Stream<Item = GatewayEvent>, GatewayTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| GatewayBehaviour::new(base, config.clone()))?;
+        let swarm = self.build_swarm(|base| GatewayBehaviour::new(base, config))?;
         Ok(gateway::start_transport(swarm, config))
     }
 
@@ -192,7 +192,7 @@ impl P2PTransportBuilder {
         self,
         config: LogsCollectorConfig,
     ) -> Result<(impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| LogsCollectorBehaviour::new(base, config.clone()))?;
+        let swarm = self.build_swarm(|base| LogsCollectorBehaviour::new(base, config))?;
         Ok(logs_collector::start_transport(swarm, config))
     }
 
@@ -211,7 +211,7 @@ impl P2PTransportBuilder {
         self,
         config: SchedulerConfig,
     ) -> Result<(impl Stream<Item = SchedulerEvent>, SchedulerTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| SchedulerBehaviour::new(base, config.clone()))?;
+        let swarm = self.build_swarm(|base| SchedulerBehaviour::new(base, config))?;
         Ok(scheduler::start_transport(swarm, config))
     }
 
@@ -221,8 +221,7 @@ impl P2PTransportBuilder {
         config: WorkerConfig,
     ) -> Result<(impl Stream<Item = WorkerEvent>, WorkerTransportHandle), Error> {
         let local_peer_id = self.local_peer_id();
-        let swarm =
-            self.build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config.clone()))?;
+        let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config))?;
         Ok(worker::start_transport(swarm, config))
     }
 }

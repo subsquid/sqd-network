@@ -47,7 +47,7 @@ pub struct InnerBehaviour {
     gateway_logs: Wrapped<ServerBehaviour<ProtoCodec<GatewayLogMsg, u32>>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LogsCollectorConfig {
     pub max_gateway_log_size: u64,
     pub logs_collected_queue_size: usize,

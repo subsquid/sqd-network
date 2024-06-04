@@ -21,9 +21,10 @@ lazy_static! {
 pub static LIBP2P_METRICS: OnceCell<Metrics> = OnceCell::const_new();
 
 pub fn register_metrics(registry: &mut Registry) {
-    if LIBP2P_METRICS.set(Metrics::new(registry)).is_err() {
-        panic!("Metrics already initialized");
-    }
+    assert!(
+        LIBP2P_METRICS.set(Metrics::new(registry)).is_ok(),
+        "Metrics already initialized"
+    );
     registry.register(
         "active_connections",
         "The number of active p2p connections (both incoming and outgoing)",

@@ -74,7 +74,6 @@ pub struct QuicConfig {
     pub max_idle_timeout_ms: u32,
 }
 
-#[inline(always)]
 fn parse_var<T: FromStr>(var: &str, default: T) -> T {
     std::env::var(var).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
@@ -131,7 +130,7 @@ where
     Metrics: Recorder<T>,
 {
     if let Some(metrics) = metrics::LIBP2P_METRICS.get() {
-        metrics.record(event)
+        metrics.record(event);
     }
 }
 

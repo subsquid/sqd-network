@@ -47,7 +47,7 @@ pub struct Worker {
 }
 
 impl Worker {
-    fn new(worker: contracts::Worker, onchain_id: U256) -> Result<Self, ClientError> {
+    fn new(worker: &contracts::Worker, onchain_id: U256) -> Result<Self, ClientError> {
         let peer_id = PeerId::from_bytes(&worker.peer_id)?;
         let deregistered_at = (worker.deregistered_at > 0).then_some(worker.deregistered_at);
         Ok(Self {
@@ -221,7 +221,7 @@ impl Client for EthersClient {
         let workers = workers
             .into_iter()
             .zip(onchain_ids)
-            .filter_map(|(worker, onchain_id)| match Worker::new(worker, onchain_id) {
+            .filter_map(|(worker, onchain_id)| match Worker::new(&worker, onchain_id) {
                 Ok(worker) => Some(worker),
                 Err(e) => {
                     log::debug!("Error reading worker from chain: {e:?}");
@@ -294,7 +294,7 @@ impl Client for EthersClient {
         }
 
         let mut multicall = self.multicall().await?;
-        for worker in workers.iter() {
+        for worker in &workers {
             multicall.add_call::<U256>(
                 strategy
                     .method("computationUnitsPerEpoch", (gateway_id.clone(), worker.onchain_id))?,
@@ -325,9 +325,8 @@ impl Client for EthersClient {
             let page_size = U256::from(allocations.len());
 
             for allocation in allocations {
-                let gateway_peer_id = match PeerId::from_bytes(&allocation.gateway_id) {
-                    Ok(peer_id) => peer_id,
-                    _ => continue,
+                let Ok(gateway_peer_id) = PeerId::from_bytes(&allocation.gateway_id) else {
+                    continue;
                 };
                 clusters
                     .entry(allocation.operator)
