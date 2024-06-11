@@ -1,26 +1,31 @@
 use std::{
     collections::HashMap,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use derivative::Derivative;
+use libp2p::gossipsub::PublishError;
 use libp2p::{
     gossipsub,
     gossipsub::{MessageAcceptance, MessageAuthenticity, Sha256Topic, TopicHash},
     identity::Keypair,
     swarm::{NetworkBehaviour, ToSwarm},
 };
+use tokio::time::Instant;
 
 use crate::{
     behaviour::wrapped::{BehaviourWrapper, TToSwarm},
     record_event, PeerId,
 };
 
+const SUBSCRIPTION_TIMEOUT: Duration = Duration::from_secs(60);
+
 struct TopicState {
     name: &'static str,
     topic: Sha256Topic,
     sequence_numbers: HashMap<PeerId, u64>, // FIXME: Potential memory leak
     keep_last: u64,
+    subscribed_at: Instant,
 }
 
 impl TopicState {
@@ -30,6 +35,7 @@ impl TopicState {
             topic: Sha256Topic::new(name),
             sequence_numbers: Default::default(),
             keep_last,
+            subscribed_at: Instant::now(),
         }
     }
 }
@@ -84,8 +90,18 @@ impl PubsubBehaviour {
     pub fn publish(&mut self, topic_name: &'static str, msg: impl Into<Vec<u8>>) {
         log::debug!("Publishing message to topic {topic_name}");
         let topic_hash = Sha256Topic::new(topic_name).hash();
-        if let Err(e) = self.inner.publish(topic_hash, msg) {
-            log::error!("Error publishing message to {topic_name}: {e:?}");
+        let Some(topic) = self.topics.get(&topic_hash) else {
+            return log::error!("Cannot publish to unsubscribed topic: {topic_name}");
+        };
+
+        match self.inner.publish(topic_hash, msg) {
+            Err(PublishError::InsufficientPeers)
+                if topic.subscribed_at.elapsed() <= SUBSCRIPTION_TIMEOUT =>
+            {
+                log::info!("Waiting for peers to publish to {topic_name}")
+            }
+            Err(e) => log::error!("Error publishing message to {topic_name}: {e:?}"),
+            Ok(_) => log::debug!("Message published to {topic_name}"),
         }
     }
 
