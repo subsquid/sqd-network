@@ -84,6 +84,9 @@ pub trait Client: Send + Sync + 'static {
     /// Check if gateway (client) is registered on chain
     async fn is_gateway_registered(&self, peer_id: PeerId) -> Result<bool, ClientError>;
 
+    /// Check if worker is registered on chain
+    async fn is_worker_registered(&self, peer_id: PeerId) -> Result<bool, ClientError>;
+
     /// Get current active gateways
     async fn active_gateways(&self) -> Result<Vec<PeerId>, ClientError>;
 
@@ -237,6 +240,12 @@ impl Client for EthersClient {
         let gateway_info: contracts::Gateway =
             self.gateway_registry.get_gateway(gateway_id).call().await?;
         Ok(gateway_info.operator != Address::zero())
+    }
+
+    async fn is_worker_registered(&self, peer_id: PeerId) -> Result<bool, ClientError> {
+        let worker_id =
+            self.worker_registration.worker_ids(peer_id.to_bytes().into()).call().await?;
+        Ok(worker_id != U256::zero())
     }
 
     async fn active_gateways(&self) -> Result<Vec<PeerId>, ClientError> {
