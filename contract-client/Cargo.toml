@@ -19,6 +19,7 @@ url = "2"
 
 [dev-dependencies]
 anyhow = "1"
+chrono = "0.4"
 simple_logger = "4"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 

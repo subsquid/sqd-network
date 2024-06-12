@@ -84,8 +84,11 @@ pub trait Client: Send + Sync + 'static {
     /// Check if gateway (client) is registered on chain
     async fn is_gateway_registered(&self, peer_id: PeerId) -> Result<bool, ClientError>;
 
-    /// Check if worker is registered on chain
-    async fn is_worker_registered(&self, peer_id: PeerId) -> Result<bool, ClientError>;
+    /// Get worker registration time (None if not registered)
+    async fn worker_registration_time(
+        &self,
+        peer_id: PeerId,
+    ) -> Result<Option<SystemTime>, ClientError>;
 
     /// Get current active gateways
     async fn active_gateways(&self) -> Result<Vec<PeerId>, ClientError>;
@@ -242,10 +245,26 @@ impl Client for EthersClient {
         Ok(gateway_info.operator != Address::zero())
     }
 
-    async fn is_worker_registered(&self, peer_id: PeerId) -> Result<bool, ClientError> {
+    async fn worker_registration_time(
+        &self,
+        peer_id: PeerId,
+    ) -> Result<Option<SystemTime>, ClientError> {
         let worker_id =
             self.worker_registration.worker_ids(peer_id.to_bytes().into()).call().await?;
-        Ok(worker_id != U256::zero())
+        if worker_id.is_zero() {
+            return Ok(None);
+        }
+        let worker = self.worker_registration.get_worker(worker_id).call().await?;
+        let block_num: u64 = worker
+            .registered_at
+            .try_into()
+            .expect("Block number should not exceed u64 range");
+        let block = self
+            .l1_client
+            .get_block(BlockId::Number(block_num.into()))
+            .await?
+            .ok_or(ClientError::BlockNotFound)?;
+        Ok(Some(UNIX_EPOCH + Duration::from_secs(block.timestamp.as_u64())))
     }
 
     async fn active_gateways(&self) -> Result<Vec<PeerId>, ClientError> {

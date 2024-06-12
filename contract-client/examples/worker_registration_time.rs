@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use clap::Parser;
 use simple_logger::SimpleLogger;
 
@@ -16,7 +17,12 @@ async fn main() -> anyhow::Result<()> {
     let cli: Cli = Cli::parse();
 
     let client = contract_client::get_client(&cli.rpc).await?;
-    let registered = client.is_worker_registered(cli.peer_id).await?;
-    log::info!("Worker {} registered? {registered}", cli.peer_id);
+    if let Some(sys_time) = client.worker_registration_time(cli.peer_id).await? {
+        let datetime: DateTime<Utc> = sys_time.into();
+        log::info!("Worker {} registered at {}", cli.peer_id, datetime.format("%d/%m/%Y %T"));
+    } else {
+        log::info!("Worker {} not registered", cli.peer_id);
+    }
+
     Ok(())
 }

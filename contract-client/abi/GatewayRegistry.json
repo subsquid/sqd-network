@@ -1,1455 +1,1449 @@
 [
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"constructor"
+    "stateMutability": "nonpayable",
+    "type": "constructor"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"AccessControlBadConfirmation",
-    "type":"error"
+    "name": "AccessControlBadConfirmation",
+    "type": "error"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"account",
-        "type":"address"
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       },
       {
-        "internalType":"bytes32",
-        "name":"neededRole",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "neededRole",
+        "type": "bytes32"
       }
     ],
-    "name":"AccessControlUnauthorizedAccount",
-    "type":"error"
+    "name": "AccessControlUnauthorizedAccount",
+    "type": "error"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"EnforcedPause",
-    "type":"error"
+    "name": "EnforcedPause",
+    "type": "error"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"ExpectedPause",
-    "type":"error"
+    "name": "ExpectedPause",
+    "type": "error"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"InvalidInitialization",
-    "type":"error"
+    "name": "InvalidInitialization",
+    "type": "error"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"NotInitializing",
-    "type":"error"
+    "name": "NotInitializing",
+    "type": "error"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gateway",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gateway",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       },
       {
-        "indexed":false,
-        "internalType":"uint256[]",
-        "name":"workerIds",
-        "type":"uint256[]"
+        "indexed": false,
+        "internalType": "uint256[]",
+        "name": "workerIds",
+        "type": "uint256[]"
       },
       {
-        "indexed":false,
-        "internalType":"uint256[]",
-        "name":"shares",
-        "type":"uint256[]"
+        "indexed": false,
+        "internalType": "uint256[]",
+        "name": "shares",
+        "type": "uint256[]"
       }
     ],
-    "name":"AllocatedCUs",
-    "type":"event"
+    "name": "AllocatedCUs",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"uint128",
-        "name":"lockEnd",
-        "type":"uint128"
+        "indexed": false,
+        "internalType": "uint128",
+        "name": "lockEnd",
+        "type": "uint128"
       }
     ],
-    "name":"AutoextensionDisabled",
-    "type":"event"
+    "name": "AutoextensionDisabled",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       }
     ],
-    "name":"AutoextensionEnabled",
-    "type":"event"
+    "name": "AutoextensionEnabled",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":false,
-        "internalType":"uint256",
-        "name":"newBlockTime",
-        "type":"uint256"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newBlockTime",
+        "type": "uint256"
       }
     ],
-    "name":"AverageBlockTimeChanged",
-    "type":"event"
+    "name": "AverageBlockTimeChanged",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"strategy",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "strategy",
+        "type": "address"
       }
     ],
-    "name":"DefaultStrategyChanged",
-    "type":"event"
+    "name": "DefaultStrategyChanged",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       },
       {
-        "indexed":false,
-        "internalType":"address",
-        "name":"newAddress",
-        "type":"address"
+        "indexed": false,
+        "internalType": "address",
+        "name": "newAddress",
+        "type": "address"
       }
     ],
-    "name":"GatewayAddressChanged",
-    "type":"event"
+    "name": "GatewayAddressChanged",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":false,
-        "internalType":"uint64",
-        "name":"version",
-        "type":"uint64"
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "version",
+        "type": "uint64"
       }
     ],
-    "name":"Initialized",
-    "type":"event"
+    "name": "Initialized",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":false,
-        "internalType":"uint256",
-        "name":"newCuPerSQD",
-        "type":"uint256"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newCuPerSQD",
+        "type": "uint256"
       }
     ],
-    "name":"ManaChanged",
-    "type":"event"
+    "name": "ManaChanged",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":false,
-        "internalType":"uint256",
-        "name":"newAmount",
-        "type":"uint256"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newAmount",
+        "type": "uint256"
       }
     ],
-    "name":"MaxGatewaysPerClusterChanged",
-    "type":"event"
+    "name": "MaxGatewaysPerClusterChanged",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       },
       {
-        "indexed":false,
-        "internalType":"string",
-        "name":"metadata",
-        "type":"string"
+        "indexed": false,
+        "internalType": "string",
+        "name": "metadata",
+        "type": "string"
       }
     ],
-    "name":"MetadataChanged",
-    "type":"event"
+    "name": "MetadataChanged",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":false,
-        "internalType":"address",
-        "name":"account",
-        "type":"address"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newAmount",
+        "type": "uint256"
       }
     ],
-    "name":"Paused",
-    "type":"event"
+    "name": "MinStakeChanged",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "Paused",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       },
       {
-        "indexed":true,
-        "internalType":"bytes32",
-        "name":"id",
-        "type":"bytes32"
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "id",
+        "type": "bytes32"
       },
       {
-        "indexed":false,
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       }
     ],
-    "name":"Registered",
-    "type":"event"
+    "name": "Registered",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"bytes32",
-        "name":"role",
-        "type":"bytes32"
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "indexed":true,
-        "internalType":"bytes32",
-        "name":"previousAdminRole",
-        "type":"bytes32"
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "previousAdminRole",
+        "type": "bytes32"
       },
       {
-        "indexed":true,
-        "internalType":"bytes32",
-        "name":"newAdminRole",
-        "type":"bytes32"
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "newAdminRole",
+        "type": "bytes32"
       }
     ],
-    "name":"RoleAdminChanged",
-    "type":"event"
+    "name": "RoleAdminChanged",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"bytes32",
-        "name":"role",
-        "type":"bytes32"
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"account",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       },
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"sender",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
       }
     ],
-    "name":"RoleGranted",
-    "type":"event"
+    "name": "RoleGranted",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"bytes32",
-        "name":"role",
-        "type":"bytes32"
+        "indexed": true,
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"account",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       },
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"sender",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "sender",
+        "type": "address"
       }
     ],
-    "name":"RoleRevoked",
-    "type":"event"
+    "name": "RoleRevoked",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"uint256",
-        "name":"amount",
-        "type":"uint256"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       },
       {
-        "indexed":false,
-        "internalType":"uint128",
-        "name":"lockStart",
-        "type":"uint128"
+        "indexed": false,
+        "internalType": "uint128",
+        "name": "lockStart",
+        "type": "uint128"
       },
       {
-        "indexed":false,
-        "internalType":"uint128",
-        "name":"lockEnd",
-        "type":"uint128"
+        "indexed": false,
+        "internalType": "uint128",
+        "name": "lockEnd",
+        "type": "uint128"
       },
       {
-        "indexed":false,
-        "internalType":"uint256",
-        "name":"computationUnits",
-        "type":"uint256"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "computationUnits",
+        "type": "uint256"
       }
     ],
-    "name":"Staked",
-    "type":"event"
+    "name": "Staked",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"strategy",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "strategy",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"bool",
-        "name":"isAllowed",
-        "type":"bool"
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isAllowed",
+        "type": "bool"
       }
     ],
-    "name":"StrategyAllowed",
-    "type":"event"
+    "name": "StrategyAllowed",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":false,
-        "internalType":"address",
-        "name":"account",
-        "type":"address"
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       }
     ],
-    "name":"Unpaused",
-    "type":"event"
+    "name": "Unpaused",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       }
     ],
-    "name":"Unregistered",
-    "type":"event"
+    "name": "Unregistered",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"uint256",
-        "name":"amount",
-        "type":"uint256"
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       }
     ],
-    "name":"Unstaked",
-    "type":"event"
+    "name": "Unstaked",
+    "type": "event"
   },
   {
-    "anonymous":false,
-    "inputs":[
+    "anonymous": false,
+    "inputs": [
       {
-        "indexed":true,
-        "internalType":"address",
-        "name":"gatewayOperator",
-        "type":"address"
+        "indexed": true,
+        "internalType": "address",
+        "name": "gatewayOperator",
+        "type": "address"
       },
       {
-        "indexed":false,
-        "internalType":"address",
-        "name":"strategy",
-        "type":"address"
+        "indexed": false,
+        "internalType": "address",
+        "name": "strategy",
+        "type": "address"
       }
     ],
-    "name":"UsedStrategyChanged",
-    "type":"event"
+    "name": "UsedStrategyChanged",
+    "type": "event"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"DEFAULT_ADMIN_ROLE",
-    "outputs":[
+    "name": "DEFAULT_ADMIN_ROLE",
+    "outputs": [
       {
-        "internalType":"bytes32",
-        "name":"",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"PAUSER_ROLE",
-    "outputs":[
+    "name": "PAUSER_ROLE",
+    "outputs": [
       {
-        "internalType":"bytes32",
-        "name":"",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256",
-        "name":"amount",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       }
     ],
-    "name":"addStake",
-    "outputs":[
-
+    "name": "addStake",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256[]",
-        "name":"workerIds",
-        "type":"uint256[]"
+        "internalType": "uint256[]",
+        "name": "workerIds",
+        "type": "uint256[]"
       },
       {
-        "internalType":"uint256[]",
-        "name":"cus",
-        "type":"uint256[]"
+        "internalType": "uint256[]",
+        "name": "cus",
+        "type": "uint256[]"
       }
     ],
-    "name":"allocateComputationUnits",
-    "outputs":[
-
+    "name": "allocateComputationUnits",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"averageBlockTime",
-    "outputs":[
+    "name": "averageBlockTime",
+    "outputs": [
       {
-        "internalType":"uint256",
-        "name":"",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"operator",
-        "type":"address"
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
       }
     ],
-    "name":"canUnstake",
-    "outputs":[
+    "name": "canUnstake",
+    "outputs": [
       {
-        "internalType":"bool",
-        "name":"",
-        "type":"bool"
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256",
-        "name":"amount",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       },
       {
-        "internalType":"uint256",
-        "name":"durationBlocks",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "durationBlocks",
+        "type": "uint256"
       }
     ],
-    "name":"computationUnitsAmount",
-    "outputs":[
+    "name": "computationUnitsAmount",
+    "outputs": [
       {
-        "internalType":"uint256",
-        "name":"",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       }
     ],
-    "name":"computationUnitsAvailable",
-    "outputs":[
+    "name": "computationUnitsAvailable",
+    "outputs": [
       {
-        "internalType":"uint256",
-        "name":"",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"defaultStrategy",
-    "outputs":[
+    "name": "defaultStrategy",
+    "outputs": [
       {
-        "internalType":"address",
-        "name":"",
-        "type":"address"
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"disableAutoExtension",
-    "outputs":[
-
+    "name": "disableAutoExtension",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"enableAutoExtension",
-    "outputs":[
-
+    "name": "enableAutoExtension",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"",
-        "type":"address"
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
-    "name":"gatewayByAddress",
-    "outputs":[
+    "name": "gatewayByAddress",
+    "outputs": [
       {
-        "internalType":"bytes32",
-        "name":"gatewayId",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "gatewayId",
+        "type": "bytes32"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256",
-        "name":"pageNumber",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "pageNumber",
+        "type": "uint256"
       },
       {
-        "internalType":"uint256",
-        "name":"perPage",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "perPage",
+        "type": "uint256"
       }
     ],
-    "name":"getActiveGateways",
-    "outputs":[
+    "name": "getActiveGateways",
+    "outputs": [
       {
-        "internalType":"bytes[]",
-        "name":"",
-        "type":"bytes[]"
+        "internalType": "bytes[]",
+        "name": "",
+        "type": "bytes[]"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"getActiveGatewaysCount",
-    "outputs":[
+    "name": "getActiveGatewaysCount",
+    "outputs": [
       {
-        "internalType":"uint256",
-        "name":"",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       }
     ],
-    "name":"getCluster",
-    "outputs":[
+    "name": "getCluster",
+    "outputs": [
       {
-        "internalType":"bytes[]",
-        "name":"clusterPeerIds",
-        "type":"bytes[]"
+        "internalType": "bytes[]",
+        "name": "clusterPeerIds",
+        "type": "bytes[]"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       }
     ],
-    "name":"getGateway",
-    "outputs":[
+    "name": "getGateway",
+    "outputs": [
       {
-        "components":[
+        "components": [
           {
-            "internalType":"address",
-            "name":"operator",
-            "type":"address"
+            "internalType": "address",
+            "name": "operator",
+            "type": "address"
           },
           {
-            "internalType":"address",
-            "name":"ownAddress",
-            "type":"address"
+            "internalType": "address",
+            "name": "ownAddress",
+            "type": "address"
           },
           {
-            "internalType":"bytes",
-            "name":"peerId",
-            "type":"bytes"
+            "internalType": "bytes",
+            "name": "peerId",
+            "type": "bytes"
           },
           {
-            "internalType":"string",
-            "name":"metadata",
-            "type":"string"
+            "internalType": "string",
+            "name": "metadata",
+            "type": "string"
           }
         ],
-        "internalType":"struct IGatewayRegistry.Gateway",
-        "name":"",
-        "type":"tuple"
+        "internalType": "struct IGatewayRegistry.Gateway",
+        "name": "",
+        "type": "tuple"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       }
     ],
-    "name":"getMetadata",
-    "outputs":[
+    "name": "getMetadata",
+    "outputs": [
       {
-        "internalType":"string",
-        "name":"",
-        "type":"string"
+        "internalType": "string",
+        "name": "",
+        "type": "string"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"operator",
-        "type":"address"
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
       }
     ],
-    "name":"getMyGateways",
-    "outputs":[
+    "name": "getMyGateways",
+    "outputs": [
       {
-        "internalType":"bytes[]",
-        "name":"",
-        "type":"bytes[]"
+        "internalType": "bytes[]",
+        "name": "",
+        "type": "bytes[]"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes32",
-        "name":"role",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       }
     ],
-    "name":"getRoleAdmin",
-    "outputs":[
+    "name": "getRoleAdmin",
+    "outputs": [
       {
-        "internalType":"bytes32",
-        "name":"",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "",
+        "type": "bytes32"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"operator",
-        "type":"address"
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
       }
     ],
-    "name":"getStake",
-    "outputs":[
+    "name": "getStake",
+    "outputs": [
       {
-        "components":[
+        "components": [
           {
-            "internalType":"uint256",
-            "name":"amount",
-            "type":"uint256"
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
           },
           {
-            "internalType":"uint128",
-            "name":"lockStart",
-            "type":"uint128"
+            "internalType": "uint128",
+            "name": "lockStart",
+            "type": "uint128"
           },
           {
-            "internalType":"uint128",
-            "name":"lockEnd",
-            "type":"uint128"
+            "internalType": "uint128",
+            "name": "lockEnd",
+            "type": "uint128"
           },
           {
-            "internalType":"uint128",
-            "name":"duration",
-            "type":"uint128"
+            "internalType": "uint128",
+            "name": "duration",
+            "type": "uint128"
           },
           {
-            "internalType":"bool",
-            "name":"autoExtension",
-            "type":"bool"
+            "internalType": "bool",
+            "name": "autoExtension",
+            "type": "bool"
           },
           {
-            "internalType":"uint256",
-            "name":"oldCUs",
-            "type":"uint256"
+            "internalType": "uint256",
+            "name": "oldCUs",
+            "type": "uint256"
           }
         ],
-        "internalType":"struct IGatewayRegistry.Stake",
-        "name":"",
-        "type":"tuple"
+        "internalType": "struct IGatewayRegistry.Stake",
+        "name": "",
+        "type": "tuple"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       }
     ],
-    "name":"getUsedStrategy",
-    "outputs":[
+    "name": "getUsedStrategy",
+    "outputs": [
       {
-        "internalType":"address",
-        "name":"",
-        "type":"address"
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes32",
-        "name":"role",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "internalType":"address",
-        "name":"account",
-        "type":"address"
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       }
     ],
-    "name":"grantRole",
-    "outputs":[
-
+    "name": "grantRole",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes32",
-        "name":"role",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "internalType":"address",
-        "name":"account",
-        "type":"address"
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       }
     ],
-    "name":"hasRole",
-    "outputs":[
+    "name": "hasRole",
+    "outputs": [
       {
-        "internalType":"bool",
-        "name":"",
-        "type":"bool"
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"contract IERC20WithMetadata",
-        "name":"_token",
-        "type":"address"
+        "internalType": "contract IERC20WithMetadata",
+        "name": "_token",
+        "type": "address"
       },
       {
-        "internalType":"contract IRouter",
-        "name":"_router",
-        "type":"address"
+        "internalType": "contract IRouter",
+        "name": "_router",
+        "type": "address"
       }
     ],
-    "name":"initialize",
-    "outputs":[
-
+    "name": "initialize",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"strategy",
-        "type":"address"
+        "internalType": "address",
+        "name": "strategy",
+        "type": "address"
       }
     ],
-    "name":"isStrategyAllowed",
-    "outputs":[
+    "name": "isStrategyAllowed",
+    "outputs": [
       {
-        "internalType":"bool",
-        "name":"",
-        "type":"bool"
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"mana",
-    "outputs":[
+    "name": "mana",
+    "outputs": [
       {
-        "internalType":"uint256",
-        "name":"",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"maxGatewaysPerCluster",
-    "outputs":[
+    "name": "maxGatewaysPerCluster",
+    "outputs": [
       {
-        "internalType":"uint256",
-        "name":"",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"pause",
-    "outputs":[
-
-    ],
-    "stateMutability":"nonpayable",
-    "type":"function"
-  },
-  {
-    "inputs":[
-
-    ],
-    "name":"paused",
-    "outputs":[
+    "name": "minStake",
+    "outputs": [
       {
-        "internalType":"bool",
-        "name":"",
-        "type":"bool"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
+    ],
+    "name": "pause",
+    "outputs": [
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+    ],
+    "name": "paused",
+    "outputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
-    "name":"register",
-    "outputs":[
-
-    ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
+      }
+    ],
+    "name": "register",
+    "outputs": [
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       },
       {
-        "internalType":"string",
-        "name":"metadata",
-        "type":"string"
+        "internalType": "string",
+        "name": "metadata",
+        "type": "string"
       },
       {
-        "internalType":"address",
-        "name":"gatewayAddress",
-        "type":"address"
+        "internalType": "address",
+        "name": "gatewayAddress",
+        "type": "address"
       }
     ],
-    "name":"register",
-    "outputs":[
-
+    "name": "register",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       },
       {
-        "internalType":"string",
-        "name":"metadata",
-        "type":"string"
+        "internalType": "string",
+        "name": "metadata",
+        "type": "string"
       }
     ],
-    "name":"register",
-    "outputs":[
-
+    "name": "register",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes[]",
-        "name":"peerId",
-        "type":"bytes[]"
+        "internalType": "bytes[]",
+        "name": "peerId",
+        "type": "bytes[]"
       },
       {
-        "internalType":"string[]",
-        "name":"metadata",
-        "type":"string[]"
+        "internalType": "string[]",
+        "name": "metadata",
+        "type": "string[]"
       },
       {
-        "internalType":"address[]",
-        "name":"gatewayAddress",
-        "type":"address[]"
+        "internalType": "address[]",
+        "name": "gatewayAddress",
+        "type": "address[]"
       }
     ],
-    "name":"register",
-    "outputs":[
-
+    "name": "register",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes32",
-        "name":"role",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "internalType":"address",
-        "name":"callerConfirmation",
-        "type":"address"
+        "internalType": "address",
+        "name": "callerConfirmation",
+        "type": "address"
       }
     ],
-    "name":"renounceRole",
-    "outputs":[
-
+    "name": "renounceRole",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes32",
-        "name":"role",
-        "type":"bytes32"
+        "internalType": "bytes32",
+        "name": "role",
+        "type": "bytes32"
       },
       {
-        "internalType":"address",
-        "name":"account",
-        "type":"address"
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
       }
     ],
-    "name":"revokeRole",
-    "outputs":[
-
+    "name": "revokeRole",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"router",
-    "outputs":[
+    "name": "router",
+    "outputs": [
       {
-        "internalType":"contract IRouter",
-        "name":"",
-        "type":"address"
+        "internalType": "contract IRouter",
+        "name": "",
+        "type": "address"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256",
-        "name":"_newAverageBlockTime",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "_newAverageBlockTime",
+        "type": "uint256"
       }
     ],
-    "name":"setAverageBlockTime",
-    "outputs":[
-
+    "name": "setAverageBlockTime",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       },
       {
-        "internalType":"address",
-        "name":"newAddress",
-        "type":"address"
+        "internalType": "address",
+        "name": "newAddress",
+        "type": "address"
       }
     ],
-    "name":"setGatewayAddress",
-    "outputs":[
-
+    "name": "setGatewayAddress",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"strategy",
-        "type":"address"
+        "internalType": "address",
+        "name": "strategy",
+        "type": "address"
       },
       {
-        "internalType":"bool",
-        "name":"isAllowed",
-        "type":"bool"
+        "internalType": "bool",
+        "name": "isAllowed",
+        "type": "bool"
       },
       {
-        "internalType":"bool",
-        "name":"isDefault",
-        "type":"bool"
+        "internalType": "bool",
+        "name": "isDefault",
+        "type": "bool"
       }
     ],
-    "name":"setIsStrategyAllowed",
-    "outputs":[
-
+    "name": "setIsStrategyAllowed",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256",
-        "name":"_newMana",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "_newMana",
+        "type": "uint256"
       }
     ],
-    "name":"setMana",
-    "outputs":[
-
+    "name": "setMana",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256",
-        "name":"_maxGatewaysPerCluster",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "_maxGatewaysPerCluster",
+        "type": "uint256"
       }
     ],
-    "name":"setMaxGatewaysPerCluster",
-    "outputs":[
-
+    "name": "setMaxGatewaysPerCluster",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       },
       {
-        "internalType":"string",
-        "name":"metadata",
-        "type":"string"
+        "internalType": "string",
+        "name": "metadata",
+        "type": "string"
       }
     ],
-    "name":"setMetadata",
-    "outputs":[
-
+    "name": "setMetadata",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256",
-        "name":"amount",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "_minStake",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMinStake",
+    "outputs": [
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       },
       {
-        "internalType":"uint128",
-        "name":"durationBlocks",
-        "type":"uint128"
+        "internalType": "uint128",
+        "name": "durationBlocks",
+        "type": "uint128"
       }
     ],
-    "name":"stake",
-    "outputs":[
-
+    "name": "stake",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"uint256",
-        "name":"amount",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
       },
       {
-        "internalType":"uint128",
-        "name":"durationBlocks",
-        "type":"uint128"
+        "internalType": "uint128",
+        "name": "durationBlocks",
+        "type": "uint128"
       },
       {
-        "internalType":"bool",
-        "name":"withAutoExtension",
-        "type":"bool"
+        "internalType": "bool",
+        "name": "withAutoExtension",
+        "type": "bool"
       }
     ],
-    "name":"stake",
-    "outputs":[
-
+    "name": "stake",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"operator",
-        "type":"address"
+        "internalType": "address",
+        "name": "operator",
+        "type": "address"
       }
     ],
-    "name":"staked",
-    "outputs":[
+    "name": "staked",
+    "outputs": [
       {
-        "internalType":"uint256",
-        "name":"",
-        "type":"uint256"
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes4",
-        "name":"interfaceId",
-        "type":"bytes4"
+        "internalType": "bytes4",
+        "name": "interfaceId",
+        "type": "bytes4"
       }
     ],
-    "name":"supportsInterface",
-    "outputs":[
+    "name": "supportsInterface",
+    "outputs": [
       {
-        "internalType":"bool",
-        "name":"",
-        "type":"bool"
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"token",
-    "outputs":[
+    "name": "token",
+    "outputs": [
       {
-        "internalType":"contract IERC20WithMetadata",
-        "name":"",
-        "type":"address"
+        "internalType": "contract IERC20WithMetadata",
+        "name": "",
+        "type": "address"
       }
     ],
-    "stateMutability":"view",
-    "type":"function"
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"unpause",
-    "outputs":[
-
+    "name": "unpause",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes",
-        "name":"peerId",
-        "type":"bytes"
+        "internalType": "bytes",
+        "name": "peerId",
+        "type": "bytes"
       }
     ],
-    "name":"unregister",
-    "outputs":[
-
+    "name": "unregister",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"bytes[]",
-        "name":"peerId",
-        "type":"bytes[]"
+        "internalType": "bytes[]",
+        "name": "peerId",
+        "type": "bytes[]"
       }
     ],
-    "name":"unregister",
-    "outputs":[
-
+    "name": "unregister",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
-
+    "inputs": [
     ],
-    "name":"unstake",
-    "outputs":[
-
+    "name": "unstake",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    "inputs":[
+    "inputs": [
       {
-        "internalType":"address",
-        "name":"strategy",
-        "type":"address"
+        "internalType": "address",
+        "name": "strategy",
+        "type": "address"
       }
     ],
-    "name":"useStrategy",
-    "outputs":[
-
+    "name": "useStrategy",
+    "outputs": [
     ],
-    "stateMutability":"nonpayable",
-    "type":"function"
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ]

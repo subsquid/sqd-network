@@ -22,7 +22,6 @@
   },
   {
     "inputs": [
-
     ],
     "name": "AccessControlBadConfirmation",
     "type": "error"
@@ -80,12 +79,12 @@
     "inputs": [
       {
         "indexed": false,
-        "internalType": "uint256",
-        "name": "newDelegationLimitCoefficientInBP",
-        "type": "uint256"
+        "internalType": "uint128",
+        "name": "epochLength",
+        "type": "uint128"
       }
     ],
-    "name": "DelegationLimitCoefficientInBPUpdated",
+    "name": "EpochLengthUpdated",
     "type": "event"
   },
   {
@@ -93,12 +92,12 @@
     "inputs": [
       {
         "indexed": false,
-        "internalType": "uint128",
-        "name": "epochLength",
-        "type": "uint128"
+        "internalType": "uint256",
+        "name": "coefficient",
+        "type": "uint256"
       }
     ],
-    "name": "EpochLengthUpdated",
+    "name": "RewardCoefficientUpdated",
     "type": "event"
   },
   {
@@ -181,6 +180,19 @@
     "inputs": [
       {
         "indexed": false,
+        "internalType": "uint256",
+        "name": "stakingDeadlock",
+        "type": "uint256"
+      }
+    ],
+    "name": "StakingDeadlockUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
         "internalType": "uint128",
         "name": "storagePerWorkerInGb",
         "type": "uint128"
@@ -204,7 +216,6 @@
   },
   {
     "inputs": [
-
     ],
     "name": "DEFAULT_ADMIN_ROLE",
     "outputs": [
@@ -219,7 +230,6 @@
   },
   {
     "inputs": [
-
     ],
     "name": "bondAmount",
     "outputs": [
@@ -234,37 +244,6 @@
   },
   {
     "inputs": [
-
-    ],
-    "name": "delegationLimit",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-
-    ],
-    "name": "delegationLimitCoefficientInBP",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-
     ],
     "name": "epochLength",
     "outputs": [
@@ -279,7 +258,6 @@
   },
   {
     "inputs": [
-
     ],
     "name": "epochNumber",
     "outputs": [
@@ -294,7 +272,6 @@
   },
   {
     "inputs": [
-
     ],
     "name": "firstEpochBlock",
     "outputs": [
@@ -341,7 +318,6 @@
     ],
     "name": "grantRole",
     "outputs": [
-
     ],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -391,7 +367,6 @@
   },
   {
     "inputs": [
-
     ],
     "name": "nextEpoch",
     "outputs": [
@@ -419,7 +394,6 @@
     ],
     "name": "renounceRole",
     "outputs": [
-
     ],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -439,7 +413,6 @@
     ],
     "name": "revokeRole",
     "outputs": [
-
     ],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -459,7 +432,6 @@
     ],
     "name": "setAllowedVestedTarget",
     "outputs": [
-
     ],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -474,22 +446,6 @@
     ],
     "name": "setBondAmount",
     "outputs": [
-
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_delegationLimitCoefficientInBP",
-        "type": "uint256"
-      }
-    ],
-    "name": "setDelegationLimitCoefficient",
-    "outputs": [
-
     ],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -504,7 +460,20 @@
     ],
     "name": "setEpochLength",
     "outputs": [
-
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_newDeadlock",
+        "type": "uint256"
+      }
+    ],
+    "name": "setStakingDeadlock",
+    "outputs": [
     ],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -519,7 +488,6 @@
     ],
     "name": "setStoragePerWorkerInGb",
     "outputs": [
-
     ],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -534,14 +502,40 @@
     ],
     "name": "setTargetCapacity",
     "outputs": [
-
     ],
     "stateMutability": "nonpayable",
     "type": "function"
   },
   {
     "inputs": [
-
+      {
+        "internalType": "uint256",
+        "name": "coefficient",
+        "type": "uint256"
+      }
+    ],
+    "name": "setYearlyRewardCapCoefficient",
+    "outputs": [
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+    ],
+    "name": "stakingDeadlock",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
     ],
     "name": "storagePerWorkerInGb",
     "outputs": [
@@ -575,9 +569,22 @@
   },
   {
     "inputs": [
-
     ],
     "name": "targetCapacityGb",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+    ],
+    "name": "yearlyRewardCapCoefficient",
     "outputs": [
       {
         "internalType": "uint256",
