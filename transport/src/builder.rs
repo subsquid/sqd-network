@@ -216,11 +216,27 @@ impl P2PTransportBuilder {
     }
 
     #[cfg(feature = "worker")]
-    pub fn build_worker(
+    pub async fn build_worker(
         self,
         config: WorkerConfig,
     ) -> Result<(impl Stream<Item = WorkerEvent>, WorkerTransportHandle), Error> {
         let local_peer_id = self.local_peer_id();
+        // Wait for the worker to be registered on chain
+        loop {
+            let Some(reg_time) =
+                self.contract_client.worker_registration_time(local_peer_id).await?
+            else {
+                log::info!("Waiting for worker {local_peer_id} to be registered on chain...");
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                continue;
+            };
+            // We need to wait for other nodes to catch up and whitelist our peer ID
+            let elapsed = reg_time.elapsed().unwrap_or_default();
+            if elapsed < self.base_config.nodes_update_interval {
+                tokio::time::sleep(self.base_config.nodes_update_interval - elapsed).await;
+            }
+            break;
+        }
         let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config))?;
         Ok(worker::start_transport(swarm, config))
     }

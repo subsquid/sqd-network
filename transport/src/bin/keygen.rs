@@ -1,5 +1,4 @@
-use clap::{self, command, Parser};
-use libp2p::PeerId;
+use clap::Parser;
 use std::path::PathBuf;
 use subsquid_network_transport::util;
 
@@ -14,7 +13,7 @@ struct Cli {
 async fn main() -> anyhow::Result<()> {
     let filename = Cli::parse().filename;
     let keypair = util::get_keypair(Some(filename)).await?;
-    let peer_id = PeerId::from_public_key(&keypair.public().into());
+    let peer_id = keypair.public().to_peer_id();
     println!("{peer_id}");
     Ok(())
 }

@@ -109,6 +109,8 @@ pub enum Error {
     Listen(#[from] TransportError<std::io::Error>),
     #[error("Dialing failed: {0:?}")]
     Dial(#[from] DialError),
+    #[error("{0}")]
+    Contract(#[from] contract_client::ClientError),
 }
 
 impl From<noise::Error> for Error {
