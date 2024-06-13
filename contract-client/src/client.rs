@@ -252,6 +252,7 @@ impl Client for EthersClient {
         let worker_id =
             self.worker_registration.worker_ids(peer_id.to_bytes().into()).call().await?;
         if worker_id.is_zero() {
+            log::info!("Worker {peer_id} not registered on chain");
             return Ok(None);
         }
         let worker = self.worker_registration.get_worker(worker_id).call().await?;
@@ -259,11 +260,10 @@ impl Client for EthersClient {
             .registered_at
             .try_into()
             .expect("Block number should not exceed u64 range");
-        let block = self
-            .l1_client
-            .get_block(BlockId::Number(block_num.into()))
-            .await?
-            .ok_or(ClientError::BlockNotFound)?;
+        let Some(block) = self.l1_client.get_block(BlockId::Number(block_num.into())).await? else {
+            log::info!("Worker {peer_id} on-chain registration pending");
+            return Ok(None); // If block is not found, it means the worker has not been registered yet
+        };
         Ok(Some(UNIX_EPOCH + Duration::from_secs(block.timestamp.as_u64())))
     }
 
