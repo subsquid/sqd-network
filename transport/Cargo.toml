@@ -1,7 +1,7 @@
 [package]
 name = "subsquid-network-transport"
 license = "AGPL-3.0-or-later"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2021"
 
 [[bin]]
@@ -27,6 +27,7 @@ libp2p = { workspace = true, features = ["dns", "tokio", "noise", "yamux", "iden
 libp2p-connection-limits = { workspace = true }
 libp2p-swarm-derive = { workspace = true }
 log = "0.4"
+lru = "0.12"
 prometheus-client = { version = "0.22.2", optional = true }
 prost = { version = "0.12", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

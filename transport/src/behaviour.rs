@@ -1,3 +1,4 @@
+mod addr_cache;
 pub mod base;
 pub mod pubsub;
 #[cfg(feature = "request-client")]

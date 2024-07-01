@@ -1,3 +1,4 @@
+use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, HashSet},
     task::{Context, Poll},
@@ -18,10 +19,7 @@ use libp2p::{
     dcutr, identify,
     identity::Keypair,
     kad,
-    kad::{
-        store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, ProgressStep, QueryId,
-        QueryResult,
-    },
+    kad::{store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, QueryId, QueryResult},
     ping, relay,
     swarm::{
         behaviour::ConnectionEstablished,
@@ -39,6 +37,7 @@ use subsquid_messages::{
     WorkerLogsMsg,
 };
 
+use crate::behaviour::addr_cache::AddressCache;
 use crate::{
     behaviour::{
         pubsub::{PubsubBehaviour, PubsubMsg},
@@ -67,6 +66,7 @@ pub struct InnerBehaviour {
     autonat: autonat::Behaviour,
     allow: allow_block_list::Behaviour<AllowedPeers>,
     pubsub: Wrapped<PubsubBehaviour>,
+    address_cache: AddressCache,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -78,6 +78,7 @@ pub struct BaseConfig {
     pub probe_timeout: Duration,
     pub max_concurrent_probes: usize,
     pub max_pubsub_msg_size: usize,
+    pub addr_cache_size: NonZeroUsize,
 }
 
 impl Default for BaseConfig {
@@ -90,6 +91,7 @@ impl Default for BaseConfig {
             probe_timeout: Duration::from_secs(60),
             max_concurrent_probes: 1000,
             max_pubsub_msg_size: MAX_PUBSUB_MSG_SIZE,
+            addr_cache_size: NonZeroUsize::new(1024).unwrap(),
         }
     }
 }
@@ -141,6 +143,7 @@ impl BaseBehaviour {
             ),
             allow: Default::default(),
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
+            address_cache: AddressCache::new(config.addr_cache_size),
         };
 
         for boot_node in boot_nodes {
@@ -409,14 +412,15 @@ impl BaseBehaviour {
         log::debug!("Identify event received: {ev:?}");
         record_event(&ev);
         let (peer_id, listen_addrs, protocols) = match ev {
-            identify::Event::Received { peer_id, info } => {
+            identify::Event::Received { peer_id, info, .. } => {
                 (peer_id, info.listen_addrs, info.protocols)
             }
             _ => return None,
         };
-        let kademlia = &mut self.inner.kademlia;
-        listen_addrs.into_iter().filter(addr_is_reachable).for_each(|addr| {
-            kademlia.add_address(&peer_id, addr);
+        let listen_addrs = listen_addrs.into_iter().filter(addr_is_reachable);
+        self.inner.address_cache.put(peer_id, listen_addrs.clone());
+        listen_addrs.for_each(|addr| {
+            self.inner.kademlia.add_address(&peer_id, addr);
         });
         let ev = BaseBehaviourEvent::PeerProtocols { peer_id, protocols };
         Some(ToSwarm::GenerateEvent(ev))
@@ -428,7 +432,6 @@ impl BaseBehaviour {
         let kad::Event::OutboundQueryProgressed {
             id: query_id,
             result: QueryResult::GetClosestPeers(result),
-            step: ProgressStep { last, .. },
             ..
         } = ev
         else {
@@ -439,24 +442,27 @@ impl BaseBehaviour {
             None => return None,
             Some(peer_id) => peer_id.to_owned(),
         };
-        let peer_found = match result {
+        let Some(peer_info) = (match result {
             Ok(GetClosestPeersOk { peers, .. })
-            | Err(GetClosestPeersError::Timeout { peers, .. }) => peers.contains(&peer_id),
+            | Err(GetClosestPeersError::Timeout { peers, .. }) => {
+                peers.into_iter().find(|p| p.peer_id == peer_id)
+            }
+        }) else {
+            return None;
         };
+        // Cache the found address(es) so they can be used for dialing
+        // (kademlia might not do it by itself, if the bucket is full)
+        self.inner.address_cache.put(peer_id, peer_info.addrs);
 
-        // Query finished, or the peer has already been found. Try to dial the peer now.
-        if last || peer_found {
-            log::debug!("Query for peer {peer_id} finished. peer_found={peer_found}");
-            self.ongoing_queries.remove_by_right(&query_id);
-            #[cfg(feature = "metrics")]
-            ONGOING_QUERIES.dec();
-            return Some(ToSwarm::Dial {
-                // Not using the default condition (`DisconnectedAndNotDialing`), because we may want
-                // to establish an outbound connection to the peer despite existing inbound connection.
-                opts: DialOpts::peer_id(peer_id).condition(PeerCondition::NotDialing).build(),
-            });
-        }
-        None
+        log::debug!("Query for peer {peer_id} finished.");
+        self.ongoing_queries.remove_by_right(&query_id);
+        #[cfg(feature = "metrics")]
+        ONGOING_QUERIES.dec();
+        return Some(ToSwarm::Dial {
+            // Not using the default condition (`DisconnectedAndNotDialing`), because we may want
+            // to establish an outbound connection to the peer despite existing inbound connection.
+            opts: DialOpts::peer_id(peer_id).condition(PeerCondition::NotDialing).build(),
+        });
     }
 
     fn on_autonat_event(&mut self, ev: autonat::Event) -> Option<TToSwarm<Self>> {

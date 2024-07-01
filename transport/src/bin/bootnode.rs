@@ -178,6 +178,7 @@ async fn main() -> anyhow::Result<()> {
         if let SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
             peer_id,
             info: identify::Info { listen_addrs, .. },
+            ..
         })) = event
         {
             listen_addrs.into_iter().filter(addr_is_reachable).for_each(|addr| {

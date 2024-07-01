@@ -4,10 +4,10 @@ use std::{
 };
 
 use derivative::Derivative;
-use libp2p::gossipsub::PublishError;
 use libp2p::{
-    gossipsub,
-    gossipsub::{MessageAcceptance, MessageAuthenticity, Sha256Topic, TopicHash},
+    gossipsub::{
+        self, MessageAcceptance, MessageAuthenticity, PublishError, Sha256Topic, TopicHash,
+    },
     identity::Keypair,
     swarm::{NetworkBehaviour, ToSwarm},
 };
