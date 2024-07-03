@@ -123,13 +123,6 @@ impl GatewayBehaviour {
 
     fn on_ping(&mut self, peer_id: PeerId, ping: Ping) -> Option<GatewayEvent> {
         log::debug!("Got ping from {peer_id}: {ping:?}");
-        match ping.worker_id.as_ref() {
-            Some(id) if id.parse().is_ok_and(|id: PeerId| id == peer_id) => {}
-            _ => {
-                log::error!("Rejecting ping with invalid worker ID");
-                return None;
-            }
-        }
         Some(GatewayEvent::Ping { peer_id, ping })
     }
 

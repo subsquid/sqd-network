@@ -97,13 +97,6 @@ impl SchedulerBehaviour {
 
     fn on_ping(&mut self, peer_id: PeerId, ping: Ping) -> Option<SchedulerEvent> {
         log::debug!("Got ping from {peer_id}: {ping:?}");
-        match ping.worker_id.as_ref().map(|id| id.parse::<PeerId>()) {
-            Some(Ok(worker_id)) if worker_id == peer_id => {}
-            _ => {
-                log::warn!("Dropping ping with invalid peer_id");
-                return None;
-            }
-        }
         Some(SchedulerEvent::Ping { peer_id, ping })
     }
 

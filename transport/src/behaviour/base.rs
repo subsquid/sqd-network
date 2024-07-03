@@ -1,6 +1,6 @@
-use std::num::NonZeroUsize;
 use std::{
     collections::{HashMap, HashSet},
+    num::NonZeroUsize,
     task::{Context, Poll},
     time::Duration,
     vec,
@@ -37,9 +37,9 @@ use subsquid_messages::{
     WorkerLogsMsg,
 };
 
-use crate::behaviour::addr_cache::AddressCache;
 use crate::{
     behaviour::{
+        addr_cache::AddressCache,
         pubsub::{PubsubBehaviour, PubsubMsg},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
@@ -438,18 +438,13 @@ impl BaseBehaviour {
             return None;
         };
 
-        let peer_id = match self.ongoing_queries.get_by_right(&query_id) {
-            None => return None,
-            Some(peer_id) => peer_id.to_owned(),
-        };
-        let Some(peer_info) = (match result {
+        let peer_id = self.ongoing_queries.get_by_right(&query_id)?.to_owned();
+        let peer_info = (match result {
             Ok(GetClosestPeersOk { peers, .. })
             | Err(GetClosestPeersError::Timeout { peers, .. }) => {
                 peers.into_iter().find(|p| p.peer_id == peer_id)
             }
-        }) else {
-            return None;
-        };
+        })?;
         // Cache the found address(es) so they can be used for dialing
         // (kademlia might not do it by itself, if the bucket is full)
         self.inner.address_cache.put(peer_id, peer_info.addrs);
@@ -458,11 +453,11 @@ impl BaseBehaviour {
         self.ongoing_queries.remove_by_right(&query_id);
         #[cfg(feature = "metrics")]
         ONGOING_QUERIES.dec();
-        return Some(ToSwarm::Dial {
+        Some(ToSwarm::Dial {
             // Not using the default condition (`DisconnectedAndNotDialing`), because we may want
             // to establish an outbound connection to the peer despite existing inbound connection.
             opts: DialOpts::peer_id(peer_id).condition(PeerCondition::NotDialing).build(),
-        });
+        })
     }
 
     fn on_autonat_event(&mut self, ev: autonat::Event) -> Option<TToSwarm<Self>> {
@@ -500,8 +495,13 @@ impl BaseBehaviour {
 
 fn decode_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
     let mut ping = Ping::decode(data).map_err(|e| log::warn!("Error decoding ping: {e:?}")).ok()?;
+    let worker_id = peer_id.to_base58();
+    if !ping.worker_id.as_ref().is_some_and(|id| id == &worker_id) {
+        log::warn!("Invalid worker_id in ping from {worker_id}");
+        return None;
+    }
     if !ping.verify_signature(&peer_id) {
-        log::warn!("Invalid ping signature from {peer_id}");
+        log::warn!("Invalid ping signature from {worker_id}");
         return None;
     }
     Some(BaseBehaviourEvent::Ping { peer_id, ping })

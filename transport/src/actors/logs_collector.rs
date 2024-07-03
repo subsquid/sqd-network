@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
-    gateway_log_msg, signatures::SignedMessage, GatewayLogMsg, LogsCollected, QueryExecuted,
+    gateway_log_msg, signatures::SignedMessage, GatewayLogMsg, LogsCollected, Ping, QueryExecuted,
     QueryFinished, QueryLogs, QuerySubmitted,
 };
 
@@ -30,6 +30,8 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LogsCollectorEvent {
+    /// Worker ping
+    Ping { peer_id: PeerId, ping: Ping },
     /// Worker reports executed queries (a bundle)
     WorkerLogs {
         peer_id: PeerId,
@@ -72,6 +74,7 @@ pub struct LogsCollectorBehaviour {
 
 impl LogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour, config: LogsCollectorConfig) -> Wrapped<Self> {
+        base.subscribe_pings();
         base.subscribe_worker_logs();
         base.subscribe_logs_collected();
         Self {
@@ -85,6 +88,11 @@ impl LogsCollectorBehaviour {
             },
         }
         .into()
+    }
+
+    fn on_ping(&mut self, peer_id: PeerId, ping: Ping) -> Option<LogsCollectorEvent> {
+        log::debug!("Got ping from {peer_id}: {ping:?}");
+        Some(LogsCollectorEvent::Ping { peer_id, ping })
     }
 
     fn on_worker_logs(&mut self, peer_id: PeerId, logs: QueryLogs) -> Option<LogsCollectorEvent> {
@@ -143,6 +151,9 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
                 peer_id,
                 query_logs,
             }) => self.on_worker_logs(peer_id, query_logs),
+            InnerBehaviourEvent::Base(BaseBehaviourEvent::Ping { peer_id, ping }) => {
+                self.on_ping(peer_id, ping)
+            }
             InnerBehaviourEvent::GatewayLogs(Request {
                 peer_id,
                 request,

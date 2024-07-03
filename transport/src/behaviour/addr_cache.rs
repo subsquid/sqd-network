@@ -55,7 +55,11 @@ impl NetworkBehaviour for AddressCache {
         let Some(peer_id) = maybe_peer else {
             return Ok(Vec::new());
         };
-        let addrs = self.cache.get(&peer_id).map(|a| a.iter().cloned().collect()).unwrap_or(vec![]);
+        let addrs = self
+            .cache
+            .get(&peer_id)
+            .map(|a| a.iter().cloned().collect())
+            .unwrap_or_default();
         Ok(addrs)
     }
 
