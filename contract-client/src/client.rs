@@ -195,7 +195,7 @@ impl Client for EthersClient {
 
     async fn current_epoch_start(&self) -> Result<SystemTime, ClientError> {
         let next_epoch_start_block = self.network_controller.next_epoch().call().await?;
-        let epoch_length_blocks = self.network_controller.epoch_length().call().await?;
+        let epoch_length_blocks = self.network_controller.worker_epoch_length().call().await?;
         let block_num: u64 = (next_epoch_start_block - epoch_length_blocks)
             .try_into()
             .expect("Epoch number should not exceed u64 range");

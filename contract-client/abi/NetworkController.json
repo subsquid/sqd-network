@@ -7,6 +7,16 @@
         "type": "uint128"
       },
       {
+        "internalType": "uint128",
+        "name": "_firstEpochBlock",
+        "type": "uint128"
+      },
+      {
+        "internalType": "uint128",
+        "name": "_epochCheckpoint",
+        "type": "uint128"
+      },
+      {
         "internalType": "uint256",
         "name": "_bondAmount",
         "type": "uint256"
@@ -85,6 +95,19 @@
       }
     ],
     "name": "EpochLengthUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "lockPeriod",
+        "type": "uint256"
+      }
+    ],
+    "name": "LockPeriodUpdated",
     "type": "event"
   },
   {
@@ -368,6 +391,20 @@
   {
     "inputs": [
     ],
+    "name": "lockPeriod",
+    "outputs": [
+      {
+        "internalType": "uint128",
+        "name": "",
+        "type": "uint128"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+    ],
     "name": "nextEpoch",
     "outputs": [
       {
@@ -459,6 +496,20 @@
       }
     ],
     "name": "setEpochLength",
+    "outputs": [
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint128",
+        "name": "_lockPeriod",
+        "type": "uint128"
+      }
+    ],
+    "name": "setLockPeriod",
     "outputs": [
     ],
     "stateMutability": "nonpayable",
@@ -576,6 +627,20 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+    ],
+    "name": "workerEpochLength",
+    "outputs": [
+      {
+        "internalType": "uint128",
+        "name": "",
+        "type": "uint128"
       }
     ],
     "stateMutability": "view",

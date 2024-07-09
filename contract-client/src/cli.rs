@@ -93,8 +93,8 @@ impl Network {
 
     pub fn network_controller_default_addr(&self) -> Address {
         match self {
-            Self::Tethys => "0x68Fc7E375945d8C8dFb0050c337Ff09E962D976D".parse().unwrap(),
-            Self::Mainnet => "0x4cf58097D790B193D22ed633bF8b15c9bc4F0da7".parse().unwrap(),
+            Self::Tethys => "0x018a4EC4B1f5D03F93d34Fd7F0bAfc69B66B97A1".parse().unwrap(),
+            Self::Mainnet => "0x159550d2589CfF1Ff604AF715130642256B88847".parse().unwrap(),
         }
     }
 
