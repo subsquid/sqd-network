@@ -20,9 +20,6 @@ use crate::{
     record_event, PeerId,
 };
 
-#[cfg(feature = "metrics")]
-use crate::metrics::DISCARDED_MESSAGES;
-
 const SUBSCRIPTION_TIMEOUT: Duration = Duration::from_secs(60);
 
 struct TopicState {
