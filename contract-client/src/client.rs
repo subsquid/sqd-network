@@ -61,8 +61,21 @@ impl Worker {
     }
 }
 
+pub struct NetworkNodes {
+    pub gateways: HashSet<PeerId>,
+    pub workers: HashSet<PeerId>,
+}
+
+impl NetworkNodes {
+    pub fn all(self) -> HashSet<PeerId> {
+        let mut nodes = self.gateways;
+        nodes.extend(self.workers);
+        nodes
+    }
+}
+
 pub type NodeStream =
-    Pin<Box<dyn Stream<Item = Result<HashSet<PeerId>, ClientError>> + Send + 'static>>;
+    Pin<Box<dyn Stream<Item = Result<NetworkNodes, ClientError>> + Send + 'static>>;
 
 #[async_trait]
 pub trait Client: Send + Sync + 'static {
@@ -109,11 +122,10 @@ pub trait Client: Send + Sync + 'static {
         Box::pin(IntervalStream::new(tokio::time::interval(interval)).then(move |_| {
             let client = self.clone_client();
             async move {
-                let gateways = client.active_gateways().await?;
-                let workers = client.active_workers().await?;
-                let mut nodes = HashSet::from_iter(gateways);
-                nodes.extend(workers.into_iter().map(|w| w.peer_id));
-                Ok(nodes)
+                let gateways = client.active_gateways().await?.into_iter().collect();
+                let workers =
+                    client.active_workers().await?.into_iter().map(|w| w.peer_id).collect();
+                Ok(NetworkNodes { gateways, workers })
             }
         }))
     }

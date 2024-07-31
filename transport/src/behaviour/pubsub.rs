@@ -37,6 +37,41 @@ pub struct MsgValidationConfig {
     pub max_burst: u32,
     /// How far back from the latest seq_no is accepted
     pub keep_last: u64,
+    /// Custom validation logic
+    pub msg_validator: Box<dyn MsgValidator>,
+}
+
+#[derive(Debug)]
+pub enum ValidationError {
+    // Invalid message, should never have been transmitted
+    Invalid(&'static str),
+    // Outdated message, should no longer be transmitted
+    Outdated(&'static str),
+}
+
+impl From<ValidationError> for MessageAcceptance {
+    fn from(err: ValidationError) -> Self {
+        match err {
+            ValidationError::Invalid(_) => MessageAcceptance::Reject,
+            ValidationError::Outdated(_) => MessageAcceptance::Ignore,
+        }
+    }
+}
+
+pub trait MsgValidator: Send + 'static {
+    fn validate_msg(&mut self, peer_id: PeerId, seq_no: u64) -> Result<(), ValidationError>;
+}
+
+impl MsgValidator for () {
+    fn validate_msg(&mut self, _peer_id: PeerId, _seq_no: u64) -> Result<(), ValidationError> {
+        Ok(())
+    }
+}
+
+impl<T: FnMut(PeerId, u64) -> Result<(), ValidationError> + Send + 'static> MsgValidator for T {
+    fn validate_msg(&mut self, peer_id: PeerId, seq_no: u64) -> Result<(), ValidationError> {
+        self(peer_id, seq_no)
+    }
 }
 
 impl MsgValidationConfig {
@@ -44,7 +79,8 @@ impl MsgValidationConfig {
         Self {
             min_interval,
             max_burst: 1,
-            keep_last: 1,
+            keep_last: 0,
+            msg_validator: Box::new(()),
         }
     }
 
@@ -55,6 +91,11 @@ impl MsgValidationConfig {
 
     pub fn keep_last(mut self, keep_last: u64) -> Self {
         self.keep_last = keep_last;
+        self
+    }
+
+    pub fn msg_validator<T: MsgValidator>(mut self, msg_validator: T) -> Self {
+        self.msg_validator = Box::new(msg_validator);
         self
     }
 }
@@ -78,13 +119,13 @@ impl PeerState {
         &mut self,
         seq_no: u64,
         config: &MsgValidationConfig,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), ValidationError> {
         // Sequence numbers should be timestamp-based, can't be from the future
         if seq_no == 0 || seq_no > timestamp_now() {
-            return Err("invalid sequence number");
+            return Err(ValidationError::Invalid("invalid sequence number"));
         }
         if seq_no + config.keep_last <= self.last_seq_no {
-            return Err("old message");
+            return Err(ValidationError::Outdated("old message"));
         }
 
         if self.last_time.elapsed() < config.min_interval {
@@ -94,7 +135,7 @@ impl PeerState {
             self.burst = 1;
         }
         if self.burst > config.max_burst {
-            return Err("too many messages within min_interval");
+            return Err(ValidationError::Invalid("too many messages within min_interval"));
         }
 
         self.last_seq_no = max(self.last_seq_no, seq_no);
@@ -113,7 +154,8 @@ impl TopicState {
         }
     }
 
-    pub fn validate_msg(&mut self, peer_id: PeerId, seq_no: u64) -> Result<(), &'static str> {
+    pub fn validate_msg(&mut self, peer_id: PeerId, seq_no: u64) -> Result<(), ValidationError> {
+        self.validation_config.msg_validator.validate_msg(peer_id, seq_no)?;
         match self.peer_states.get_mut(&peer_id) {
             None => {
                 self.peer_states.insert(peer_id, PeerState::new(seq_no));
@@ -196,15 +238,15 @@ impl PubsubBehaviour {
     fn validate_gossipsub_msg(
         &mut self,
         msg: gossipsub::Message,
-    ) -> Result<PubsubMsg, &'static str> {
+    ) -> Result<PubsubMsg, ValidationError> {
         let Some(peer_id) = msg.source else {
-            return Err("anonymous message");
+            return Err(ValidationError::Invalid("anonymous message"));
         };
         let Some(seq_no) = msg.sequence_number else {
-            return Err("message without sequence number");
+            return Err(ValidationError::Invalid("message without sequence number"));
         };
         let Some(topic_state) = self.topics.get_mut(&msg.topic) else {
-            return Err("message with unknown topic");
+            return Err(ValidationError::Invalid("message with unknown topic"));
         };
         topic_state.validate_msg(peer_id, seq_no)?;
 
@@ -239,6 +281,7 @@ impl BehaviourWrapper for PubsubBehaviour {
             return None;
         };
 
+        let msg_dbg = format!("{message:?}");
         match self.validate_gossipsub_msg(message) {
             Ok(msg) => {
                 let _ = self.inner.report_message_validation_result(
@@ -249,13 +292,13 @@ impl BehaviourWrapper for PubsubBehaviour {
                 Some(ToSwarm::GenerateEvent(msg))
             }
             Err(e) => {
-                log::debug!("Discarding gossipsub message from {propagation_source}: {e}");
+                log::warn!("Discarding gossipsub message. prop_source={propagation_source} error={e:?} msg={msg_dbg}");
                 #[cfg(feature = "metrics")]
                 DISCARDED_MESSAGES.inc();
                 let _ = self.inner.report_message_validation_result(
                     &message_id,
                     &propagation_source,
-                    MessageAcceptance::Reject,
+                    e.into(),
                 );
                 None
             }
@@ -289,7 +332,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
-    async fn test_throttle() -> anyhow::Result<()> {
+    async fn test_msg_validation() -> anyhow::Result<()> {
         let config = MsgValidationConfig::new(Duration::from_secs(10));
         let mut peer_state = PeerState::new(1);
 
@@ -298,9 +341,9 @@ mod tests {
         tokio::time::advance(Duration::from_secs(10)).await;
         assert!(peer_state.validate_msg(2, &config).is_ok());
 
-        // Old message ID not allowed
+        // Old message ID not allowed (default keep_last = 0)
         tokio::time::advance(Duration::from_secs(10)).await;
-        assert!(peer_state.validate_msg(1, &config).is_err());
+        assert!(peer_state.validate_msg(2, &config).is_err());
 
         // 3-message burst allowed
         tokio::time::advance(Duration::from_secs(10)).await;

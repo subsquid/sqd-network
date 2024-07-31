@@ -69,7 +69,7 @@ message WorkerAssignment {
 message Pong {
   bytes ping_hash = 1;
   oneof status {
-    google.protobuf.Empty not_registered = 2;
+    //    google.protobuf.Empty not_registered = 2;
     google.protobuf.Empty unsupported_version = 3;
     string jailed = 6;
     WorkerAssignment active = 7;

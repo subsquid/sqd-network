@@ -151,21 +151,21 @@ async fn main() -> anyhow::Result<()> {
                         log::error!("Error retrieving registered nodes from chain: {e:?}");
                         continue;
                     }
-                    Ok(nodes) if nodes == registered_nodes => {
-                        log::debug!("Registered nodes set unchanged.");
-                        continue;
-                    }
-                    Ok(nodes) => nodes,
+                    Ok(nodes) => nodes.all(),
                 };
+                if nodes == registered_nodes {
+                    log::debug!("Registered nodes set unchanged.");
+                    continue;
+                }
                 log::info!("Updating registered nodes");
                 // Disallow nodes which are no longer registered
                 for peer_id in registered_nodes.difference(&nodes) {
-                    log::info!("Blocking peer {peer_id}");
+                    log::debug!("Blocking peer {peer_id}");
                     swarm.behaviour_mut().allow.disallow_peer(*peer_id);
                 }
                 // Allow newly registered nodes
                 for peer_id in nodes.difference(&registered_nodes) {
-                    log::info!("Allowing peer {peer_id}");
+                    log::debug!("Allowing peer {peer_id}");
                     swarm.behaviour_mut().allow.allow_peer(*peer_id);
                 }
                 registered_nodes = nodes;

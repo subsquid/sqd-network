@@ -1,13 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     num::NonZeroUsize,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
     vec,
 };
 
 use bimap::BiHashMap;
-use contract_client::NodeStream;
 use futures::StreamExt;
 use futures_bounded::FuturesMap;
 use libp2p::{
@@ -29,15 +29,17 @@ use libp2p::{
     StreamProtocol,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
+use parking_lot::RwLock;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
+use contract_client::{NetworkNodes, NodeStream};
 use subsquid_messages::{
     signatures::SignedMessage, worker_logs_msg, LogsCollected, Ping, QueryExecuted, QueryLogs,
     WorkerLogsMsg,
 };
 
-use crate::behaviour::pubsub::MsgValidationConfig;
+use crate::behaviour::pubsub::{MsgValidationConfig, ValidationError};
 #[cfg(feature = "metrics")]
 use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_PROBES, ONGOING_QUERIES};
 use crate::{
@@ -103,6 +105,7 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_nodes: HashSet<PeerId>,
+    registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     active_nodes_stream: NodeStream,
     max_pubsub_msg_size: usize,
 }
@@ -158,22 +161,38 @@ impl BaseBehaviour {
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_nodes: Default::default(),
+            registered_workers: Arc::new(RwLock::new(Default::default())),
             active_nodes_stream: contract_client.network_nodes_stream(config.nodes_update_interval),
             max_pubsub_msg_size: config.max_pubsub_msg_size,
         }
     }
 
     pub fn subscribe_pings(&mut self) {
-        let config = MsgValidationConfig::new(Duration::from_secs(10)).max_burst(2);
+        let registered_workers = self.registered_workers.clone();
+        let config = MsgValidationConfig::new(Duration::from_secs(10)).max_burst(2).msg_validator(
+            move |peer_id: PeerId, _seq_no: u64| {
+                if !registered_workers.read().contains(&peer_id) {
+                    return Err(ValidationError::Invalid("Worker not registered"));
+                }
+                Ok(())
+            },
+        );
         self.inner.pubsub.subscribe(PING_TOPIC, config);
     }
 
     pub fn subscribe_worker_logs(&mut self) {
         // Unordered messages need to be allowed, because we're interested in all messages from
         // each worker, not only the most recent one (as in the case of pings).
+        let registered_workers = self.registered_workers.clone();
         let config = MsgValidationConfig::new(Duration::from_secs(60))
             .max_burst(10)
-            .keep_last(KEEP_LAST_WORKER_LOGS);
+            .keep_last(KEEP_LAST_WORKER_LOGS)
+            .msg_validator(move |peer_id: PeerId, _seq_no: u64| {
+                if !registered_workers.read().contains(&peer_id) {
+                    return Err(ValidationError::Invalid("Worker not registered"));
+                }
+                Ok(())
+            });
         self.inner.pubsub.subscribe(WORKER_LOGS_TOPIC, config);
     }
 
@@ -243,32 +262,34 @@ impl BaseBehaviour {
     }
 
     pub fn allow_peer(&mut self, peer_id: PeerId) {
-        log::info!("Allowing peer {peer_id}");
+        log::debug!("Allowing peer {peer_id}");
         self.inner.allow.allow_peer(peer_id);
     }
 
-    // TODO: Refactor into a separate behaviour to reuse in bootnode
-    fn on_nodes_update(&mut self, result: Result<HashSet<PeerId>, contract_client::ClientError>) {
+    fn on_nodes_update(&mut self, result: Result<NetworkNodes, contract_client::ClientError>) {
         let nodes = match result {
             Err(e) => {
                 log::error!("Error retrieving registered nodes from chain: {e:?}");
                 return;
             }
-            Ok(nodes) if nodes == self.registered_nodes => {
-                log::debug!("Registered nodes set unchanged.");
-                return;
-            }
             Ok(nodes) => nodes,
         };
+        *self.registered_workers.write() = nodes.workers.clone();
+
+        let nodes = nodes.all();
+        if nodes == self.registered_nodes {
+            log::debug!("Registered nodes set unchanged.");
+            return;
+        }
         log::info!("Updating registered nodes");
         // Disallow nodes which are no longer registered
         for peer_id in self.registered_nodes.difference(&nodes) {
-            log::info!("Blocking peer {peer_id}");
+            log::debug!("Blocking peer {peer_id}");
             self.inner.allow.disallow_peer(*peer_id);
         }
         // Allow newly registered nodes
         for peer_id in nodes.difference(&self.registered_nodes) {
-            log::info!("Allowing peer {peer_id}");
+            log::debug!("Allowing peer {peer_id}");
             self.inner.allow.allow_peer(*peer_id);
         }
         self.registered_nodes = nodes;
