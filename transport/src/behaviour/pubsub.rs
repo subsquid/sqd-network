@@ -6,8 +6,8 @@ use libp2p::{
     identity::Keypair,
     swarm::{NetworkBehaviour, ToSwarm},
 };
-use std::cmp::max;
 use std::{
+    cmp::max,
     collections::HashMap,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -45,15 +45,15 @@ pub struct MsgValidationConfig {
 pub enum ValidationError {
     // Invalid message, should never have been transmitted
     Invalid(&'static str),
-    // Outdated message, should no longer be transmitted
-    Outdated(&'static str),
+    // Outdated message or publisher sending too often, should no longer be transmitted
+    Ignored(&'static str),
 }
 
 impl From<ValidationError> for MessageAcceptance {
     fn from(err: ValidationError) -> Self {
         match err {
             ValidationError::Invalid(_) => MessageAcceptance::Reject,
-            ValidationError::Outdated(_) => MessageAcceptance::Ignore,
+            ValidationError::Ignored(_) => MessageAcceptance::Ignore,
         }
     }
 }
@@ -125,7 +125,7 @@ impl PeerState {
             return Err(ValidationError::Invalid("invalid sequence number"));
         }
         if seq_no + config.keep_last <= self.last_seq_no {
-            return Err(ValidationError::Outdated("old message"));
+            return Err(ValidationError::Ignored("old message"));
         }
 
         if self.last_time.elapsed() < config.min_interval {
@@ -135,7 +135,7 @@ impl PeerState {
             self.burst = 1;
         }
         if self.burst > config.max_burst {
-            return Err(ValidationError::Invalid("too many messages within min_interval"));
+            return Err(ValidationError::Ignored("too many messages within min_interval"));
         }
 
         self.last_seq_no = max(self.last_seq_no, seq_no);
@@ -292,7 +292,10 @@ impl BehaviourWrapper for PubsubBehaviour {
                 Some(ToSwarm::GenerateEvent(msg))
             }
             Err(e) => {
-                log::warn!("Discarding gossipsub message. prop_source={propagation_source} error={e:?} msg={msg_dbg}");
+                match &e {
+                    ValidationError::Invalid(e) => log::warn!("Invalid gossipsub message. prop_source={propagation_source} error={e} msg={msg_dbg}"),
+                    ValidationError::Ignored(e) => log::debug!("Ignoring gossipsub message. prop_source={propagation_source} error={e} msg={msg_dbg}"),
+                }
                 #[cfg(feature = "metrics")]
                 DISCARDED_MESSAGES.inc();
                 let _ = self.inner.report_message_validation_result(

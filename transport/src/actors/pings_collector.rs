@@ -1,19 +1,24 @@
-use std::sync::Arc;
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use futures_core::Stream;
-use libp2p::swarm::{NetworkBehaviour, SwarmEvent, ToSwarm};
-use libp2p::Swarm;
+use libp2p::{
+    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
+    Swarm,
+};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use contract_client::PeerId;
 
-use crate::behaviour::base::{BaseBehaviour, BaseBehaviourEvent};
-use crate::behaviour::wrapped::{BehaviourWrapper, TToSwarm, Wrapped};
-use crate::record_event;
-use crate::util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT};
+use crate::{
+    behaviour::{
+        base::{BaseBehaviour, BaseBehaviourEvent},
+        wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
+    },
+    record_event,
+    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ping {

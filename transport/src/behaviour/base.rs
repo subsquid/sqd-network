@@ -19,7 +19,10 @@ use libp2p::{
     dcutr, identify,
     identity::Keypair,
     kad,
-    kad::{store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, QueryId, QueryResult},
+    kad::{
+        store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, ProgressStep, QueryId,
+        QueryResult,
+    },
     ping, relay,
     swarm::{
         behaviour::ConnectionEstablished,
@@ -39,13 +42,12 @@ use subsquid_messages::{
     WorkerLogsMsg,
 };
 
-use crate::behaviour::pubsub::{MsgValidationConfig, ValidationError};
 #[cfg(feature = "metrics")]
 use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_PROBES, ONGOING_QUERIES};
 use crate::{
     behaviour::{
         addr_cache::AddressCache,
-        pubsub::{PubsubBehaviour, PubsubMsg},
+        pubsub::{MsgValidationConfig, PubsubBehaviour, PubsubMsg, ValidationError},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
@@ -222,8 +224,6 @@ impl BaseBehaviour {
 
     pub fn publish_logs_collected(&mut self, logs_collected: LogsCollected) {
         self.inner.pubsub.publish(LOGS_COLLECTED_TOPIC, logs_collected.encode_to_vec());
-        let msg: WorkerLogsMsg = logs_collected.into();
-        self.inner.pubsub.publish(WORKER_LOGS_TOPIC, msg.encode_to_vec()); // TODO: remove after dropping support for v1.0.0-rc2
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -378,7 +378,9 @@ impl BehaviourWrapper for BaseBehaviour {
             match self.probe_timeouts.poll_unpin(cx) {
                 Poll::Ready((peer_id, Err(_))) => {
                     #[cfg(feature = "metrics")]
-                    ONGOING_PROBES.dec();
+                    if ONGOING_PROBES.dec() == 0 {
+                        ONGOING_PROBES.set(0); // FIXME: There is underflow sometimes
+                    }
                     log::debug!("Probe for peer {peer_id} timed out");
                     return Poll::Ready(Some(ToSwarm::GenerateEvent(
                         BaseBehaviourEvent::PeerProbed {
@@ -408,7 +410,9 @@ impl BaseBehaviour {
         *self.outbound_conns.entry(peer_id).or_default() += 1;
         if self.probe_timeouts.remove(peer_id).is_some() {
             #[cfg(feature = "metrics")]
-            ONGOING_PROBES.dec();
+            if ONGOING_PROBES.dec() == 0 {
+                ONGOING_PROBES.set(0); // FIXME: There is underflow sometimes
+            }
             log::debug!("Probe for {peer_id} succeeded");
             Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::PeerProbed {
                 peer_id,
@@ -458,6 +462,7 @@ impl BaseBehaviour {
         let kad::Event::OutboundQueryProgressed {
             id: query_id,
             result: QueryResult::GetClosestPeers(result),
+            step: ProgressStep { last, .. },
             ..
         } = ev
         else {
@@ -465,20 +470,25 @@ impl BaseBehaviour {
         };
 
         let peer_id = self.ongoing_queries.get_by_right(&query_id)?.to_owned();
-        let peer_info = (match result {
+        let peer_info = match result {
             Ok(GetClosestPeersOk { peers, .. })
             | Err(GetClosestPeersError::Timeout { peers, .. }) => {
                 peers.into_iter().find(|p| p.peer_id == peer_id)
             }
-        })?;
+        };
+
+        // Query finished
+        if last || peer_info.is_some() {
+            log::debug!("Query for peer {peer_id} finished.");
+            self.ongoing_queries.remove_by_right(&query_id);
+            #[cfg(feature = "metrics")]
+            ONGOING_QUERIES.dec();
+        }
+        let peer_info = peer_info?;
+
         // Cache the found address(es) so they can be used for dialing
         // (kademlia might not do it by itself, if the bucket is full)
         self.inner.address_cache.put(peer_id, peer_info.addrs);
-
-        log::debug!("Query for peer {peer_id} finished.");
-        self.ongoing_queries.remove_by_right(&query_id);
-        #[cfg(feature = "metrics")]
-        ONGOING_QUERIES.dec();
         Some(ToSwarm::Dial {
             // Not using the default condition (`DisconnectedAndNotDialing`), because we may want
             // to establish an outbound connection to the peer despite existing inbound connection.

@@ -51,6 +51,9 @@ impl<Req: Message + Default, Res: Message + Default> request_response::Codec
     {
         let mut buf = Vec::new();
         io.take(self.max_req_size).read_to_end(&mut buf).await?;
+        if buf.is_empty() {
+            log::warn!("Received an empty request");
+        }
         Ok(Req::decode(buf.as_slice())?)
     }
 
@@ -64,6 +67,9 @@ impl<Req: Message + Default, Res: Message + Default> request_response::Codec
     {
         let mut buf = Vec::new();
         io.take(self.max_res_size).read_to_end(&mut buf).await?;
+        if buf.is_empty() {
+            log::warn!("Received an empty response");
+        }
         Ok(Res::decode(buf.as_slice())?)
     }
 
