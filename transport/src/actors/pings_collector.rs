@@ -66,7 +66,8 @@ impl BehaviourWrapper for PingsCollectorBehaviour {
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         match ev {
             BaseBehaviourEvent::Ping { peer_id, ping } => {
-                log::debug!("Got ping from {peer_id}: {ping:?}");
+                log::debug!("Got ping from {peer_id}");
+                log::trace!("{ping:?}");
                 Some(ToSwarm::GenerateEvent(Ping { peer_id, ping }))
             }
             _ => None,

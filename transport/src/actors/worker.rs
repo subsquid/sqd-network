@@ -297,7 +297,7 @@ impl WorkerTransportHandle {
     }
 
     pub fn send_ping(&self, ping: Ping) -> Result<(), QueueFull> {
-        log::debug!("Queueing ping {ping:?}");
+        log::trace!("Queueing ping {ping:?}");
         self.pings_tx.try_send(ping)
     }
 

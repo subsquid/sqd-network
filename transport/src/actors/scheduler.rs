@@ -96,7 +96,8 @@ impl SchedulerBehaviour {
     }
 
     fn on_ping(&mut self, peer_id: PeerId, ping: Ping) -> Option<SchedulerEvent> {
-        log::debug!("Got ping from {peer_id}: {ping:?}");
+        log::debug!("Got ping from {peer_id}");
+        log::trace!("{ping:?}");
         Some(SchedulerEvent::Ping { peer_id, ping })
     }
 

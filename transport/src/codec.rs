@@ -1,3 +1,4 @@
+use std::any::TypeId;
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
@@ -34,7 +35,7 @@ impl<Req, Res> Clone for ProtoCodec<Req, Res> {
 impl<Req, Res> Copy for ProtoCodec<Req, Res> {}
 
 #[async_trait]
-impl<Req: Message + Default, Res: Message + Default> request_response::Codec
+impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request_response::Codec
     for ProtoCodec<Req, Res>
 {
     type Protocol = &'static str;
@@ -43,7 +44,7 @@ impl<Req: Message + Default, Res: Message + Default> request_response::Codec
 
     async fn read_request<T>(
         &mut self,
-        _protocol: &Self::Protocol,
+        protocol: &Self::Protocol,
         io: &mut T,
     ) -> std::io::Result<Self::Request>
     where
@@ -51,15 +52,16 @@ impl<Req: Message + Default, Res: Message + Default> request_response::Codec
     {
         let mut buf = Vec::new();
         io.take(self.max_req_size).read_to_end(&mut buf).await?;
-        if buf.is_empty() {
-            log::warn!("Received an empty request");
+        // Empty request is fine if the Req type is ()
+        if buf.is_empty() && TypeId::of::<Req>() != TypeId::of::<()>() {
+            log::warn!("{protocol}: received an empty request");
         }
         Ok(Req::decode(buf.as_slice())?)
     }
 
     async fn read_response<T>(
         &mut self,
-        _protocol: &Self::Protocol,
+        protocol: &Self::Protocol,
         io: &mut T,
     ) -> std::io::Result<Self::Response>
     where
@@ -67,8 +69,9 @@ impl<Req: Message + Default, Res: Message + Default> request_response::Codec
     {
         let mut buf = Vec::new();
         io.take(self.max_res_size).read_to_end(&mut buf).await?;
-        if buf.is_empty() {
-            log::warn!("Received an empty response");
+        // Empty response is fine if the Res type is ()
+        if buf.is_empty() && TypeId::of::<Res>() != TypeId::of::<()>() {
+            log::warn!("{protocol}: received an empty response");
         }
         Ok(Res::decode(buf.as_slice())?)
     }
