@@ -8,12 +8,13 @@ use libp2p::{
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
-
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
 use subsquid_messages::{
-    signatures::SignedMessage, LogsCollected, Ping, Pong, Query, QueryExecuted, QueryResult,
+    query_result, signatures::SignedMessage, LogsCollected, Ping, Pong, Query, QueryExecuted,
+    QueryResult,
 };
 
 use crate::{
@@ -196,11 +197,23 @@ impl WorkerBehaviour {
         self.inner.base.publish_ping(ping);
     }
 
-    pub fn send_query_result(&mut self, result: QueryResult) {
+    pub fn send_query_result(&mut self, mut result: QueryResult) {
         log::debug!("Sending query result {result:?}");
         let Some(resp_chan) = self.query_response_channels.remove(&result.query_id) else {
             return log::error!("No response channel for query: {}", result.query_id);
         };
+
+        // Check query result size limit
+        let result_size = result.encoded_len() as u64;
+        if result_size > MAX_QUERY_RESULT_SIZE {
+            let err = format!("Query result size too large: {result_size}");
+            log::error!("{err}");
+            result = QueryResult {
+                query_id: result.query_id,
+                result: Some(query_result::Result::ServerError(err)),
+            };
+        }
+
         self.inner
             .query
             .try_send_response(resp_chan, result)

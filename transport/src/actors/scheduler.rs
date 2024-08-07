@@ -8,6 +8,7 @@ use libp2p::{
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -110,13 +111,25 @@ impl SchedulerBehaviour {
         match ev {
             ClientEvent::Response { .. } => {} // response is just ACK, no useful information
             ClientEvent::PeerUnknown { peer_id } => self.inner.base.find_and_dial(peer_id),
-            ClientEvent::Timeout { peer_id, .. } => log::warn!("Sending pong to {peer_id} failed"),
+            ClientEvent::Timeout { peer_id, .. } => {
+                log::warn!("Sending pong to {peer_id} timed out")
+            }
+            ClientEvent::Failure { peer_id, error, .. } => {
+                log::warn!("Sending pong to {peer_id} failed: {error}")
+            }
         }
         None
     }
 
     pub fn send_pong(&mut self, peer_id: PeerId, pong: Pong) {
         log::debug!("Sending pong to {peer_id}");
+
+        // Check pong size limit
+        let pong_size = pong.encoded_len() as u64;
+        if pong_size > MAX_PONG_SIZE {
+            return log::error!("Pong size too large: {pong_size}");
+        }
+
         if self.inner.pong.try_send_request(peer_id, pong).is_err() {
             log::error!("Cannot send pong to {peer_id}: outbound queue full")
         }
