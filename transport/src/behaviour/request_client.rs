@@ -7,10 +7,9 @@ use std::{
 
 use derivative::Derivative;
 use futures_bounded::FuturesMap;
-
 use libp2p::{
     request_response,
-    request_response::{Codec, OutboundRequestId, ProtocolSupport},
+    request_response::{Codec, OutboundFailure, OutboundRequestId, ProtocolSupport},
     swarm::{behaviour::ConnectionEstablished, FromSwarm, ToSwarm},
 };
 use serde::{Deserialize, Serialize};
@@ -21,7 +20,7 @@ use crate::{
 };
 
 #[derive(Derivative)]
-#[derivative(Debug, Clone, Copy)]
+#[derivative(Debug, Clone)]
 pub enum ClientEvent<T> {
     Response {
         peer_id: PeerId,
@@ -35,6 +34,11 @@ pub enum ClientEvent<T> {
     Timeout {
         peer_id: PeerId,
         req_id: OutboundRequestId,
+    },
+    Failure {
+        peer_id: PeerId,
+        req_id: OutboundRequestId,
+        error: String,
     },
 }
 
@@ -165,22 +169,40 @@ where
         }))
     }
 
-    fn on_failure(&mut self, peer_id: PeerId, req_id: OutboundRequestId) -> Option<TToSwarm<Self>> {
-        log::debug!("Request {req_id} failed");
-        // If request was already resubmitted, remove it and emit timeout event
-        if let Some(req_id) = self.resubmitted_requests.remove(&req_id) {
-            return Some(ToSwarm::GenerateEvent(ClientEvent::Timeout { peer_id, req_id }));
+    fn on_failure(
+        &mut self,
+        peer_id: PeerId,
+        mut req_id: OutboundRequestId,
+        error: OutboundFailure,
+    ) -> Option<TToSwarm<Self>> {
+        log::debug!("Request {req_id} failed: {error}");
+
+        // If request was submitted for the first time and dial failed, try to find peer and connect
+        if matches!(&error, OutboundFailure::DialFailure)
+            && !self.resubmitted_requests.contains_key(&req_id)
+        {
+            self.waiting_for_connection.entry(peer_id).or_default().insert(req_id);
+            return if !self.lookup_timeouts.contains(peer_id) {
+                log::debug!("Requesting lookup for peer {peer_id}");
+                _ = self.lookup_timeouts.try_push(peer_id, futures::future::pending());
+                Some(ToSwarm::GenerateEvent(ClientEvent::PeerUnknown { peer_id }))
+            } else {
+                None
+            };
         }
 
-        // If request was submitted for the first time, try to find peer and connect
-        self.waiting_for_connection.entry(peer_id).or_default().insert(req_id);
-        if !self.lookup_timeouts.contains(peer_id) {
-            log::debug!("Requesting lookup for peer {peer_id}");
-            _ = self.lookup_timeouts.try_push(peer_id, futures::future::pending());
-            return Some(ToSwarm::GenerateEvent(ClientEvent::PeerUnknown { peer_id }));
-        }
+        // Retrieve original request ID, if it was resubmitted
+        req_id = self.resubmitted_requests.remove(&req_id).unwrap_or(req_id);
 
-        None
+        let ev = match error {
+            OutboundFailure::Timeout => ClientEvent::Timeout { peer_id, req_id },
+            e => ClientEvent::Failure {
+                peer_id,
+                req_id,
+                error: e.to_string(),
+            },
+        };
+        Some(ToSwarm::GenerateEvent(ev))
     }
 }
 
@@ -218,8 +240,10 @@ where
                 ..
             } => self.on_success(peer, request_id, response),
             request_response::Event::OutboundFailure {
-                peer, request_id, ..
-            } => self.on_failure(peer, request_id),
+                peer,
+                request_id,
+                error,
+            } => self.on_failure(peer, request_id, error),
             _ => None,
         }
     }

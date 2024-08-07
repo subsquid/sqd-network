@@ -8,6 +8,7 @@ use libp2p::{
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -127,6 +128,14 @@ impl GatewayBehaviour {
         Some(GatewayEvent::Ping { peer_id, ping })
     }
 
+    fn take_query_id(&mut self, req_id: &OutboundRequestId) -> Option<String> {
+        let query_id = self.query_ids.remove(req_id);
+        if query_id.is_none() {
+            log::error!("Unknown request ID: {req_id}");
+        }
+        query_id
+    }
+
     fn on_query_result(
         &mut self,
         peer_id: PeerId,
@@ -135,10 +144,7 @@ impl GatewayBehaviour {
     ) -> Option<GatewayEvent> {
         log::debug!("Got query result from {peer_id}: {result:?}");
         // Verify if query ID matches request ID
-        let Some(query_id) = self.query_ids.remove(&req_id) else {
-            log::error!("Unknown request ID: {req_id}");
-            return None;
-        };
+        let query_id = self.take_query_id(&req_id)?;
         if query_id != result.query_id {
             log::error!(
                 "Query ID mismatch in result: {query_id} != {} (peer_id={peer_id})",
@@ -146,6 +152,21 @@ impl GatewayBehaviour {
             );
             return None;
         }
+        Some(GatewayEvent::QueryResult { peer_id, result })
+    }
+
+    fn on_query_failure(
+        &mut self,
+        peer_id: PeerId,
+        req_id: OutboundRequestId,
+        error: String,
+    ) -> Option<GatewayEvent> {
+        log::debug!("Query failure: {error} (peer_id={peer_id})");
+        let query_id = self.take_query_id(&req_id)?;
+        let result = QueryResult {
+            query_id,
+            result: Some(query_result::Result::ServerError(error)),
+        };
         Some(GatewayEvent::QueryResult { peer_id, result })
     }
 
@@ -161,6 +182,11 @@ impl GatewayBehaviour {
                 self.inner.base.find_and_dial(peer_id);
                 None
             }
+            ClientEvent::Failure {
+                peer_id,
+                req_id,
+                error,
+            } => self.on_query_failure(peer_id, req_id, error),
         }
     }
 
@@ -198,6 +224,14 @@ impl GatewayBehaviour {
             None => return log::error!("Query without ID dropped"),
         };
         self.inner.base.sign(&mut query);
+
+        // Validate query size
+        let query_size = query.encoded_len() as u64;
+        if query_size > MAX_QUERY_SIZE {
+            return log::error!("Query size too large: {query_size}");
+        }
+
+        // Try to send the query
         if let Ok(req_id) = self.inner.query.try_send_request(peer_id, query) {
             self.query_ids.insert(req_id, query_id);
         } else {
@@ -207,6 +241,12 @@ impl GatewayBehaviour {
 
     pub fn send_log_msg(&mut self, msg: GatewayLogMsg) {
         log::debug!("Sending log message: {msg:?}");
+
+        let msg_size = msg.encoded_len() as u64;
+        if msg_size > MAX_GATEWAY_LOG_SIZE {
+            return log::error!("Log message size too large: {msg_size}");
+        }
+
         if self.inner.logs.try_send_request(self.logs_collector_id, msg).is_err() {
             log::error!("Cannot send query logs: outbound queue full")
         }

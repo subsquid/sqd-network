@@ -1,5 +1,4 @@
-use std::any::TypeId;
-use std::marker::PhantomData;
+use std::{any::TypeId, io::ErrorKind, marker::PhantomData};
 
 use async_trait::async_trait;
 use futures::{AsyncReadExt, AsyncWriteExt};
@@ -85,6 +84,9 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
     where
         T: futures::AsyncWrite + Unpin + Send,
     {
+        if req.encoded_len() as u64 > self.max_req_size {
+            return Err(std::io::Error::new(ErrorKind::InvalidData, "Request too large"));
+        }
         let buf = req.encode_to_vec();
         io.write_all(buf.as_slice()).await
     }
@@ -98,6 +100,9 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
     where
         T: futures::AsyncWrite + Unpin + Send,
     {
+        if res.encoded_len() as u64 > self.max_res_size {
+            return Err(std::io::Error::new(ErrorKind::InvalidData, "Response too large"));
+        }
         let buf = res.encode_to_vec();
         io.write_all(buf.as_slice()).await
     }
