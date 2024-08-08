@@ -52,8 +52,8 @@ pub enum ValidationError {
 impl From<ValidationError> for MessageAcceptance {
     fn from(err: ValidationError) -> Self {
         match err {
-            ValidationError::Invalid(_) => MessageAcceptance::Reject,
-            ValidationError::Ignored(_) => MessageAcceptance::Ignore,
+            ValidationError::Invalid(_) => Self::Reject,
+            ValidationError::Ignored(_) => Self::Ignore,
         }
     }
 }

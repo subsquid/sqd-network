@@ -121,7 +121,7 @@ impl LogsCollectorBehaviour {
         }
     }
 
-    pub fn logs_collected(&mut self, logs_collected: LogsCollected) {
+    pub fn logs_collected(&mut self, logs_collected: &LogsCollected) {
         self.inner.base.publish_logs_collected(logs_collected)
     }
 }
@@ -170,7 +170,7 @@ impl LogsCollectorTransport {
             tokio::select! {
                 _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
-                Some(logs_collected) = self.logs_collected_rx.recv() => self.swarm.behaviour_mut().logs_collected(logs_collected),
+                Some(logs_collected) = self.logs_collected_rx.recv() => self.swarm.behaviour_mut().logs_collected(&logs_collected),
             }
         }
         log::info!("Shutting down logs collector P2P transport");

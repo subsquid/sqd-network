@@ -222,7 +222,7 @@ impl BaseBehaviour {
         }
     }
 
-    pub fn publish_logs_collected(&mut self, logs_collected: LogsCollected) {
+    pub fn publish_logs_collected(&mut self, logs_collected: &LogsCollected) {
         self.inner.pubsub.publish(LOGS_COLLECTED_TOPIC, logs_collected.encode_to_vec());
     }
 
@@ -274,7 +274,7 @@ impl BaseBehaviour {
             }
             Ok(nodes) => nodes,
         };
-        *self.registered_workers.write() = nodes.workers.clone();
+        self.registered_workers.write().clone_from(&nodes.workers);
 
         let nodes = nodes.all();
         if nodes == self.registered_nodes {
