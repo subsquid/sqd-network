@@ -215,7 +215,7 @@ impl P2PTransportBuilder {
         self,
         config: PingsCollectorConfig,
     ) -> Result<(impl Stream<Item = Ping>, PingsCollectorTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| PingsCollectorBehaviour::new(base))?;
+        let swarm = self.build_swarm(PingsCollectorBehaviour::new)?;
         Ok(pings_collector::start_transport(swarm, config))
     }
 

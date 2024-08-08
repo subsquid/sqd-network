@@ -143,16 +143,20 @@ impl GatewayBehaviour {
         req_id: OutboundRequestId,
     ) -> Option<GatewayEvent> {
         log::debug!("Got query result from {peer_id}: {result:?}");
-        // Verify if query ID matches request ID
         let query_id = self.take_query_id(&req_id)?;
-        if query_id != result.query_id {
-            log::error!(
-                "Query ID mismatch in result: {query_id} != {} (peer_id={peer_id})",
-                result.query_id
-            );
-            return None;
+        match validate_query_result(&query_id, &result) {
+            Ok(()) => Some(GatewayEvent::QueryResult { peer_id, result }),
+            Err(err) => {
+                log::warn!("Invalid result for query {query_id} from peer {peer_id}: {err}");
+                Some(GatewayEvent::QueryResult {
+                    peer_id,
+                    result: QueryResult {
+                        query_id,
+                        result: Some(query_result::Result::ServerError(err.to_string())),
+                    },
+                })
+            }
         }
-        Some(GatewayEvent::QueryResult { peer_id, result })
     }
 
     fn on_query_failure(
@@ -206,10 +210,10 @@ impl GatewayBehaviour {
         })
     }
 
-    fn on_logs_event(&mut self, ev: ClientEvent<u32>) -> Option<GatewayEvent> {
+    fn on_logs_event(&mut self, ev: &ClientEvent<u32>) -> Option<GatewayEvent> {
         log::debug!("Logs event: {ev:?}");
         match ev {
-            ClientEvent::PeerUnknown { peer_id } => self.inner.base.find_and_dial(peer_id),
+            ClientEvent::PeerUnknown { peer_id } => self.inner.base.find_and_dial(*peer_id),
             ClientEvent::Timeout { .. } => log::warn!("Sending logs to collector timed out"),
             _ => {}
         }
@@ -253,6 +257,18 @@ impl GatewayBehaviour {
     }
 }
 
+fn validate_query_result(query_id: &str, result: &QueryResult) -> Result<(), &'static str> {
+    if result.encoded_len() == 0 {
+        // Empty response is a sign of worker error
+        Err("Empty response")
+    } else if query_id != result.query_id {
+        // Stored query ID must match the ID in result
+        Err("Query ID mismatch")
+    } else {
+        Ok(())
+    }
+}
+
 impl BehaviourWrapper for GatewayBehaviour {
     type Inner = InnerBehaviour;
     type Event = GatewayEvent;
@@ -268,7 +284,7 @@ impl BehaviourWrapper for GatewayBehaviour {
         let ev = match ev {
             InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
             InnerBehaviourEvent::Query(query_res) => self.on_query_event(query_res),
-            InnerBehaviourEvent::Logs(ev) => self.on_logs_event(ev),
+            InnerBehaviourEvent::Logs(ev) => self.on_logs_event(&ev),
         };
         ev.map(ToSwarm::GenerateEvent)
     }
