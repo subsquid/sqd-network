@@ -27,6 +27,8 @@ pub mod data_chunk;
 pub mod range;
 #[cfg(feature = "signatures")]
 pub mod signatures;
+#[cfg(feature = "semver")]
+mod versions;
 
 include!(concat!(env!("OUT_DIR"), "/messages.rs"));
 
@@ -72,16 +74,6 @@ impl SizeAndHash {
             size: Some(size),
             sha3_256: hash.to_vec(),
         }
-    }
-}
-
-#[cfg(feature = "semver")]
-impl Ping {
-    pub fn sem_version(&self) -> semver::Version {
-        self.version
-            .as_ref()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or_else(|| semver::Version::new(0, 0, 1))
     }
 }
 

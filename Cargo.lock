@@ -4576,7 +4576,7 @@ dependencies = [
 
 [[package]]
 name = "subsquid-messages"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "hex",
