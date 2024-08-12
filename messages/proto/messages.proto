@@ -83,9 +83,8 @@ message Query {// Optional fields enforce serializing default values
   optional bool profiling = 4;
   optional string client_state_json = 5;
   bytes signature = 6;
-  // If present, these values should be used instead of the ones in the query contents
-  optional uint64 from_block = 7;
-  optional uint64 to_block = 8;
+  // If present, these values should be used instead of from_block and to_block in the query contents
+  optional Range block_range = 7;
 }
 
 message QueryResult {
