@@ -44,17 +44,20 @@ pub enum ClientEvent<T> {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ClientConfig {
+    /// Maximum number of buffered requests (default: 1024).
     pub max_buffered: usize,
-    pub send_timeout: Duration,
-    pub resp_timeout: Duration,
+    /// How long to wait for peer lookup and connection to be established (default: 10 sec).
+    pub lookup_timeout: Duration,
+    /// How long to wait for response, once the request has been sent (default: 60 sec).
+    pub request_timeout: Duration,
 }
 
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             max_buffered: 1024,
-            send_timeout: Duration::from_secs(60),
-            resp_timeout: Duration::from_secs(60),
+            lookup_timeout: Duration::from_secs(10),
+            request_timeout: Duration::from_secs(60),
         }
     }
 }
@@ -65,14 +68,15 @@ where
     C::Request: Clone,
 {
     inner: request_response::Behaviour<C>,
-    // Requests that were submitted for the first time (req_id -> request)
+    /// Requests that were submitted for the first time (req_id -> request)
     original_requests: BTreeMap<OutboundRequestId, C::Request>,
-    // Requests that failed and wait for peer to be connected
+    /// Requests that failed and wait for peer to be connected
     waiting_for_connection: HashMap<PeerId, HashSet<OutboundRequestId>>,
-    // Requests that were submitted for the second time, after the peer had been found (new_id -> old_id)
+    /// Requests that were submitted for the second time, after the peer had been found (new_id -> old_id)
     resubmitted_requests: BTreeMap<OutboundRequestId, OutboundRequestId>,
-    // Timeouts for peer lookups
+    /// Timeouts for peer lookups
     lookup_timeouts: FuturesMap<PeerId, ()>,
+    /// Maximum number of buffered requests
     max_buffered: usize,
 }
 
@@ -86,21 +90,21 @@ where
         protocol: C::Protocol,
         ClientConfig {
             max_buffered,
-            send_timeout,
-            resp_timeout,
+            lookup_timeout,
+            request_timeout,
         }: ClientConfig,
     ) -> Self {
         let inner = request_response::Behaviour::with_codec(
             codec,
             vec![(protocol, ProtocolSupport::Outbound)],
-            request_response::Config::default().with_request_timeout(resp_timeout),
+            request_response::Config::default().with_request_timeout(request_timeout),
         );
         Self {
             inner,
             original_requests: Default::default(),
             waiting_for_connection: Default::default(),
             resubmitted_requests: Default::default(),
-            lookup_timeouts: FuturesMap::new(send_timeout, max_buffered),
+            lookup_timeouts: FuturesMap::new(lookup_timeout, max_buffered),
             max_buffered,
         }
     }

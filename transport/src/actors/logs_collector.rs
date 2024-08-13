@@ -53,6 +53,7 @@ pub struct LogsCollectorConfig {
     pub logs_collected_queue_size: usize,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
+    pub logs_ack_timeout: Duration,
 }
 
 impl Default for LogsCollectorConfig {
@@ -62,6 +63,7 @@ impl Default for LogsCollectorConfig {
             logs_collected_queue_size: 100,
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
+            logs_ack_timeout: Duration::from_secs(5),
         }
     }
 }
@@ -80,6 +82,7 @@ impl LogsCollectorBehaviour {
                 gateway_logs: ServerBehaviour::new(
                     ProtoCodec::new(config.max_gateway_log_size, ACK_SIZE),
                     GATEWAY_LOGS_PROTOCOL,
+                    config.logs_ack_timeout,
                 )
                 .into(),
             },
