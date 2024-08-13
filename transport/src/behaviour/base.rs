@@ -75,13 +75,21 @@ pub struct InnerBehaviour {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BaseConfig {
+    /// How often to check for whitelisted nodes on chain (default: 5 min).
     pub nodes_update_interval: Duration,
+    /// Timeout for autoNAT probes (default: 60 sec).
     pub autonat_timeout: Duration,
+    /// How often to publish indetify info to connected nodes (default: 60 sec).
     pub identify_interval: Duration,
-    pub request_timeout: Duration,
+    /// Timeout for outgoing reachability probes (default: 20 sec).
     pub probe_timeout: Duration,
+    /// Timeout for kademlia DHT queries (default: 10 sec).
+    pub kad_query_timeout: Duration,
+    /// Maximum number of concurrent outgoing reachability probes (default: 1024)
     pub max_concurrent_probes: usize,
+    /// Maximum size of gossipsub messages in bytes (default: `MAX_PUBSUB_MSG_SIZE`)
     pub max_pubsub_msg_size: usize,
+    /// Maximum number of peers to keep in the address cache (default: 1024)
     pub addr_cache_size: NonZeroUsize,
 }
 
@@ -91,9 +99,9 @@ impl Default for BaseConfig {
             nodes_update_interval: Duration::from_secs(300),
             autonat_timeout: Duration::from_secs(60),
             identify_interval: Duration::from_secs(60),
-            request_timeout: Duration::from_secs(60),
-            probe_timeout: Duration::from_secs(60),
-            max_concurrent_probes: 1000,
+            probe_timeout: Duration::from_secs(20),
+            kad_query_timeout: Duration::from_secs(10),
+            max_concurrent_probes: 1024,
             max_pubsub_msg_size: MAX_PUBSUB_MSG_SIZE,
             addr_cache_size: NonZeroUsize::new(1024).unwrap(),
         }
@@ -124,7 +132,7 @@ impl BaseBehaviour {
     ) -> Self {
         let local_peer_id = keypair.public().to_peer_id();
         let mut kad_config = kad::Config::new(dht_protocol);
-        kad_config.set_replication_factor(20.try_into().unwrap());
+        kad_config.set_query_timeout(config.kad_query_timeout);
         let mut inner = InnerBehaviour {
             identify: identify::Behaviour::new(
                 identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
@@ -517,7 +525,7 @@ impl BaseBehaviour {
             data,
         }: PubsubMsg,
     ) -> Option<TToSwarm<Self>> {
-        log::debug!("Pub-sub message received: peer_id={peer_id} topic={topic}");
+        log::trace!("Pub-sub message received: peer_id={peer_id} topic={topic}");
         let data = data.as_ref();
         let ev = match topic {
             PING_TOPIC => decode_ping(peer_id, data)?,

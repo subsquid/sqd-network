@@ -64,6 +64,8 @@ pub struct WorkerConfig {
     pub logs_queue_size: usize,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
+    pub query_execution_timeout: Duration,
+    pub pong_ack_timeout: Duration,
 }
 
 impl WorkerConfig {
@@ -79,6 +81,8 @@ impl WorkerConfig {
             logs_queue_size: 100,
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
+            query_execution_timeout: Duration::from_secs(20),
+            pong_ack_timeout: Duration::from_secs(5),
         }
     }
 }
@@ -108,11 +112,13 @@ impl WorkerBehaviour {
                 pong: ServerBehaviour::new(
                     ProtoCodec::new(config.max_pong_size, ACK_SIZE),
                     PONG_PROTOCOL,
+                    config.pong_ack_timeout,
                 )
                 .into(),
                 query: ServerBehaviour::new(
                     ProtoCodec::new(config.max_query_size, config.max_query_result_size),
                     QUERY_PROTOCOL,
+                    config.query_execution_timeout,
                 )
                 .into(),
             },

@@ -1,4 +1,5 @@
-use crate::behaviour::wrapped::{BehaviourWrapper, TToSwarm};
+use std::time::Duration;
+
 use derivative::Derivative;
 use libp2p::{
     request_response,
@@ -6,6 +7,8 @@ use libp2p::{
     swarm::ToSwarm,
     PeerId,
 };
+
+use crate::behaviour::wrapped::{BehaviourWrapper, TToSwarm};
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -28,11 +31,11 @@ impl<C> ServerBehaviour<C>
 where
     C: Codec + Clone + Send + 'static,
 {
-    pub fn new(codec: C, protocol: C::Protocol) -> Self {
+    pub fn new(codec: C, protocol: C::Protocol, request_timeout: Duration) -> Self {
         let inner = request_response::Behaviour::with_codec(
             codec,
             vec![(protocol, ProtocolSupport::Inbound)],
-            request_response::Config::default(),
+            request_response::Config::default().with_request_timeout(request_timeout),
         );
         Self { inner }
     }
