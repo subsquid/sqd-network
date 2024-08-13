@@ -56,7 +56,7 @@ use crate::{
         WORKER_LOGS_TOPIC,
     },
     record_event,
-    util::addr_is_reachable,
+    util::{addr_is_reachable, parse_env_var},
     PeerId, QueueFull,
 };
 
@@ -93,17 +93,27 @@ pub struct BaseConfig {
     pub addr_cache_size: NonZeroUsize,
 }
 
-impl Default for BaseConfig {
-    fn default() -> Self {
+impl BaseConfig {
+    pub fn from_env() -> Self {
+        let nodes_update_interval =
+            Duration::from_secs(parse_env_var("NODES_UPDATE_INTERVAL_SEC", 300));
+        let autonat_timeout = Duration::from_secs(parse_env_var("AUTONAT_TIMEOUT_SEC", 60));
+        let identify_interval = Duration::from_secs(parse_env_var("IDENTIFY_INTERVAL_SEC", 60));
+        let probe_timeout = Duration::from_secs(parse_env_var("PROBE_TIMEOUT_SEC", 20));
+        let kad_query_timeout = Duration::from_secs(parse_env_var("KAD_QUERY_TIMEOUT_SEC", 10));
+        let max_concurrent_probes = parse_env_var("MAX_CONCURRENT_PROBES", 1024);
+        let max_pubsub_msg_size = parse_env_var("MAX_PUBSUB_MSG_SIZE", MAX_PUBSUB_MSG_SIZE);
+        let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
+            .expect("addr_cache_size should be > 0");
         Self {
-            nodes_update_interval: Duration::from_secs(300),
-            autonat_timeout: Duration::from_secs(60),
-            identify_interval: Duration::from_secs(60),
-            probe_timeout: Duration::from_secs(20),
-            kad_query_timeout: Duration::from_secs(10),
-            max_concurrent_probes: 1024,
-            max_pubsub_msg_size: MAX_PUBSUB_MSG_SIZE,
-            addr_cache_size: NonZeroUsize::new(1024).unwrap(),
+            nodes_update_interval,
+            autonat_timeout,
+            identify_interval,
+            probe_timeout,
+            kad_query_timeout,
+            max_concurrent_probes,
+            max_pubsub_msg_size,
+            addr_cache_size,
         }
     }
 }

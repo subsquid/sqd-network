@@ -68,7 +68,7 @@ impl P2PTransportBuilder {
             relay_addrs: vec![],
             relay: false,
             quic_config: QuicConfig::from_env(),
-            base_config: Default::default(),
+            base_config: BaseConfig::from_env(),
             contract_client,
             dht_protocol,
         })
@@ -102,6 +102,11 @@ impl P2PTransportBuilder {
 
     pub fn with_quic_config(mut self, f: impl FnOnce(QuicConfig) -> QuicConfig) -> Self {
         self.quic_config = f(self.quic_config);
+        self
+    }
+
+    pub fn with_base_config(mut self, f: impl FnOnce(BaseConfig) -> BaseConfig) -> Self {
+        self.base_config = f(self.base_config);
         self
     }
 

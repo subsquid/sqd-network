@@ -1,9 +1,10 @@
+use std::{path::PathBuf, str::FromStr};
+
 use libp2p::{
     identity::{ed25519, Keypair},
     multiaddr::Protocol,
     Multiaddr,
 };
-use std::path::PathBuf;
 
 mod queue;
 mod task_manager;
@@ -35,12 +36,16 @@ pub async fn get_keypair(path: Option<PathBuf>) -> anyhow::Result<Keypair> {
     }
 }
 
+pub fn parse_env_var<T: FromStr>(var: &str, default: T) -> T {
+    std::env::var(var).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
 pub fn addr_is_reachable(addr: &Multiaddr) -> bool {
     match addr.iter().next() {
         Some(Protocol::Ip4(addr)) => {
             !(addr.is_loopback() || addr.is_link_local())
-            // We need to allow private addresses for testing in local environment
-            &&(!addr.is_private() || std::env::var("PRIVATE_NETWORK").is_ok())
+                // We need to allow private addresses for testing in local environment
+                && (!addr.is_private() || std::env::var("PRIVATE_NETWORK").is_ok())
         }
         Some(Protocol::Ip6(addr)) => !addr.is_loopback(),
         Some(Protocol::Dns(_) | Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Dnsaddr(_)) => {

@@ -18,7 +18,7 @@ fn version_matches(version: &semver::Version, req: &semver::VersionReq) -> bool 
     let mut version_without_pre = version.clone();
     version_without_pre.pre = "".parse().unwrap();
     for comp in &req.comparators {
-        if comp.matches(&version) {
+        if comp.matches(version) {
             continue;
         }
 
