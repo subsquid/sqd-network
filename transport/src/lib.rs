@@ -67,6 +67,8 @@ pub use crate::actors::worker::{
     WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
 };
 #[cfg(feature = "actors")]
+pub use behaviour::{base::BaseConfig, request_client::ClientConfig};
+#[cfg(feature = "actors")]
 pub use builder::P2PTransportBuilder;
 pub use cli::{BootNode, TransportArgs};
 use util::parse_env_var;
