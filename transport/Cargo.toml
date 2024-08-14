@@ -32,6 +32,7 @@ parking_lot = "0.12"
 prometheus-client = { version = "0.22.2", optional = true }
 prost = { version = "0.12", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
+serde_with = "3"
 thiserror = "1"
 tokio = { version = "1", features = ["fs", "macros", "rt", "rt-multi-thread", "signal", "sync"] }
 tokio-util = "0.7"

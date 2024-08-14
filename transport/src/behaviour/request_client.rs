@@ -14,6 +14,7 @@ use libp2p::{
     swarm::{behaviour::ConnectionEstablished, FromSwarm, ToSwarm},
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DurationSeconds};
 
 use crate::{
     behaviour::wrapped::{BehaviourWrapper, TToSwarm},
@@ -61,13 +62,19 @@ impl Display for Timeout {
     }
 }
 
+#[serde_as]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ClientConfig {
     /// Maximum number of buffered requests (default: 1024).
     pub max_buffered: usize,
     /// How long to wait for peer lookup and connection to be established (default: 10 sec).
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "lookup_timeout_sec")]
     pub lookup_timeout: Duration,
     /// How long to wait for response, once the request has been sent (default: 60 sec).
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "request_timeout_sec")]
     pub request_timeout: Duration,
 }
 
@@ -249,7 +256,7 @@ where
         &mut self.inner
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm) -> impl IntoIterator<Item = TToSwarm<Self>> {
+    fn on_swarm_event(&mut self, event: FromSwarm) -> impl IntoIterator<Item=TToSwarm<Self>> {
         if let FromSwarm::ConnectionEstablished(ConnectionEstablished { peer_id, .. }) = event {
             self.on_connection_established(peer_id)
         }
@@ -259,15 +266,15 @@ where
     fn on_inner_event(
         &mut self,
         ev: request_response::Event<C::Request, C::Response>,
-    ) -> impl IntoIterator<Item = TToSwarm<Self>> {
+    ) -> impl IntoIterator<Item=TToSwarm<Self>> {
         match ev {
             request_response::Event::Message {
                 peer,
                 message:
-                    request_response::Message::Response {
-                        request_id,
-                        response,
-                    },
+                request_response::Message::Response {
+                    request_id,
+                    response,
+                },
                 ..
             } => self.on_success(peer, request_id, response),
             request_response::Event::OutboundFailure {
@@ -279,7 +286,7 @@ where
         }
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item=TToSwarm<Self>>> {
         match self.lookup_timeouts.poll_unpin(cx) {
             Poll::Ready((peer_id, Err(_))) => Poll::Ready(self.on_timeout(peer_id)),
             Poll::Pending => Poll::Pending,
