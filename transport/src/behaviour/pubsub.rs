@@ -293,7 +293,7 @@ impl BehaviourWrapper for PubsubBehaviour {
             }
             Err(e) => {
                 match &e {
-                    ValidationError::Invalid(e) => log::warn!("Invalid gossipsub message. prop_source={propagation_source} error={e} msg={msg_dbg}"),
+                    ValidationError::Invalid(e) => log::debug!("Invalid gossipsub message. prop_source={propagation_source} error={e} msg={msg_dbg}"),
                     ValidationError::Ignored(e) => log::debug!("Ignoring gossipsub message. prop_source={propagation_source} error={e} msg={msg_dbg}"),
                 }
                 #[cfg(feature = "metrics")]
