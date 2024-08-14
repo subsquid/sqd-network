@@ -1,5 +1,6 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    fmt::{Debug, Display, Formatter},
     task::{Context, Poll},
     time::Duration,
     vec,
@@ -34,12 +35,30 @@ pub enum ClientEvent<T> {
     Timeout {
         peer_id: PeerId,
         req_id: OutboundRequestId,
+        timeout: Timeout,
     },
     Failure {
         peer_id: PeerId,
         req_id: OutboundRequestId,
         error: String,
     },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum Timeout {
+    /// Peer lookup or connection establishing timed out
+    Lookup,
+    /// Request was sent to worker, but waiting for response timed out
+    Request,
+}
+
+impl Display for Timeout {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Timeout::Lookup => write!(f, "lookup timeout"),
+            Timeout::Request => write!(f, "request timeout"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -136,7 +155,11 @@ where
             .into_iter()
             .map(|req_id| {
                 self.original_requests.remove(&req_id);
-                ToSwarm::GenerateEvent(ClientEvent::Timeout { peer_id, req_id })
+                ToSwarm::GenerateEvent(ClientEvent::Timeout {
+                    peer_id,
+                    req_id,
+                    timeout: Timeout::Lookup,
+                })
             })
             .collect()
     }
@@ -199,7 +222,11 @@ where
         req_id = self.resubmitted_requests.remove(&req_id).unwrap_or(req_id);
 
         let ev = match error {
-            OutboundFailure::Timeout => ClientEvent::Timeout { peer_id, req_id },
+            OutboundFailure::Timeout => ClientEvent::Timeout {
+                peer_id,
+                req_id,
+                timeout: Timeout::Request,
+            },
             e => ClientEvent::Failure {
                 peer_id,
                 req_id,

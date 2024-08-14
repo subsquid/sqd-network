@@ -59,7 +59,8 @@ impl From<&query_result::Result> for query_finished::Result {
             query_result::Result::BadRequest(err) => Self::BadRequest(err.clone()),
             query_result::Result::ServerError(err) => Self::ServerError(err.clone()),
             query_result::Result::NoAllocation(()) => Self::NoAllocation(()),
-            query_result::Result::Timeout(()) => Self::Timeout(()),
+            query_result::Result::TimeoutV1(()) => Self::Timeout("worker timeout".to_string()),
+            query_result::Result::Timeout(msg) => Self::Timeout(msg.clone()),
         }
     }
 }

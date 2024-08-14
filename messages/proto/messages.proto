@@ -94,7 +94,8 @@ message QueryResult {
     string bad_request = 3;
     string server_error = 4;
     google.protobuf.Empty no_allocation = 5;
-    google.protobuf.Empty timeout = 6;
+    google.protobuf.Empty timeout_v1 = 6 [deprecated = true];
+    string timeout = 7;
   }
 }
 
@@ -124,8 +125,9 @@ message QueryFinished {
     SizeAndHash ok = 5;
     string bad_request = 6;
     string server_error = 7;
-    google.protobuf.Empty timeout = 8;
+    google.protobuf.Empty timeout_v1 = 8  [deprecated = true];
     google.protobuf.Empty no_allocation = 9;
+    string timeout = 10;
   }
 }
 

@@ -20,7 +20,7 @@ use subsquid_messages::{
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent},
-        request_client::{ClientBehaviour, ClientConfig, ClientEvent},
+        request_client::{ClientBehaviour, ClientConfig, ClientEvent, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::{ProtoCodec, ACK_SIZE},
@@ -181,7 +181,11 @@ impl GatewayBehaviour {
                 req_id,
                 response,
             } => self.on_query_result(peer_id, response, req_id),
-            ClientEvent::Timeout { req_id, peer_id } => self.on_query_timeout(req_id, peer_id),
+            ClientEvent::Timeout {
+                req_id,
+                peer_id,
+                timeout,
+            } => self.on_query_timeout(req_id, peer_id, timeout),
             ClientEvent::PeerUnknown { peer_id } => {
                 self.inner.base.find_and_dial(peer_id);
                 None
@@ -198,6 +202,7 @@ impl GatewayBehaviour {
         &mut self,
         req_id: OutboundRequestId,
         peer_id: PeerId,
+        timeout: Timeout,
     ) -> Option<GatewayEvent> {
         let Some(query_id) = self.query_ids.remove(&req_id) else {
             log::error!("Unknown request ID: {req_id}");
@@ -206,7 +211,7 @@ impl GatewayBehaviour {
         log::debug!("Query {query_id} timed out");
         Some(GatewayEvent::QueryResult {
             peer_id,
-            result: QueryResult::new(query_id, query_result::Result::Timeout(())),
+            result: QueryResult::new(query_id, query_result::Result::Timeout(timeout.to_string())),
         })
     }
 
