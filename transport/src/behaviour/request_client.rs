@@ -256,7 +256,7 @@ where
         &mut self.inner
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm) -> impl IntoIterator<Item=TToSwarm<Self>> {
+    fn on_swarm_event(&mut self, event: FromSwarm) -> impl IntoIterator<Item = TToSwarm<Self>> {
         if let FromSwarm::ConnectionEstablished(ConnectionEstablished { peer_id, .. }) = event {
             self.on_connection_established(peer_id)
         }
@@ -266,15 +266,15 @@ where
     fn on_inner_event(
         &mut self,
         ev: request_response::Event<C::Request, C::Response>,
-    ) -> impl IntoIterator<Item=TToSwarm<Self>> {
+    ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         match ev {
             request_response::Event::Message {
                 peer,
                 message:
-                request_response::Message::Response {
-                    request_id,
-                    response,
-                },
+                    request_response::Message::Response {
+                        request_id,
+                        response,
+                    },
                 ..
             } => self.on_success(peer, request_id, response),
             request_response::Event::OutboundFailure {
@@ -286,7 +286,7 @@ where
         }
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item=TToSwarm<Self>>> {
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
         match self.lookup_timeouts.poll_unpin(cx) {
             Poll::Ready((peer_id, Err(_))) => Poll::Ready(self.on_timeout(peer_id)),
             Poll::Pending => Poll::Pending,
