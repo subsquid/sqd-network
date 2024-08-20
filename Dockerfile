@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.66-rust-1.78-slim-bookworm AS chef
+FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:0.1.67-rust-1.80.1-slim-bookworm AS chef
 WORKDIR /app
 
 FROM --platform=$BUILDPLATFORM chef AS planner
@@ -20,8 +20,6 @@ COPY Cargo.toml .
 COPY Cargo.lock .
 COPY contract-client ./contract-client
 COPY transport ./transport
-
-FROM builder as builder
 
 RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
