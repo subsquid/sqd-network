@@ -56,8 +56,8 @@ pub enum Timeout {
 impl Display for Timeout {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            Timeout::Lookup => write!(f, "lookup timeout"),
-            Timeout::Request => write!(f, "request timeout"),
+            Self::Lookup => write!(f, "lookup timeout"),
+            Self::Request => write!(f, "request timeout"),
         }
     }
 }
@@ -155,7 +155,7 @@ where
         Ok(req_id)
     }
 
-    fn on_timeout(&mut self, peer_id: PeerId) -> Vec<TToSwarm<Self>> {
+    fn on_lookup_timeout(&mut self, peer_id: PeerId) -> Vec<TToSwarm<Self>> {
         let buffered = self.waiting_for_connection.remove(&peer_id).unwrap_or_default();
         log::debug!("Lookup for peer {peer_id} timed out, dropping {} requests", buffered.len());
         buffered
@@ -212,6 +212,7 @@ where
         log::debug!("Request {req_id} failed: {error}");
 
         // If request was submitted for the first time and dial failed, try to find peer and connect
+        // Keep the request contents in buffer for re-submitting, if loookup is successful
         if matches!(&error, OutboundFailure::DialFailure)
             && !self.resubmitted_requests.contains_key(&req_id)
         {
@@ -224,6 +225,9 @@ where
                 None
             };
         }
+
+        // Remove the request from buffer – it will not be re-submitted
+        self.original_requests.remove(&req_id);
 
         // Retrieve original request ID, if it was resubmitted
         req_id = self.resubmitted_requests.remove(&req_id).unwrap_or(req_id);
@@ -256,7 +260,7 @@ where
         &mut self.inner
     }
 
-    fn on_swarm_event(&mut self, event: FromSwarm) -> impl IntoIterator<Item = TToSwarm<Self>> {
+    fn on_swarm_event(&mut self, event: FromSwarm) -> impl IntoIterator<Item=TToSwarm<Self>> {
         if let FromSwarm::ConnectionEstablished(ConnectionEstablished { peer_id, .. }) = event {
             self.on_connection_established(peer_id)
         }
@@ -266,15 +270,15 @@ where
     fn on_inner_event(
         &mut self,
         ev: request_response::Event<C::Request, C::Response>,
-    ) -> impl IntoIterator<Item = TToSwarm<Self>> {
+    ) -> impl IntoIterator<Item=TToSwarm<Self>> {
         match ev {
             request_response::Event::Message {
                 peer,
                 message:
-                    request_response::Message::Response {
-                        request_id,
-                        response,
-                    },
+                request_response::Message::Response {
+                    request_id,
+                    response,
+                },
                 ..
             } => self.on_success(peer, request_id, response),
             request_response::Event::OutboundFailure {
@@ -286,9 +290,9 @@ where
         }
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item=TToSwarm<Self>>> {
         match self.lookup_timeouts.poll_unpin(cx) {
-            Poll::Ready((peer_id, Err(_))) => Poll::Ready(self.on_timeout(peer_id)),
+            Poll::Ready((peer_id, Err(_))) => Poll::Ready(self.on_lookup_timeout(peer_id)),
             Poll::Pending => Poll::Pending,
             _ => unreachable!(), // future::pending() should never complete
         }
