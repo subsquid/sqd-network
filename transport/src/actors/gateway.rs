@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 
 use futures::StreamExt;
 use futures_core::Stream;
@@ -42,6 +47,9 @@ pub enum GatewayEvent {
     QueryResult {
         peer_id: PeerId,
         result: QueryResult,
+    },
+    QueryDropped {
+        query_id: String,
     },
 }
 
@@ -87,6 +95,7 @@ pub struct GatewayBehaviour {
     inner: InnerBehaviour,
     logs_collector_id: PeerId,
     query_ids: BTreeMap<OutboundRequestId, String>,
+    dropped_queries: VecDeque<String>,
 }
 
 impl GatewayBehaviour {
@@ -112,6 +121,7 @@ impl GatewayBehaviour {
             inner,
             logs_collector_id: config.logs_collector_id,
             query_ids: Default::default(),
+            dropped_queries: Default::default(),
         }
         .into()
     }
@@ -244,7 +254,8 @@ impl GatewayBehaviour {
         if let Ok(req_id) = self.inner.query.try_send_request(peer_id, query) {
             self.query_ids.insert(req_id, query_id);
         } else {
-            log::error!("Outbound message queue full. Query {query_id} dropped.")
+            log::warn!("Outbound message queue full. Query {query_id} dropped.");
+            self.dropped_queries.push_back(query_id)
         }
     }
 
@@ -292,6 +303,15 @@ impl BehaviourWrapper for GatewayBehaviour {
             InnerBehaviourEvent::Logs(ev) => self.on_logs_event(&ev),
         };
         ev.map(ToSwarm::GenerateEvent)
+    }
+
+    fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
+        match self.dropped_queries.pop_front() {
+            None => Poll::Pending,
+            Some(query_id) => {
+                Poll::Ready(Some(ToSwarm::GenerateEvent(GatewayEvent::QueryDropped { query_id })))
+            }
+        }
     }
 }
 
