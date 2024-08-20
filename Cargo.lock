@@ -4681,7 +4681,7 @@ dependencies = [
 
 [[package]]
 name = "subsquid-network-transport"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "anyhow",
  "async-trait",
