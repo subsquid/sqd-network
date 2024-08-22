@@ -59,18 +59,35 @@ impl From<ValidationError> for MessageAcceptance {
 }
 
 pub trait MsgValidator: Send + 'static {
-    fn validate_msg(&mut self, peer_id: PeerId, seq_no: u64) -> Result<(), ValidationError>;
+    fn validate_msg(
+        &mut self,
+        peer_id: PeerId,
+        seq_no: u64,
+        msg: &[u8],
+    ) -> Result<(), ValidationError>;
 }
 
 impl MsgValidator for () {
-    fn validate_msg(&mut self, _peer_id: PeerId, _seq_no: u64) -> Result<(), ValidationError> {
+    fn validate_msg(
+        &mut self,
+        _peer_id: PeerId,
+        _seq_no: u64,
+        _msg: &[u8],
+    ) -> Result<(), ValidationError> {
         Ok(())
     }
 }
 
-impl<T: FnMut(PeerId, u64) -> Result<(), ValidationError> + Send + 'static> MsgValidator for T {
-    fn validate_msg(&mut self, peer_id: PeerId, seq_no: u64) -> Result<(), ValidationError> {
-        self(peer_id, seq_no)
+impl<T: FnMut(PeerId, u64, &[u8]) -> Result<(), ValidationError> + Send + 'static> MsgValidator
+    for T
+{
+    fn validate_msg(
+        &mut self,
+        peer_id: PeerId,
+        seq_no: u64,
+        msg: &[u8],
+    ) -> Result<(), ValidationError> {
+        self(peer_id, seq_no, msg)
     }
 }
 
@@ -154,8 +171,13 @@ impl TopicState {
         }
     }
 
-    pub fn validate_msg(&mut self, peer_id: PeerId, seq_no: u64) -> Result<(), ValidationError> {
-        self.validation_config.msg_validator.validate_msg(peer_id, seq_no)?;
+    pub fn validate_msg(
+        &mut self,
+        peer_id: PeerId,
+        seq_no: u64,
+        msg: &[u8],
+    ) -> Result<(), ValidationError> {
+        self.validation_config.msg_validator.validate_msg(peer_id, seq_no, msg)?;
         match self.peer_states.get_mut(&peer_id) {
             None => {
                 self.peer_states.insert(peer_id, PeerState::new(seq_no));
@@ -248,7 +270,7 @@ impl PubsubBehaviour {
         let Some(topic_state) = self.topics.get_mut(&msg.topic) else {
             return Err(ValidationError::Invalid("message with unknown topic"));
         };
-        topic_state.validate_msg(peer_id, seq_no)?;
+        topic_state.validate_msg(peer_id, seq_no, msg.data.as_slice())?;
 
         Ok(PubsubMsg {
             peer_id,

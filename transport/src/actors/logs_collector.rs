@@ -73,9 +73,12 @@ pub struct LogsCollectorBehaviour {
 }
 
 impl LogsCollectorBehaviour {
-    pub fn new(mut base: BaseBehaviour, config: LogsCollectorConfig) -> Wrapped<Self> {
-        base.subscribe_worker_logs();
-        base.subscribe_logs_collected();
+    pub fn new(
+        mut base: BaseBehaviour,
+        local_peer_id: PeerId,
+        config: LogsCollectorConfig,
+    ) -> Wrapped<Self> {
+        base.subscribe_worker_logs(local_peer_id);
         Self {
             inner: InnerBehaviour {
                 base: base.into(),

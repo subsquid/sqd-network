@@ -89,12 +89,6 @@ impl Debug for OkResult {
     }
 }
 
-impl From<LogsCollected> for WorkerLogsMsg {
-    fn from(msg: LogsCollected) -> Self {
-        worker_logs_msg::Msg::LogsCollected(msg).into()
-    }
-}
-
 impl From<worker_logs_msg::Msg> for WorkerLogsMsg {
     fn from(msg: worker_logs_msg::Msg) -> Self {
         Self { msg: Some(msg) }
