@@ -91,7 +91,6 @@ pub struct WorkerBehaviour {
     inner: InnerBehaviour,
     local_peer_id: String,
     scheduler_id: PeerId,
-    logs_collector_id: PeerId,
     query_response_channels: HashMap<String, ResponseChannel<QueryResult>>,
 }
 
@@ -102,8 +101,7 @@ impl WorkerBehaviour {
         config: WorkerConfig,
     ) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.subscribe_worker_logs();
-        base.subscribe_logs_collected();
+        base.subscribe_worker_logs(config.logs_collector_id);
         base.allow_peer(config.logs_collector_id);
         base.allow_peer(config.scheduler_id);
         Self {
@@ -124,7 +122,6 @@ impl WorkerBehaviour {
             },
             local_peer_id: local_peer_id.to_base58(),
             scheduler_id: config.scheduler_id,
-            logs_collector_id: config.logs_collector_id,
             query_response_channels: Default::default(),
         }
         .into()
@@ -132,23 +129,14 @@ impl WorkerBehaviour {
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<WorkerEvent> {
         match ev {
-            BaseBehaviourEvent::LogsCollected {
-                peer_id,
-                logs_collected,
-            } => self.on_logs_collected(peer_id, logs_collected),
+            BaseBehaviourEvent::LogsCollected(logs_collected) => {
+                self.on_logs_collected(logs_collected)
+            }
             _ => None,
         }
     }
 
-    fn on_logs_collected(
-        &mut self,
-        peer_id: PeerId,
-        mut logs_collected: LogsCollected,
-    ) -> Option<WorkerEvent> {
-        if peer_id != self.logs_collector_id {
-            log::warn!("Peer {peer_id} impersonating logs collector");
-            return None;
-        }
+    fn on_logs_collected(&mut self, mut logs_collected: LogsCollected) -> Option<WorkerEvent> {
         log::debug!("Received logs collected message");
         // Extract last_seq_no for the local worker
         let last_seq_no = logs_collected.sequence_numbers.remove(&self.local_peer_id);

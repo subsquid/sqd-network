@@ -12,7 +12,6 @@ message GatewayLogMsg {
 message WorkerLogsMsg {
   oneof msg {
     QueryLogs query_logs = 1;
-    LogsCollected logs_collected = 2 [deprecated = true];
   }
 }
 

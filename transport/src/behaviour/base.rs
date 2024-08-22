@@ -52,8 +52,8 @@ use crate::{
     },
     cli::BootNode,
     protocol::{
-        ID_PROTOCOL, KEEP_LAST_WORKER_LOGS, LOGS_COLLECTED_TOPIC, MAX_PUBSUB_MSG_SIZE, PING_TOPIC,
-        WORKER_LOGS_TOPIC,
+        ID_PROTOCOL, KEEP_LAST_WORKER_LOGS, LOGS_COLLECTED_MIN_INTERVAL, LOGS_COLLECTED_TOPIC,
+        LOGS_MIN_INTERVAL, MAX_PUBSUB_MSG_SIZE, PINGS_MIN_INTERVAL, PING_TOPIC, WORKER_LOGS_TOPIC,
     },
     record_event,
     util::{addr_is_reachable, parse_env_var},
@@ -126,6 +126,7 @@ pub struct BaseBehaviour {
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_nodes: HashSet<PeerId>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
+    logs_collected: Arc<RwLock<HashMap<String, u64>>>, // peer_id (base58) -> highest collected seq_no
     active_nodes_stream: NodeStream,
     max_pubsub_msg_size: usize,
 }
@@ -182,6 +183,7 @@ impl BaseBehaviour {
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_nodes: Default::default(),
             registered_workers: Arc::new(RwLock::new(Default::default())),
+            logs_collected: Arc::new(RwLock::new(Default::default())),
             active_nodes_stream: contract_client.network_nodes_stream(config.nodes_update_interval),
             max_pubsub_msg_size: config.max_pubsub_msg_size,
         }
@@ -189,8 +191,8 @@ impl BaseBehaviour {
 
     pub fn subscribe_pings(&mut self) {
         let registered_workers = self.registered_workers.clone();
-        let config = MsgValidationConfig::new(Duration::from_secs(10)).max_burst(2).msg_validator(
-            move |peer_id: PeerId, _seq_no: u64| {
+        let config = MsgValidationConfig::new(PINGS_MIN_INTERVAL).max_burst(2).msg_validator(
+            move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
                 if !registered_workers.read().contains(&peer_id) {
                     return Err(ValidationError::Invalid("Worker not registered"));
                 }
@@ -200,24 +202,48 @@ impl BaseBehaviour {
         self.inner.pubsub.subscribe(PING_TOPIC, config);
     }
 
-    pub fn subscribe_worker_logs(&mut self) {
+    pub fn subscribe_worker_logs(&mut self, logs_collector_id: PeerId) {
         // Unordered messages need to be allowed, because we're interested in all messages from
         // each worker, not only the most recent one (as in the case of pings).
         let registered_workers = self.registered_workers.clone();
-        let config = MsgValidationConfig::new(Duration::from_secs(60))
+        let logs_collected = self.logs_collected.clone();
+        let config = MsgValidationConfig::new(LOGS_MIN_INTERVAL)
             .max_burst(10)
             .keep_last(KEEP_LAST_WORKER_LOGS)
-            .msg_validator(move |peer_id: PeerId, _seq_no: u64| {
+            .msg_validator(move |peer_id: PeerId, _seq_no: u64, msg: &[u8]| {
                 if !registered_workers.read().contains(&peer_id) {
                     return Err(ValidationError::Invalid("Worker not registered"));
                 }
-                Ok(())
+                let Ok(WorkerLogsMsg {
+                    msg: Some(worker_logs_msg::Msg::QueryLogs(msg)),
+                }) = WorkerLogsMsg::decode(msg)
+                else {
+                    return Err(ValidationError::Invalid("Invalid worker logs"));
+                };
+                // Logs are sorted by seq_no, so we need to check the last one only
+                let last_seq_no = match msg.queries_executed.last() {
+                    Some(query_executed) => query_executed.seq_no.unwrap_or_default(),
+                    None => return Err(ValidationError::Invalid("Empty worker logs")),
+                };
+                // Don't propagate worker logs which have already been collected
+                match logs_collected.read().get(&peer_id.to_base58()) {
+                    Some(seq_no) if *seq_no >= last_seq_no => {
+                        Err(ValidationError::Ignored("Logs already collected"))
+                    }
+                    _ => Ok(()),
+                }
             });
         self.inner.pubsub.subscribe(WORKER_LOGS_TOPIC, config);
-    }
 
-    pub fn subscribe_logs_collected(&mut self) {
-        let config = MsgValidationConfig::new(Duration::from_secs(60));
+        let config = MsgValidationConfig::new(LOGS_COLLECTED_MIN_INTERVAL).msg_validator(
+            move |peer_id: PeerId, _seq_no: u64, _msg: &[u8]| {
+                if peer_id == logs_collector_id {
+                    Ok(())
+                } else {
+                    Err(ValidationError::Invalid("Invalid logs collector ID"))
+                }
+            },
+        );
         self.inner.pubsub.subscribe(LOGS_COLLECTED_TOPIC, config);
     }
 
@@ -324,10 +350,7 @@ pub enum BaseBehaviourEvent {
         peer_id: PeerId,
         query_logs: QueryLogs,
     },
-    LogsCollected {
-        peer_id: PeerId,
-        logs_collected: LogsCollected,
-    },
+    LogsCollected(LogsCollected),
     PeerProbed {
         peer_id: PeerId,
         reachable: bool,
@@ -540,10 +563,18 @@ impl BaseBehaviour {
         let ev = match topic {
             PING_TOPIC => decode_ping(peer_id, data)?,
             WORKER_LOGS_TOPIC => decode_worker_logs_msg(peer_id, data)?,
-            LOGS_COLLECTED_TOPIC => decode_logs_collected(peer_id, data)?,
+            LOGS_COLLECTED_TOPIC => self.on_logs_collected(data)?,
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
+    }
+
+    fn on_logs_collected(&mut self, data: &[u8]) -> Option<BaseBehaviourEvent> {
+        let logs_collected = LogsCollected::decode(data)
+            .map_err(|e| log::warn!("Error decoding logs collected msg: {e:?}"))
+            .ok()?;
+        *self.logs_collected.write() = logs_collected.sequence_numbers.clone();
+        Some(BaseBehaviourEvent::LogsCollected(logs_collected))
     }
 }
 
@@ -574,16 +605,6 @@ fn decode_worker_logs_msg(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourE
         }
         _ => None,
     }
-}
-
-fn decode_logs_collected(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-    let logs_collected = LogsCollected::decode(data)
-        .map_err(|e| log::warn!("Error decoding logs collected msg: {e:?}"))
-        .ok()?;
-    Some(BaseBehaviourEvent::LogsCollected {
-        peer_id,
-        logs_collected,
-    })
 }
 
 fn bundle_messages<T: prost::Message>(

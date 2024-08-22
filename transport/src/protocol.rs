@@ -1,5 +1,8 @@
-use contract_client::Network;
+use std::time::Duration;
+
 use libp2p::StreamProtocol;
+
+use contract_client::Network;
 
 pub const PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
 pub const WORKER_LOGS_TOPIC: &str = "/subsquid/worker_query_logs/1.1.0";
@@ -16,6 +19,10 @@ pub const MAX_GATEWAY_LOG_SIZE: u64 = 1024 * 1024;
 pub const MAX_PONG_SIZE: u64 = 1024 * 1024;
 pub const MAX_PUBSUB_MSG_SIZE: usize = 65536;
 pub const KEEP_LAST_WORKER_LOGS: u64 = 100;
+
+pub const PINGS_MIN_INTERVAL: Duration = Duration::from_secs(20);
+pub const LOGS_MIN_INTERVAL: Duration = Duration::from_secs(120);
+pub const LOGS_COLLECTED_MIN_INTERVAL: Duration = Duration::from_secs(60);
 
 pub const fn dht_protocol(network: Network) -> StreamProtocol {
     match network {

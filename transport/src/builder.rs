@@ -201,7 +201,9 @@ impl P2PTransportBuilder {
         self,
         config: LogsCollectorConfig,
     ) -> Result<(impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| LogsCollectorBehaviour::new(base, config))?;
+        let local_peer_id = self.local_peer_id();
+        let swarm =
+            self.build_swarm(|base| LogsCollectorBehaviour::new(base, local_peer_id, config))?;
         Ok(logs_collector::start_transport(swarm, config))
     }
 

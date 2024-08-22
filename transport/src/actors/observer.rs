@@ -52,28 +52,19 @@ impl ObserverConfig {
 
 pub struct ObserverBehaviour {
     base: Wrapped<BaseBehaviour>,
-    logs_collector_id: PeerId,
 }
 
 impl ObserverBehaviour {
     pub fn new(mut base: BaseBehaviour, logs_collector_id: PeerId) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.subscribe_worker_logs();
-        base.subscribe_logs_collected();
+        base.subscribe_worker_logs(logs_collector_id);
         base.allow_peer(logs_collector_id);
-        Self {
-            base: base.into(),
-            logs_collector_id,
-        }
-        .into()
+        Self { base: base.into() }.into()
     }
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<ObserverEvent> {
         match ev {
-            BaseBehaviourEvent::LogsCollected {
-                peer_id,
-                logs_collected,
-            } if peer_id == self.logs_collector_id => {
+            BaseBehaviourEvent::LogsCollected(logs_collected) => {
                 Some(ObserverEvent::LogsCollected(logs_collected))
             }
             BaseBehaviourEvent::Ping { peer_id, ping } => {
