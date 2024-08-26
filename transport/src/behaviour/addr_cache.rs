@@ -6,7 +6,7 @@ use std::{
 };
 
 use libp2p::{
-    core::Endpoint,
+    core::{transport::PortUse, Endpoint},
     swarm::{
         dummy::ConnectionHandler, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
         THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
@@ -69,6 +69,7 @@ impl NetworkBehaviour for AddressCache {
         peer: PeerId,
         addr: &Multiaddr,
         _role_override: Endpoint,
+        _port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         self.put(peer, iter::once(addr.clone()));
         Ok(ConnectionHandler)

@@ -3,9 +3,9 @@ members = ["contract-client", "messages", "transport"]
 resolver = "2"
 
 [workspace.dependencies]
-libp2p = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "cbf81de0" }
-libp2p-connection-limits = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "cbf81de0" }
-libp2p-swarm-derive = { git = "https://github.com/Wiezzel/rust-libp2p.git", rev = "cbf81de0" }
+libp2p = "0.54"
+libp2p-connection-limits = "0.4"
+libp2p-swarm-derive = "0.35"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

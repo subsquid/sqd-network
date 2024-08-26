@@ -5,15 +5,14 @@ use std::{
     task::{Context, Poll},
 };
 
+use crate::{Multiaddr, PeerId};
 use libp2p::{
-    core::Endpoint,
+    core::{transport::PortUse, Endpoint},
     swarm::{
         ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
         THandlerOutEvent, ToSwarm,
     },
 };
-
-use crate::{Multiaddr, PeerId};
 
 pub type TToSwarm<T> =
     ToSwarm<<T as BehaviourWrapper>::Event, THandlerInEvent<<T as BehaviourWrapper>::Inner>>;
@@ -119,12 +118,14 @@ where
         peer: PeerId,
         addr: &Multiaddr,
         role_override: Endpoint,
+        port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
         self.inner().handle_established_outbound_connection(
             connection_id,
             peer,
             addr,
             role_override,
+            port_use,
         )
     }
 
