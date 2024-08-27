@@ -733,7 +733,7 @@ checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
 name = "contract-client"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -4713,7 +4713,7 @@ dependencies = [
 
 [[package]]
 name = "subsquid-network-transport"
-version = "1.0.17"
+version = "1.0.18"
 dependencies = [
  "anyhow",
  "async-trait",

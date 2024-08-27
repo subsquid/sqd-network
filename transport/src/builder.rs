@@ -252,8 +252,8 @@ impl P2PTransportBuilder {
             };
             // We need to wait for other nodes to catch up and whitelist our peer ID
             let elapsed = reg_time.elapsed().unwrap_or_default();
-            if elapsed < self.base_config.nodes_update_interval {
-                tokio::time::sleep(self.base_config.nodes_update_interval - elapsed).await;
+            if elapsed < self.base_config.onchain_update_interval {
+                tokio::time::sleep(self.base_config.onchain_update_interval - elapsed).await;
             }
             break;
         }

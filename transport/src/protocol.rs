@@ -23,6 +23,7 @@ pub const KEEP_LAST_WORKER_LOGS: u64 = 100;
 pub const PINGS_MIN_INTERVAL: Duration = Duration::from_secs(20);
 pub const LOGS_MIN_INTERVAL: Duration = Duration::from_secs(120);
 pub const LOGS_COLLECTED_MIN_INTERVAL: Duration = Duration::from_secs(60);
+pub const EPOCH_SEAL_TIMEOUT: Duration = Duration::from_secs(600);
 
 pub const fn dht_protocol(network: Network) -> StreamProtocol {
     match network {

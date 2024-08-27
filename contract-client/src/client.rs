@@ -77,6 +77,10 @@ impl NetworkNodes {
 pub type NodeStream =
     Pin<Box<dyn Stream<Item = Result<NetworkNodes, ClientError>> + Send + 'static>>;
 
+/// A stream of (epoch_number, epoch_start_time)
+pub type EpochStream =
+    Pin<Box<dyn Stream<Item = Result<(u32, SystemTime), ClientError>> + Send + 'static>>;
+
 #[async_trait]
 pub trait Client: Send + Sync + 'static {
     /// Using regular clone is not possible for trait objects
@@ -126,6 +130,19 @@ pub trait Client: Send + Sync + 'static {
                 let workers =
                     client.active_workers().await?.into_iter().map(|w| w.peer_id).collect();
                 Ok(NetworkNodes { gateways, workers })
+            }
+        }))
+    }
+
+    /// Get a stream of current epoch number and start time
+    /// Updated on the given interval
+    fn epoch_stream(self: Box<Self>, interval: Duration) -> EpochStream {
+        Box::pin(IntervalStream::new(tokio::time::interval(interval)).then(move |_| {
+            let client = self.clone_client();
+            async move {
+                let epoch_number = client.current_epoch().await?;
+                let epoch_start = client.current_epoch_start().await?;
+                Ok((epoch_number, epoch_start))
             }
         }))
     }
