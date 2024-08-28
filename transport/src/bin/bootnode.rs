@@ -129,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
     {
         log::info!("Connecting to boot node {peer_id} at {address}");
         swarm.behaviour_mut().allow.allow_peer(peer_id);
+        swarm.behaviour_mut().kademlia.add_address(&peer_id, address);
         swarm.dial(peer_id)?;
     }
 

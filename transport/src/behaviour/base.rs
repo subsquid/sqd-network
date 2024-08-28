@@ -383,10 +383,6 @@ pub enum BaseBehaviourEvent {
         peer_id: PeerId,
         reachable: bool,
     },
-    PeerProtocols {
-        peer_id: PeerId,
-        protocols: Vec<StreamProtocol>,
-    },
 }
 
 impl BehaviourWrapper for BaseBehaviour {
@@ -519,10 +515,8 @@ impl BaseBehaviour {
     fn on_identify_event(&mut self, ev: identify::Event) -> Option<TToSwarm<Self>> {
         log::debug!("Identify event received: {ev:?}");
         record_event(&ev);
-        let (peer_id, listen_addrs, protocols) = match ev {
-            identify::Event::Received { peer_id, info, .. } => {
-                (peer_id, info.listen_addrs, info.protocols)
-            }
+        let (peer_id, listen_addrs) = match ev {
+            identify::Event::Received { peer_id, info, .. } => (peer_id, info.listen_addrs),
             _ => return None,
         };
         let listen_addrs = listen_addrs.into_iter().filter(addr_is_reachable);
@@ -530,8 +524,7 @@ impl BaseBehaviour {
         listen_addrs.for_each(|addr| {
             self.inner.kademlia.add_address(&peer_id, addr);
         });
-        let ev = BaseBehaviourEvent::PeerProtocols { peer_id, protocols };
-        Some(ToSwarm::GenerateEvent(ev))
+        None
     }
 
     fn on_kademlia_event(&mut self, ev: kad::Event) -> Option<TToSwarm<Self>> {
