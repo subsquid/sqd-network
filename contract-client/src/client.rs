@@ -149,6 +149,12 @@ pub trait Client: Send + Sync + 'static {
 }
 
 pub async fn get_client(rpc_args: &RpcArgs) -> Result<Box<dyn Client>, ClientError> {
+    log::info!(
+        "Initializing contract client. network={:?} rpc_url={} l1_rpc_url={:?}",
+        rpc_args.network,
+        rpc_args.rpc_url,
+        rpc_args.l1_rpc_url
+    );
     let l2_client = Transport::connect(&rpc_args.rpc_url).await?;
     let l1_client = match &rpc_args.l1_rpc_url {
         Some(rpc_url) => Transport::connect(rpc_url).await?,
@@ -179,15 +185,21 @@ impl EthersClient {
         l2_client: Arc<Provider<Transport>>,
         rpc_args: &RpcArgs,
     ) -> Result<Box<Self>, ClientError> {
+        log::info!("GatewayRegistry: {}", rpc_args.gateway_registry_addr());
         let gateway_registry =
             GatewayRegistry::get(l2_client.clone(), rpc_args.gateway_registry_addr());
         let default_strategy_addr = gateway_registry.default_strategy().call().await?;
+        log::info!("Default strategy: {default_strategy_addr}");
+        log::info!("NetworkController: {}", rpc_args.network_controller_addr());
         let network_controller =
             NetworkController::get(l2_client.clone(), rpc_args.network_controller_addr());
+        log::info!("WorkerRegistration: {}", rpc_args.worker_registration_addr());
         let worker_registration =
             WorkerRegistration::get(l2_client.clone(), rpc_args.worker_registration_addr());
+        log::info!("AllocationsViewer: {}", rpc_args.allocations_viewer_addr());
         let allocations_viewer =
             AllocationsViewer::get(l2_client.clone(), rpc_args.allocations_viewer_addr());
+        log::info!("Multicall: {}", rpc_args.multicall_addr());
         Ok(Box::new(Self {
             l1_client,
             l2_client,

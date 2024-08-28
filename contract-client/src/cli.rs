@@ -106,6 +106,7 @@ impl Network {
     }
 
     pub fn multicall_default_addr(&self) -> Address {
+        // The match is here so that adding new network forces programmer to check the multicall address
         match self {
             Self::Tethys | Self::Mainnet => {
                 "0xcA11bde05977b3631167028862bE2a173976CA11".parse().unwrap()

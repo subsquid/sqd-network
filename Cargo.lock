@@ -733,13 +733,14 @@ checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
 name = "contract-client"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
  "clap",
  "ethers",
+ "futures",
  "libp2p",
  "log",
  "serde",

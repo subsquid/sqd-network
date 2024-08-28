@@ -87,6 +87,7 @@ impl JsonRpcClient for Transport {
         'life1: 'async_trait,
         Self: 'async_trait,
     {
+        log::debug!("Calling method {method} with params {params:?}");
         match self {
             Self::Http(provider) => Box::pin(provider.request(method, params).map_err(Into::into)),
             Self::Ws(provider) => Box::pin(provider.request(method, params).map_err(Into::into)),
