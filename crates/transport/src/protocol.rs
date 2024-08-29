@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use libp2p::StreamProtocol;
 
-use contract_client::Network;
+use sqd_contract_client::Network;
 
 pub const PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
 pub const WORKER_LOGS_TOPIC: &str = "/subsquid/worker_query_logs/1.1.0";

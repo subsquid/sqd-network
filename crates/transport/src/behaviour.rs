@@ -1,4 +1,5 @@
 pub mod addr_cache;
+#[cfg(feature = "actors")]
 pub mod base;
 pub mod node_whitelist;
 pub mod pubsub;

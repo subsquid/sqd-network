@@ -10,7 +10,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{
+use sqd_messages::{
     gateway_log_msg, signatures::SignedMessage, GatewayLogMsg, LogsCollected, QueryExecuted,
     QueryFinished, QueryLogs, QuerySubmitted,
 };

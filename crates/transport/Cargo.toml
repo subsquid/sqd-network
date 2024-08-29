@@ -1,16 +1,8 @@
 [package]
-name = "subsquid-network-transport"
+name = "sqd-network-transport"
 license = "AGPL-3.0-or-later"
 version = "1.0.19"
 edition = "2021"
-
-[[bin]]
-name = "bootnode"
-path = "src/bin/bootnode.rs"
-
-[[bin]]
-name = "keygen"
-path = "src/bin/keygen.rs"
 
 [dependencies]
 anyhow = "1"
@@ -18,7 +10,6 @@ async-trait = "0.1"
 bimap = "0.6"
 clap = { version = "4", features = ["derive", "env"] }
 derivative = "2"
-env_logger = "0.11"
 futures = "0.3"
 futures-bounded = "0.2.4"
 futures-core = "0.3"
@@ -34,11 +25,11 @@ prost = { version = "0.13", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_with = "3"
 thiserror = "1"
-tokio = { version = "1", features = ["fs", "macros", "rt", "rt-multi-thread", "signal", "sync"] }
+tokio = { version = "1", features = ["fs", "macros", "sync"] }
 tokio-util = "0.7"
 
-contract-client = { path = "../contract-client" }
-subsquid-messages = { path = "../messages", features = ["signatures", "semver"] }
+sqd-contract-client = { path = "../contract-client" }
+sqd-messages = { path = "../messages", features = ["signatures", "semver"] }
 
 [features]
 actors = ["behaviour"]
@@ -53,9 +44,6 @@ pings-collector = ["actors"]
 scheduler = ["actors", "request-client", "proto"]
 worker = ["actors", "request-server", "proto"]
 metrics = ["libp2p/metrics", "prometheus-client"]
-
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = { version = "0.6", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "time", "test-util"] }

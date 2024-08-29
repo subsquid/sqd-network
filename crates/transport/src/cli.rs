@@ -1,7 +1,7 @@
 use crate::PeerId;
 use clap::Args;
-use contract_client::RpcArgs;
 use libp2p::Multiaddr;
+use sqd_contract_client::RpcArgs;
 use std::{path::PathBuf, str::FromStr};
 
 #[derive(Args)]

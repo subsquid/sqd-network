@@ -12,7 +12,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{Ping, Pong};
+use sqd_messages::{Ping, Pong};
 
 use crate::{
     behaviour::{

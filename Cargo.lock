@@ -732,26 +732,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
-name = "contract-client"
-version = "1.0.7"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "ethers",
- "futures",
- "libp2p",
- "log",
- "serde",
- "simple_logger",
- "thiserror",
- "tokio",
- "tokio-stream",
- "url",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4675,6 +4655,98 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-bootnode"
+version = "1.0.2"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "futures",
+ "libp2p",
+ "libp2p-connection-limits",
+ "libp2p-swarm-derive",
+ "log",
+ "sqd-contract-client",
+ "sqd-network-transport",
+ "tikv-jemallocator",
+ "tokio",
+]
+
+[[package]]
+name = "sqd-contract-client"
+version = "1.0.7"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "clap",
+ "ethers",
+ "futures",
+ "libp2p",
+ "log",
+ "serde",
+ "simple_logger",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "url",
+]
+
+[[package]]
+name = "sqd-keygen"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "sqd-network-transport",
+ "tokio",
+]
+
+[[package]]
+name = "sqd-messages"
+version = "1.1.3"
+dependencies = [
+ "anyhow",
+ "hex",
+ "libp2p",
+ "prost 0.13.1",
+ "prost-build",
+ "semver",
+ "serde",
+ "sha3",
+]
+
+[[package]]
+name = "sqd-network-transport"
+version = "1.0.19"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bimap",
+ "clap",
+ "derivative",
+ "futures",
+ "futures-bounded",
+ "futures-core",
+ "lazy_static",
+ "libp2p",
+ "libp2p-connection-limits",
+ "libp2p-swarm-derive",
+ "log",
+ "lru",
+ "parking_lot",
+ "prometheus-client",
+ "prost 0.13.1",
+ "serde",
+ "serde_with",
+ "sqd-contract-client",
+ "sqd-messages",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4719,52 +4791,6 @@ dependencies = [
  "quote",
  "rustversion",
  "syn 2.0.66",
-]
-
-[[package]]
-name = "subsquid-messages"
-version = "1.1.3"
-dependencies = [
- "anyhow",
- "hex",
- "libp2p",
- "prost 0.13.1",
- "prost-build",
- "semver",
- "serde",
- "sha3",
-]
-
-[[package]]
-name = "subsquid-network-transport"
-version = "1.0.19"
-dependencies = [
- "anyhow",
- "async-trait",
- "bimap",
- "clap",
- "contract-client",
- "derivative",
- "env_logger",
- "futures",
- "futures-bounded",
- "futures-core",
- "lazy_static",
- "libp2p",
- "libp2p-connection-limits",
- "libp2p-swarm-derive",
- "log",
- "lru",
- "parking_lot",
- "prometheus-client",
- "prost 0.13.1",
- "serde",
- "serde_with",
- "subsquid-messages",
- "thiserror",
- "tikv-jemallocator",
- "tokio",
- "tokio-util",
 ]
 
 [[package]]

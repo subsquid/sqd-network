@@ -1,0 +1,25 @@
+[package]
+name = "sqd-bootnode"
+license = "AGPL-3.0-or-later"
+version = "1.0.2"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+env_logger = "0.11"
+futures = "0.3"
+libp2p = { workspace = true, features = ["dns", "tokio", "identify", "kad", "ping", "autonat", "quic"] }
+libp2p-connection-limits = { workspace = true }
+libp2p-swarm-derive = { workspace = true }
+log = "0.4"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "signal"] }
+
+sqd-contract-client = { path = "../contract-client" }
+sqd-network-transport = { path = "../transport", features = ["behaviour"] }
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { version = "0.6" }
+
+[lints]
+workspace = true

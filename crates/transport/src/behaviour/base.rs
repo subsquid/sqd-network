@@ -34,8 +34,8 @@ use parking_lot::RwLock;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-use contract_client::{EpochStream, NetworkNodes};
-use subsquid_messages::{
+use sqd_contract_client::{Client as ContractClient, EpochStream, NetworkNodes};
+use sqd_messages::{
     signatures::SignedMessage, worker_logs_msg, LogsCollected, Ping, QueryExecuted, QueryLogs,
     WorkerLogsMsg,
 };
@@ -135,7 +135,7 @@ pub struct BaseBehaviour {
 impl BaseBehaviour {
     pub fn new(
         keypair: &Keypair,
-        contract_client: Box<dyn contract_client::Client>,
+        contract_client: Box<dyn ContractClient>,
         config: BaseConfig,
         boot_nodes: Vec<BootNode>,
         relay: relay::client::Behaviour,
@@ -322,7 +322,7 @@ impl BaseBehaviour {
         self.inner.whitelist.allow_peer(peer_id);
     }
 
-    fn on_epoch_update(&self, result: Result<(u32, SystemTime), contract_client::ClientError>) {
+    fn on_epoch_update(&self, result: Result<(u32, SystemTime), sqd_contract_client::ClientError>) {
         let epoch_start = match result {
             Err(e) => {
                 log::error!("Error retrieving current epoch from chain: {e:?}");

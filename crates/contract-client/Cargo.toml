@@ -1,5 +1,5 @@
 [package]
-name = "contract-client"
+name = "sqd-contract-client"
 license = "AGPL-3.0-or-later"
 version = "1.0.7"
 edition = "2021"

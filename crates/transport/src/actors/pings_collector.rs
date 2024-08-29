@@ -9,7 +9,7 @@ use libp2p::{
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use contract_client::PeerId;
+use sqd_contract_client::PeerId;
 
 use crate::{
     behaviour::{
@@ -23,7 +23,7 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ping {
     pub peer_id: PeerId,
-    pub ping: subsquid_messages::Ping,
+    pub ping: sqd_messages::Ping,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

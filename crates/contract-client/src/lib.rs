@@ -1,4 +1,4 @@
-// contract-client, client for accessing the on-chain data in the Subsquid network.
+// sqd-contract-client, client for accessing the on-chain data in the SQD Network.
 // Copyright (C) 2024 Subsquid Labs GmbH
 
 // This program is free software: you can redistribute it and/or modify

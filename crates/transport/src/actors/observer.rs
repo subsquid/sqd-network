@@ -9,7 +9,7 @@ use libp2p::{
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{LogsCollected, Ping, QueryLogs};
+use sqd_messages::{LogsCollected, Ping, QueryLogs};
 
 use crate::{
     behaviour::{

@@ -1,4 +1,4 @@
-// subsquid-messages, message definitions for the Subsquid network.
+// sqd-messages, message definitions for the SQD Network.
 // Copyright (C) 2024 Subsquid Labs GmbH
 
 // This program is free software: you can redistribute it and/or modify
