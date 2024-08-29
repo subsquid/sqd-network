@@ -1,11 +1,9 @@
-use std::{collections::HashSet, time::Duration};
+use std::time::Duration;
 
 use clap::Parser;
 use env_logger::Env;
 use futures::StreamExt;
 use libp2p::{
-    allow_block_list,
-    allow_block_list::AllowedPeers,
     autonat,
     gossipsub::{self, MessageAuthenticity},
     identify,
@@ -21,7 +19,7 @@ use tokio::signal::unix::{signal, SignalKind};
 use subsquid_network_transport::{
     protocol::{dht_protocol, ID_PROTOCOL},
     util::{addr_is_reachable, get_keypair},
-    BootNode, Keypair, QuicConfig, TransportArgs,
+    BootNode, Keypair, QuicConfig, TransportArgs, WhitelistBehavior, Wrapped,
 };
 
 #[cfg(not(target_env = "msvc"))]
@@ -50,7 +48,7 @@ struct Behaviour {
     ping: ping::Behaviour,
     autonat: autonat::Behaviour,
     conn_limits: libp2p_connection_limits::Behaviour,
-    allow: allow_block_list::Behaviour<AllowedPeers>,
+    whitelist: Wrapped<WhitelistBehavior>,
 }
 
 #[tokio::main]
@@ -96,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
         conn_limits: libp2p_connection_limits::Behaviour::new(
             ConnectionLimits::default().with_max_established_per_peer(Some(3)),
         ),
-        allow: Default::default(),
+        whitelist: WhitelistBehavior::new(contract_client, Default::default()).into(),
     };
 
     // Start the swarm
@@ -128,50 +126,21 @@ async fn main() -> anyhow::Result<()> {
         .filter(|node| node.peer_id != local_peer_id)
     {
         log::info!("Connecting to boot node {peer_id} at {address}");
-        swarm.behaviour_mut().allow.allow_peer(peer_id);
+        swarm.behaviour_mut().whitelist.allow_peer(peer_id);
         swarm.behaviour_mut().kademlia.add_address(&peer_id, address);
         swarm.dial(peer_id)?;
     }
 
     for peer_id in cli.allowed_nodes {
         log::info!("Adding allowed peer {peer_id}");
-        swarm.behaviour_mut().allow.allow_peer(peer_id);
+        swarm.behaviour_mut().whitelist.allow_peer(peer_id);
     }
-
-    let mut registered_nodes = HashSet::new();
-    let mut nodes_stream = contract_client.network_nodes_stream(Duration::from_secs(300)).fuse();
 
     let mut sigint = signal(SignalKind::interrupt())?;
     let mut sigterm = signal(SignalKind::terminate())?;
     loop {
         let event = tokio::select! {
             event = swarm.select_next_some() => event,
-            res = nodes_stream.select_next_some() => {
-                let nodes = match res {
-                    Err(e) => {
-                        log::error!("Error retrieving registered nodes from chain: {e:?}");
-                        continue;
-                    }
-                    Ok(nodes) => nodes.all(),
-                };
-                if nodes == registered_nodes {
-                    log::debug!("Registered nodes set unchanged.");
-                    continue;
-                }
-                log::info!("Updating registered nodes");
-                // Disallow nodes which are no longer registered
-                for peer_id in registered_nodes.difference(&nodes) {
-                    log::debug!("Blocking peer {peer_id}");
-                    swarm.behaviour_mut().allow.disallow_peer(*peer_id);
-                }
-                // Allow newly registered nodes
-                for peer_id in nodes.difference(&registered_nodes) {
-                    log::debug!("Allowing peer {peer_id}");
-                    swarm.behaviour_mut().allow.allow_peer(*peer_id);
-                }
-                registered_nodes = nodes;
-                continue;
-            }
             _ = sigint.recv() => break,
             _ = sigterm.recv() => break,
         };

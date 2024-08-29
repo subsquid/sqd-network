@@ -61,6 +61,7 @@ impl Worker {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct NetworkNodes {
     pub gateways: HashSet<PeerId>,
     pub workers: HashSet<PeerId>,

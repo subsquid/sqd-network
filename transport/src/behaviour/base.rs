@@ -11,8 +11,6 @@ use bimap::BiHashMap;
 use futures::StreamExt;
 use futures_bounded::FuturesMap;
 use libp2p::{
-    allow_block_list,
-    allow_block_list::AllowedPeers,
     autonat,
     autonat::NatStatus,
     core::ConnectedPoint,
@@ -36,7 +34,7 @@ use parking_lot::RwLock;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-use contract_client::{EpochStream, NetworkNodes, NodeStream};
+use contract_client::{EpochStream, NetworkNodes};
 use subsquid_messages::{
     signatures::SignedMessage, worker_logs_msg, LogsCollected, Ping, QueryExecuted, QueryLogs,
     WorkerLogsMsg,
@@ -47,6 +45,7 @@ use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_PROBES, ONGOING_QUERIES};
 use crate::{
     behaviour::{
         addr_cache::AddressCache,
+        node_whitelist::{WhitelistBehavior, WhitelistConfig},
         pubsub::{MsgValidationConfig, PubsubBehaviour, PubsubMsg, ValidationError},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
@@ -69,7 +68,7 @@ pub struct InnerBehaviour {
     dcutr: dcutr::Behaviour,
     ping: ping::Behaviour,
     autonat: autonat::Behaviour,
-    allow: allow_block_list::Behaviour<AllowedPeers>,
+    whitelist: Wrapped<WhitelistBehavior>,
     pubsub: Wrapped<PubsubBehaviour>,
     address_cache: AddressCache,
 }
@@ -96,8 +95,8 @@ pub struct BaseConfig {
 
 impl BaseConfig {
     pub fn from_env() -> Self {
-        let nodes_update_interval =
-            Duration::from_secs(parse_env_var("ONCHAIN_UPDATE_INTERVAL_SEC", 180));
+        let onchain_update_interval =
+            Duration::from_secs(parse_env_var("ONCHAIN_UPDATE_INTERVAL_SEC", 60));
         let autonat_timeout = Duration::from_secs(parse_env_var("AUTONAT_TIMEOUT_SEC", 60));
         let identify_interval = Duration::from_secs(parse_env_var("IDENTIFY_INTERVAL_SEC", 60));
         let probe_timeout = Duration::from_secs(parse_env_var("PROBE_TIMEOUT_SEC", 20));
@@ -107,7 +106,7 @@ impl BaseConfig {
         let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
             .expect("addr_cache_size should be > 0");
         Self {
-            onchain_update_interval: nodes_update_interval,
+            onchain_update_interval,
             autonat_timeout,
             identify_interval,
             probe_timeout,
@@ -125,11 +124,9 @@ pub struct BaseBehaviour {
     ongoing_queries: BiHashMap<PeerId, QueryId>,
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
-    registered_nodes: HashSet<PeerId>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     current_epoch_start: Arc<RwLock<SystemTime>>,
     logs_collected: Arc<RwLock<HashMap<String, u64>>>, // peer_id (base58) -> highest collected seq_no
-    active_nodes_stream: NodeStream,
     epoch_stream: EpochStream,
     max_pubsub_msg_size: usize,
 }
@@ -168,13 +165,17 @@ impl BaseBehaviour {
                     ..Default::default()
                 },
             ),
-            allow: Default::default(),
+            whitelist: WhitelistBehavior::new(
+                contract_client.clone_client(),
+                WhitelistConfig::new(config.onchain_update_interval),
+            )
+            .into(),
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
         };
 
         for boot_node in boot_nodes {
-            inner.allow.allow_peer(boot_node.peer_id);
+            inner.whitelist.allow_peer(boot_node.peer_id);
             inner.autonat.add_server(boot_node.peer_id, Some(boot_node.address));
         }
 
@@ -184,13 +185,9 @@ impl BaseBehaviour {
             ongoing_queries: Default::default(),
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
-            registered_nodes: Default::default(),
             registered_workers: Arc::new(RwLock::new(Default::default())),
             current_epoch_start: Arc::new(RwLock::new(SystemTime::UNIX_EPOCH)),
             logs_collected: Arc::new(RwLock::new(Default::default())),
-            active_nodes_stream: contract_client
-                .clone_client()
-                .network_nodes_stream(config.onchain_update_interval),
             epoch_stream: contract_client.epoch_stream(config.onchain_update_interval),
             max_pubsub_msg_size: config.max_pubsub_msg_size,
         }
@@ -322,37 +319,7 @@ impl BaseBehaviour {
     }
 
     pub fn allow_peer(&mut self, peer_id: PeerId) {
-        log::debug!("Allowing peer {peer_id}");
-        self.inner.allow.allow_peer(peer_id);
-    }
-
-    fn on_nodes_update(&mut self, result: Result<NetworkNodes, contract_client::ClientError>) {
-        let nodes = match result {
-            Err(e) => {
-                log::error!("Error retrieving registered nodes from chain: {e:?}");
-                return;
-            }
-            Ok(nodes) => nodes,
-        };
-        self.registered_workers.write().clone_from(&nodes.workers);
-
-        let nodes = nodes.all();
-        if nodes == self.registered_nodes {
-            log::debug!("Registered nodes set unchanged.");
-            return;
-        }
-        log::info!("Updating registered nodes");
-        // Disallow nodes which are no longer registered
-        for peer_id in self.registered_nodes.difference(&nodes) {
-            log::debug!("Blocking peer {peer_id}");
-            self.inner.allow.disallow_peer(*peer_id);
-        }
-        // Allow newly registered nodes
-        for peer_id in nodes.difference(&self.registered_nodes) {
-            log::debug!("Allowing peer {peer_id}");
-            self.inner.allow.allow_peer(*peer_id);
-        }
-        self.registered_nodes = nodes;
+        self.inner.whitelist.allow_peer(peer_id);
     }
 
     fn on_epoch_update(&self, result: Result<(u32, SystemTime), contract_client::ClientError>) {
@@ -425,21 +392,13 @@ impl BehaviourWrapper for BaseBehaviour {
                 record_event(&ev);
                 None
             }
+            InnerBehaviourEvent::Whitelist(nodes) => self.on_nodes_update(nodes),
             _ => None,
         }
     }
 
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
         loop {
-            match self.active_nodes_stream.poll_next_unpin(cx) {
-                Poll::Ready(Some(res)) => {
-                    self.on_nodes_update(res);
-                    continue;
-                }
-                Poll::Pending => {}
-                _ => unreachable!(), // infinite stream
-            }
-
             match self.epoch_stream.poll_next_unpin(cx) {
                 Poll::Ready(Some(res)) => {
                     self.on_epoch_update(res);
@@ -605,6 +564,12 @@ impl BaseBehaviour {
             .ok()?;
         *self.logs_collected.write() = logs_collected.sequence_numbers.clone();
         Some(BaseBehaviourEvent::LogsCollected(logs_collected))
+    }
+
+    fn on_nodes_update(&mut self, nodes: NetworkNodes) -> Option<TToSwarm<Self>> {
+        log::debug!("Updating registered workers");
+        *self.registered_workers.write() = nodes.workers;
+        None
     }
 }
 
