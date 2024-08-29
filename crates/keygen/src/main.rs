@@ -1,6 +1,8 @@
-use clap::Parser;
 use std::path::PathBuf;
-use subsquid_network_transport::util;
+
+use clap::Parser;
+
+use sqd_network_transport::util;
 
 #[derive(Parser)]
 #[command(version)]

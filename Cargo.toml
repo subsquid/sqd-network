@@ -1,5 +1,5 @@
 [workspace]
-members = ["contract-client", "messages", "transport"]
+members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]

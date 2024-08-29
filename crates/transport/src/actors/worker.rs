@@ -12,7 +12,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{
+use sqd_messages::{
     query_result, signatures::SignedMessage, LogsCollected, Ping, Pong, Query, QueryExecuted,
     QueryResult,
 };

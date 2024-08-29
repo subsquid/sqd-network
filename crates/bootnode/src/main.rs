@@ -16,7 +16,7 @@ use libp2p_connection_limits::ConnectionLimits;
 use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::signal::unix::{signal, SignalKind};
 
-use subsquid_network_transport::{
+use sqd_network_transport::{
     protocol::{dht_protocol, ID_PROTOCOL},
     util::{addr_is_reachable, get_keypair},
     BootNode, Keypair, QuicConfig, TransportArgs, WhitelistBehavior, Wrapped,
@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
     let local_peer_id = PeerId::from(keypair.public());
     log::info!("Local peer ID: {local_peer_id}");
 
-    let contract_client = contract_client::get_client(&cli.transport.rpc).await?;
+    let contract_client = sqd_contract_client::get_client(&cli.transport.rpc).await?;
 
     // Prepare behaviour & transport
     let autonat_config = autonat::Config {

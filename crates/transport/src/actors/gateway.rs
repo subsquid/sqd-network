@@ -17,7 +17,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use subsquid_messages::{
+use sqd_messages::{
     gateway_log_msg, query_result, GatewayLogMsg, Ping, Query, QueryFinished, QueryResult,
     QuerySubmitted,
 };

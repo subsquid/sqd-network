@@ -1,4 +1,4 @@
-// subsquid-network-transport, the transport layer for the Subsquid network.
+// sqd-network-transport, the transport layer for the SQD Network.
 // Copyright (C) 2024 Subsquid Labs GmbH
 
 // This program is free software: you can redistribute it and/or modify
@@ -74,6 +74,7 @@ pub use behaviour::request_client::ClientConfig;
 pub use behaviour::{
     addr_cache::AddressCache,
     node_whitelist::{WhitelistBehavior, WhitelistConfig},
+    pubsub::{PubsubBehaviour, PubsubMsg},
     wrapped::{BehaviourWrapper, Wrapped},
 };
 #[cfg(feature = "actors")]
@@ -123,7 +124,7 @@ pub enum Error {
     #[error("Dialing failed: {0:?}")]
     Dial(#[from] DialError),
     #[error("{0}")]
-    Contract(#[from] contract_client::ClientError),
+    Contract(#[from] sqd_contract_client::ClientError),
 }
 
 impl From<noise::Error> for Error {
@@ -138,7 +139,7 @@ impl From<std::io::Error> for Error {
     }
 }
 
-#[cfg(feature = "actors")]
+#[cfg(feature = "behaviour")]
 #[cfg(feature = "metrics")]
 pub(crate) fn record_event<T>(event: &T)
 where
@@ -149,6 +150,6 @@ where
     }
 }
 
-#[cfg(feature = "actors")]
+#[cfg(feature = "behaviour")]
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn record_event<T>(_event: T) {}

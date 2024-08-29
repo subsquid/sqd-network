@@ -8,6 +8,8 @@ use libp2p::{
     yamux, StreamProtocol, Swarm, SwarmBuilder,
 };
 
+use sqd_contract_client::Client as ContractClient;
+
 use crate::{
     behaviour::base::{BaseBehaviour, BaseConfig},
     cli::{BootNode, TransportArgs},
@@ -51,14 +53,14 @@ pub struct P2PTransportBuilder {
     relay: bool,
     quic_config: QuicConfig,
     base_config: BaseConfig,
-    contract_client: Box<dyn contract_client::Client>,
+    contract_client: Box<dyn ContractClient>,
     dht_protocol: StreamProtocol,
 }
 impl P2PTransportBuilder {
     pub async fn from_cli(args: TransportArgs) -> anyhow::Result<Self> {
         let listen_addrs = args.listen_addrs();
         let keypair = get_keypair(args.key).await?;
-        let contract_client = contract_client::get_client(&args.rpc).await?;
+        let contract_client = sqd_contract_client::get_client(&args.rpc).await?;
         let dht_protocol = dht_protocol(args.rpc.network);
         Ok(Self {
             keypair,
@@ -118,7 +120,7 @@ impl P2PTransportBuilder {
         self.keypair.clone()
     }
 
-    pub fn contract_client(&self) -> Box<dyn contract_client::Client> {
+    pub fn contract_client(&self) -> Box<dyn ContractClient> {
         self.contract_client.clone_client()
     }
 
