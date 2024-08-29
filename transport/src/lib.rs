@@ -30,7 +30,7 @@ pub use prometheus_client::registry::Registry;
 
 #[cfg(feature = "actors")]
 mod actors;
-#[cfg(feature = "actors")]
+#[cfg(feature = "behaviour")]
 mod behaviour;
 #[cfg(feature = "actors")]
 mod builder;
@@ -70,6 +70,12 @@ pub use crate::actors::worker::{
 pub use behaviour::base::BaseConfig;
 #[cfg(feature = "request-client")]
 pub use behaviour::request_client::ClientConfig;
+#[cfg(feature = "behaviour")]
+pub use behaviour::{
+    addr_cache::AddressCache,
+    node_whitelist::{WhitelistBehavior, WhitelistConfig},
+    wrapped::{BehaviourWrapper, Wrapped},
+};
 #[cfg(feature = "actors")]
 pub use builder::P2PTransportBuilder;
 pub use cli::{BootNode, TransportArgs};

@@ -1,5 +1,6 @@
-mod addr_cache;
+pub mod addr_cache;
 pub mod base;
+pub mod node_whitelist;
 pub mod pubsub;
 #[cfg(feature = "request-client")]
 pub mod request_client;
