@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+#[allow(unused_imports)]
 use futures_core::Stream;
 use libp2p::{
     multiaddr::Protocol,
@@ -29,6 +30,10 @@ use crate::actors::logs_collector::{
 #[cfg(feature = "observer")]
 use crate::actors::observer::{
     self, ObserverBehaviour, ObserverConfig, ObserverEvent, ObserverTransportHandle,
+};
+#[cfg(feature = "peer-checker")]
+use crate::actors::peer_checker::{
+    self, PeerCheckerBehaviour, PeerCheckerConfig, PeerCheckerTransportHandle,
 };
 #[cfg(feature = "pings-collector")]
 use crate::actors::pings_collector::{
@@ -207,6 +212,15 @@ impl P2PTransportBuilder {
         let swarm =
             self.build_swarm(|base| LogsCollectorBehaviour::new(base, local_peer_id, config))?;
         Ok(logs_collector::start_transport(swarm, config))
+    }
+
+    #[cfg(feature = "peer-checker")]
+    pub fn build_peer_checker(
+        self,
+        config: PeerCheckerConfig,
+    ) -> Result<PeerCheckerTransportHandle, Error> {
+        let swarm = self.build_swarm(PeerCheckerBehaviour::new)?;
+        Ok(peer_checker::start_transport(swarm, config))
     }
 
     #[cfg(feature = "observer")]

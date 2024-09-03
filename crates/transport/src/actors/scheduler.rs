@@ -16,7 +16,7 @@ use sqd_messages::{Ping, Pong};
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent},
+        base::{BaseBehaviour, BaseBehaviourEvent, PeerProbed, ProbeResult, TryProbeError},
         request_client::{ClientBehaviour, ClientConfig, ClientEvent},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
@@ -91,7 +91,7 @@ impl SchedulerBehaviour {
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<SchedulerEvent> {
         match ev {
             BaseBehaviourEvent::Ping { peer_id, ping } => self.on_ping(peer_id, ping),
-            BaseBehaviourEvent::PeerProbed { peer_id, reachable } => self.on_peer_probed(peer_id, reachable),
+            BaseBehaviourEvent::PeerProbed(PeerProbed { peer_id, result }) => self.on_peer_probed(peer_id, result),
             _ => None
         }
     }
@@ -102,8 +102,9 @@ impl SchedulerBehaviour {
         Some(SchedulerEvent::Ping { peer_id, ping })
     }
 
-    fn on_peer_probed(&mut self, peer_id: PeerId, reachable: bool) -> Option<SchedulerEvent> {
-        log::debug!("Peer {peer_id} probed reachable={reachable}");
+    fn on_peer_probed(&mut self, peer_id: PeerId, result: ProbeResult) -> Option<SchedulerEvent> {
+        log::debug!("Peer {peer_id} probed result={result:?}");
+        let reachable = matches!(result, ProbeResult::Reachable { .. });
         Some(SchedulerEvent::PeerProbed { peer_id, reachable })
     }
 
@@ -135,8 +136,8 @@ impl SchedulerBehaviour {
         }
     }
 
-    pub fn try_probe_peer(&mut self, peer_id: PeerId) -> Result<bool, QueueFull> {
-        self.inner.base.try_probe_peer(peer_id)
+    pub fn try_probe_peer(&mut self, peer_id: PeerId) -> Result<(), TryProbeError> {
+        self.inner.base.try_probe_dht(peer_id)
     }
 }
 
@@ -191,14 +192,11 @@ impl SchedulerTransport {
 
     fn probe_peer(&mut self, peer_id: PeerId) {
         log::debug!("Probing peer {peer_id}");
-        match self.swarm.behaviour_mut().try_probe_peer(peer_id) {
-            Ok(true) => self.events_tx.send_lossy(SchedulerEvent::PeerProbed {
-                peer_id,
-                reachable: true,
-            }),
-            Ok(false) => {}
-            Err(_) => log::error!("Too many active probes. Cannot schedule next one."),
-        }
+        _ = self
+            .swarm
+            .behaviour_mut()
+            .try_probe_peer(peer_id)
+            .map_err(|e| log::error!("{e}"));
     }
 }
 
@@ -224,6 +222,7 @@ impl SchedulerTransportHandle {
             _task_manager: Arc::new(task_manager),
         }
     }
+
     pub fn send_pong(&self, peer_id: PeerId, pong: Pong) -> Result<(), QueueFull> {
         log::debug!("Queueing pong to {peer_id}: {pong:?}");
         self.pongs_tx.try_send((peer_id, pong))

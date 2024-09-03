@@ -1,5 +1,4 @@
 use std::{
-    fmt::Debug,
     future::Future,
     pin::{pin, Pin},
     task::{Context, Poll},
@@ -15,13 +14,21 @@ use crate::QueueFull;
 #[cfg(feature = "metrics")]
 const QUEUE_NAME: &str = "queue_name";
 
-#[derive(Clone)]
 pub struct Sender<T> {
     inner: mpsc::Sender<T>,
     name: &'static str,
 }
 
-impl<T: Debug> Sender<T> {
+impl<T> Clone for Sender<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            name: self.name,
+        }
+    }
+}
+
+impl<T> Sender<T> {
     pub fn new(inner: mpsc::Sender<T>, name: &'static str) -> Self {
         Self { inner, name }
     }
@@ -72,7 +79,7 @@ impl<T> Stream for Receiver<T> {
     }
 }
 
-pub fn new_queue<T: Debug>(size: usize, name: &'static str) -> (Sender<T>, Receiver<T>) {
+pub fn new_queue<T>(size: usize, name: &'static str) -> (Sender<T>, Receiver<T>) {
     let (tx, rx) = mpsc::channel(size);
     let tx = Sender::new(tx, name);
     let rx = Receiver::new(rx, name);
