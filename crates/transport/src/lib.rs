@@ -54,6 +54,11 @@ pub use crate::actors::logs_collector::{
 pub use crate::actors::observer::{
     ObserverBehaviour, ObserverConfig, ObserverEvent, ObserverTransportHandle,
 };
+#[cfg(feature = "peer-checker")]
+pub use crate::actors::peer_checker::{
+    PeerCheckerBehaviour, PeerCheckerConfig, PeerCheckerTransportHandle, ProbeOk, ProbeRequest,
+    ProbeResult,
+};
 #[cfg(feature = "pings-collector")]
 pub use crate::actors::pings_collector::{
     Ping, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
