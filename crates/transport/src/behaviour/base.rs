@@ -358,9 +358,7 @@ impl BaseBehaviour {
         conn_id: ConnectionId,
         error: String,
     ) -> Option<TToSwarm<Self>> {
-        if self.pending_outbound_conns.remove_by_right(&conn_id).is_none() {
-            return None;
-        }
+        self.pending_outbound_conns.remove_by_right(&conn_id)?;
         log::debug!("Probe for peer {peer_id} failed: {error}");
         #[cfg(feature = "metrics")]
         if ONGOING_PROBES.dec() == 0 {

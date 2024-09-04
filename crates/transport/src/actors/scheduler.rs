@@ -91,7 +91,7 @@ impl SchedulerBehaviour {
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<SchedulerEvent> {
         match ev {
             BaseBehaviourEvent::Ping { peer_id, ping } => self.on_ping(peer_id, ping),
-            BaseBehaviourEvent::PeerProbed(PeerProbed { peer_id, result }) => self.on_peer_probed(peer_id, result),
+            BaseBehaviourEvent::PeerProbed(PeerProbed { peer_id, result }) => self.on_peer_probed(peer_id, &result),
             _ => None
         }
     }
@@ -102,7 +102,7 @@ impl SchedulerBehaviour {
         Some(SchedulerEvent::Ping { peer_id, ping })
     }
 
-    fn on_peer_probed(&mut self, peer_id: PeerId, result: ProbeResult) -> Option<SchedulerEvent> {
+    fn on_peer_probed(&mut self, peer_id: PeerId, result: &ProbeResult) -> Option<SchedulerEvent> {
         log::debug!("Peer {peer_id} probed result={result:?}");
         let reachable = matches!(result, ProbeResult::Reachable { .. });
         Some(SchedulerEvent::PeerProbed { peer_id, reachable })
