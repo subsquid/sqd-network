@@ -139,100 +139,6 @@ impl PeerCheckerBehaviour {
         }
     }
 
-    // fn on_identify_event(&mut self, ev: identify::Event) -> Option<TToSwarm<Self>> {
-    //     let (conn_id, peer_id, info) = match ev {
-    //         identify::Event::Received {
-    //             connection_id,
-    //             peer_id,
-    //             info,
-    //         } => (connection_id, peer_id, info),
-    //         _ => return None,
-    //     };
-    //     let identify::Info {
-    //         agent_version,
-    //         mut listen_addrs,
-    //         ..
-    //     } = info;
-    //     // Filter out private addresses
-    //     let listen_addrs = listen_addrs.into_iter().filter(addr_is_reachable).collect();
-    //
-    //     if let Some(probe) = self.remove_dht_probe(peer_id) {
-    //         log::debug!("DHT probe for {peer_id} succeeded");
-    //         let result = ProbeResult::Ok {
-    //             dht_reachable: true,
-    //             listen_addrs,
-    //             agent_version: agent_version.into_boxed_str(),
-    //         };
-    //         _ = probe.result_sender.send(result);
-    //         return None;
-    //     }
-    //
-    //     let Some(probe) = self.remove_direct_probe(peer_id, conn_id) else {
-    //         return None;
-    //     };
-    //     log::debug!("Direct probe for {peer_id} succeeded");
-    //     let result = ProbeResult::Ok {
-    //         dht_reachable: false,
-    //         listen_addrs,
-    //         agent_version: agent_version.into_boxed_str(),
-    //     };
-    //     _ = probe.result_sender.send(result);
-    //     None
-    // }
-    //
-    // fn on_dial_failure(&mut self, dial_failure: DialFailure) -> Option<TToSwarm<Self>> {
-    //     let Some(peer_id) = dial_failure.peer_id else {
-    //         return None;
-    //     };
-    //     let conn_id = dial_failure.connection_id;
-    //     let Some(probe) = self.remove_direct_probe(peer_id, conn_id) else {
-    //         return None;
-    //     };
-    //     let error = dial_failure.error.to_string().into_boxed_str();
-    //     log::debug!("Direct probe for {peer_id} failed: {error}");
-    //
-    //     let result = ProbeResult::Failure { error };
-    //     _ = probe.result_sender.send(result);
-    //     None
-    // }
-    //
-    // fn on_dht_timeout(&mut self, peer_id: PeerId) -> Option<TToSwarm<Self>> {
-    //     let Some(probe) = self.remove_dht_probe(peer_id) else {
-    //         log::warn!("Unknown DHT probe timeout peer_id={peer_id}");
-    //         return None;
-    //     };
-    //     let addr = Multiaddr::from(probe.request.ip_addr)
-    //         .with(Protocol::Udp(probe.request.port))
-    //         .with(Protocol::Quic);
-    //     log::debug!(
-    //         "DHT probe for peer {peer_id} timed out. Scheduling direct probe on addr {addr}"
-    //     );
-    //     let dial_opts = DialOpts::peer_id(peer_id)
-    //         .addresses(vec![addr])
-    //         .condition(PeerCondition::Always)
-    //         .build();
-    //     let conn_id = dial_opts.connection_id();
-    //     self.add_direct_probe(peer_id, conn_id, probe);
-    //     Some(ToSwarm::Dial { opts: dial_opts })
-    // }
-    //
-    // fn on_direct_timeout(
-    //     &mut self,
-    //     peer_id: PeerId,
-    //     conn_id: ConnectionId,
-    // ) -> Option<TToSwarm<Self>> {
-    //     let Some(probe) = self.remove_direct_probe(peer_id, conn_id) else {
-    //         log::warn!("Unknown direct probe timeout peer_id={peer_id} conn_id={conn_id}");
-    //         return None;
-    //     };
-    //     log::debug!("Direct probe for peer {peer_id} timed out");
-    //     let result = ProbeResult::Failure {
-    //         error: "Timeout".to_string().into_boxed_str(),
-    //     };
-    //     _ = probe.result_sender.send(result);
-    //     None
-    // }
-
     fn on_peer_probed(&mut self, PeerProbed { peer_id, result }: PeerProbed) {
         if let Some(probe) = self.dht_probes.remove(&peer_id) {
             match result {
@@ -262,9 +168,8 @@ impl BehaviourWrapper for PeerCheckerBehaviour {
         &mut self,
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
-        match ev {
-            BaseBehaviourEvent::PeerProbed(ev) => self.on_peer_probed(ev),
-            _ => {}
+        if let BaseBehaviourEvent::PeerProbed(ev) = ev {
+            self.on_peer_probed(ev)
         }
         None
     }
