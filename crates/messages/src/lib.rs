@@ -121,3 +121,40 @@ impl QueryResult {
         }
     }
 }
+
+impl WorkerLogsMsg {
+    pub fn push(&mut self, log: QueryExecuted) {
+        match &mut self.msg {
+            None => {
+                self.msg = Some(worker_logs_msg::Msg::QueryLogs(QueryLogs {
+                    queries_executed: vec![log],
+                }));
+            }
+            Some(worker_logs_msg::Msg::QueryLogs(QueryLogs { queries_executed })) => {
+                queries_executed.push(log)
+            }
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match &self.msg {
+            None => 0,
+            Some(worker_logs_msg::Msg::QueryLogs(QueryLogs { queries_executed })) => {
+                queries_executed.len()
+            }
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn pop(&mut self) -> Option<QueryExecuted> {
+        match &mut self.msg {
+            None => None,
+            Some(worker_logs_msg::Msg::QueryLogs(QueryLogs { queries_executed })) => {
+                queries_executed.pop()
+            }
+        }
+    }
+}

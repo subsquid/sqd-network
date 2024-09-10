@@ -280,8 +280,7 @@ impl BaseBehaviour {
         for log in &mut logs {
             self.sign(log);
         }
-        for bundle in bundle_messages(logs, self.max_pubsub_msg_size) {
-            let msg: WorkerLogsMsg = bundle.into();
+        for msg in bundle_logs(logs, self.max_pubsub_msg_size) {
             self.inner.pubsub.publish(WORKER_LOGS_TOPIC, msg.encode_to_vec());
         }
     }
@@ -698,47 +697,30 @@ fn decode_worker_logs_msg(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourE
     }
 }
 
-fn bundle_messages<T: prost::Message>(
-    messages: impl IntoIterator<Item = T>,
+fn bundle_logs(
+    logs: impl IntoIterator<Item = QueryExecuted>,
     size_limit: usize,
-) -> impl Iterator<Item = Vec<T>> {
-    // Compute message sizes and filter out too big messages
-    let mut iter = messages
-        .into_iter()
-        .filter_map(move |msg| {
-            let msg_size = msg.encoded_len();
-            if msg_size > size_limit {
-                // TODO: Send oversized messages back as events, don't drop
-                log::warn!("Message too big ({msg_size} > {size_limit})");
-                return None;
-            }
-            Some((msg_size, msg))
-        })
-        .peekable();
+) -> impl Iterator<Item = WorkerLogsMsg> {
+    let mut logs: VecDeque<QueryExecuted> = logs.into_iter().collect();
 
     // Bundle into chunks of at most `size_limit` total size
     std::iter::from_fn(move || {
-        let mut bundle = Vec::new();
-        let mut remaining_cap = size_limit;
-        while let Some((size, msg)) = iter.next_if(|(size, _)| size <= &remaining_cap) {
-            bundle.push(msg);
-            remaining_cap -= size;
+        let mut msg = WorkerLogsMsg::default();
+        while let Some(next_log) = logs.pop_front() {
+            msg.push(next_log);
+            if msg.encoded_len() > size_limit {
+                if msg.len() == 1 {
+                    // Single message is larger than the limit – drop it
+                    msg.pop();
+                    log::warn!("Query log is too large and will be dropped");
+                } else {
+                    // Put the message back in the queue to include in the next bundle
+                    let log = msg.pop().unwrap();
+                    logs.push_front(log);
+                    break;
+                }
+            }
         }
-        (!bundle.is_empty()).then_some(bundle)
+        (!msg.is_empty()).then_some(msg)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_bundle_messages() {
-        let messages = vec![vec![0u8; 40], vec![0u8; 40], vec![0u8; 200], vec![0u8; 90]];
-        let bundles: Vec<Vec<Vec<u8>>> = bundle_messages(messages, 100).collect();
-
-        assert_eq!(bundles.len(), 2);
-        assert_eq!(bundles[0].len(), 2);
-        assert_eq!(bundles[1].len(), 1);
-    }
 }
