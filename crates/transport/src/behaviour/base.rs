@@ -280,7 +280,7 @@ impl BaseBehaviour {
         for log in &mut logs {
             self.sign(log);
         }
-        for msg in bundle_logs(logs, self.max_pubsub_msg_size) {
+        for msg in bundle_logs(logs, self.max_pubsub_msg_size / 2) {
             self.inner.pubsub.publish(WORKER_LOGS_TOPIC, msg.encode_to_vec());
         }
     }
