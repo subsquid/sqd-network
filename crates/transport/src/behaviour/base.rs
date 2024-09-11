@@ -601,20 +601,25 @@ impl BaseBehaviour {
                 peers.into_iter().find(|p| p.peer_id == peer_id)
             }
         };
+        let query_finished = last || peer_info.is_some();
 
         // Query finished
-        if last || peer_info.is_some() {
+        if query_finished {
             log::debug!("Query for peer {peer_id} finished.");
             self.ongoing_queries.remove_by_right(&query_id);
             #[cfg(feature = "metrics")]
             ONGOING_QUERIES.dec();
         }
-        let peer_info = peer_info?;
 
-        // Cache the found address(es) so they can be used for dialing
-        // (kademlia might not do it by itself, if the bucket is full)
-        self.inner.address_cache.put(peer_id, peer_info.addrs);
-        Some(ToSwarm::Dial {
+        if let Some(peer_info) = peer_info {
+            // Cache the found address(es) so they can be used for dialing
+            // (kademlia might not do it by itself, if the bucket is full)
+            self.inner.address_cache.put(peer_id, peer_info.addrs);
+        }
+
+        // Try to dial even if `peer_info` is `None`.
+        // There might be some address(es) cached from previous queries.
+        query_finished.then_some(ToSwarm::Dial {
             // Not using the default condition (`DisconnectedAndNotDialing`), because we may want
             // to establish an outbound connection to the peer despite existing inbound connection.
             opts: DialOpts::peer_id(peer_id).condition(PeerCondition::NotDialing).build(),

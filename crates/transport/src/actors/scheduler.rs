@@ -45,11 +45,19 @@ pub struct InnerBehaviour {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct SchedulerConfig {
+    /// `ClientConfig` for the `pong` protocol
     pub pong_config: ClientConfig,
+    /// Maximum size of a pong message in bytes (default: `MAX_PONG_SIZE`)
     pub max_pong_size: u64,
+    /// Maximum number of outbound pongs stored in a queue (default: 1000)
     pub pongs_queue_size: usize,
+    /// Maximum number of pending peer probes (reachability checks) stored in a queue (default: 1000)
     pub probes_queue_size: usize,
+    /// Maximum number of inbound events (`SchedulerEvent`) stored in a queue (default: 1000)
     pub events_queue_size: usize,
+    /// Should existing outbound connections be ignored when probing peers (default: false)
+    pub ignore_existing_conns: bool,
+    /// Shutdown timeout for the transport loop (default: `DEFAULT_SHUTDOWN_TIMEOUT`)
     pub shutdown_timeout: Duration,
 }
 
@@ -61,6 +69,7 @@ impl Default for SchedulerConfig {
             pongs_queue_size: 1000,
             probes_queue_size: 1000,
             events_queue_size: 1000,
+            ignore_existing_conns: false,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         }
     }
@@ -166,6 +175,7 @@ struct SchedulerTransport {
     pongs_rx: Receiver<(PeerId, Pong)>,
     probes_rx: Receiver<PeerId>,
     events_tx: Sender<SchedulerEvent>,
+    ignore_existing_conns: bool,
 }
 
 impl SchedulerTransport {
@@ -191,12 +201,21 @@ impl SchedulerTransport {
     }
 
     fn probe_peer(&mut self, peer_id: PeerId) {
-        log::debug!("Probing peer {peer_id}");
-        _ = self
-            .swarm
-            .behaviour_mut()
-            .try_probe_peer(peer_id)
-            .map_err(|e| log::error!("{e}"));
+        if !self.ignore_existing_conns
+            && self.swarm.behaviour().inner.base.outbound_conn_exists(&peer_id)
+        {
+            log::info!("Outbound connection to {peer_id} already exists. Skipping probe");
+            self.events_tx.send_lossy(SchedulerEvent::PeerProbed {
+                peer_id,
+                reachable: true,
+            })
+        } else {
+            log::info!("Probing peer {peer_id}");
+            self.swarm
+                .behaviour_mut()
+                .try_probe_peer(peer_id)
+                .unwrap_or_else(|e| log::error!("{e}"));
+        }
     }
 }
 
@@ -246,6 +265,7 @@ pub fn start_transport(
         pongs_rx,
         probes_rx,
         events_tx,
+        ignore_existing_conns: config.ignore_existing_conns,
     };
     let handle =
         SchedulerTransportHandle::new(pongs_tx, probes_tx, transport, config.shutdown_timeout);
