@@ -3,7 +3,7 @@ use futures::stream::StreamExt;
 use simple_logger::SimpleLogger;
 use std::time::Duration;
 
-use contract_client::{self, RpcArgs};
+use sqd_contract_client::{self, RpcArgs};
 
 #[derive(Parser)]
 struct Cli {
@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
     SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
     let cli: Cli = Cli::parse();
 
-    let client = contract_client::get_client(&cli.rpc).await?;
+    let client = sqd_contract_client::get_client(&cli.rpc).await?;
     let epoch_num = client.current_epoch().await?;
     let epoch_start = client.current_epoch_start().await?;
     let elapsed = epoch_start.elapsed()?;
