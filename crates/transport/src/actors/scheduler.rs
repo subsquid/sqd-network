@@ -14,6 +14,9 @@ use tokio_util::sync::CancellationToken;
 
 use sqd_messages::{Ping, Pong};
 
+#[cfg(feature = "metrics")]
+use crate::metrics::PONGS_SENT;
+
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent, PeerProbed, ProbeResult, TryProbeError},
@@ -143,6 +146,8 @@ impl SchedulerBehaviour {
         if self.inner.pong.try_send_request(peer_id, pong).is_err() {
             log::error!("Cannot send pong to {peer_id}: outbound queue full")
         }
+        #[cfg(feature = "metrics")]
+        PONGS_SENT.inc();
     }
 
     pub fn try_probe_peer(&mut self, peer_id: PeerId) -> Result<(), TryProbeError> {

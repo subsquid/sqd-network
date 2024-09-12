@@ -15,7 +15,7 @@ use crate::{
     behaviour::base::{BaseBehaviour, BaseConfig},
     cli::{BootNode, TransportArgs},
     util::get_keypair,
-    Error, Keypair, Multiaddr, PeerId, QuicConfig,
+    AgentInfo, Error, Keypair, Multiaddr, PeerId, QuicConfig,
 };
 
 #[cfg(feature = "gateway")]
@@ -60,9 +60,10 @@ pub struct P2PTransportBuilder {
     base_config: BaseConfig,
     contract_client: Box<dyn ContractClient>,
     dht_protocol: StreamProtocol,
+    agent_info: AgentInfo,
 }
 impl P2PTransportBuilder {
-    pub async fn from_cli(args: TransportArgs) -> anyhow::Result<Self> {
+    pub async fn from_cli(args: TransportArgs, agent_info: AgentInfo) -> anyhow::Result<Self> {
         let listen_addrs = args.listen_addrs();
         let keypair = get_keypair(args.key).await?;
         let contract_client = sqd_contract_client::get_client(&args.rpc).await?;
@@ -78,6 +79,7 @@ impl P2PTransportBuilder {
             base_config: BaseConfig::from_env(),
             contract_client,
             dht_protocol,
+            agent_info,
         })
     }
 
@@ -152,6 +154,7 @@ impl P2PTransportBuilder {
                     self.boot_nodes.clone(),
                     relay,
                     self.dht_protocol,
+                    self.agent_info,
                 );
                 behaviour(base)
             })
