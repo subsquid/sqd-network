@@ -33,6 +33,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use parking_lot::RwLock;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+
 use sqd_contract_client::{Client as ContractClient, EpochStream, NetworkNodes};
 use sqd_messages::{
     signatures::SignedMessage, worker_logs_msg, LogsCollected, Ping, QueryExecuted, QueryLogs,
@@ -40,7 +41,10 @@ use sqd_messages::{
 };
 
 #[cfg(feature = "metrics")]
-use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_PROBES, ONGOING_QUERIES};
+use crate::metrics::{
+    ACTIVE_CONNECTIONS, LOGS_COLLECTED_PUBLISHED, LOGS_COLLECTED_RECEIVED, ONGOING_PROBES,
+    ONGOING_QUERIES, PINGS_PUBLISHED, PINGS_RECEIVED, WORKER_LOGS_PUBLISHED, WORKER_LOGS_RECEIVED,
+};
 use crate::{
     behaviour::{
         addr_cache::AddressCache,
@@ -56,11 +60,8 @@ use crate::{
     },
     record_event,
     util::{addr_is_reachable, parse_env_var},
-    Multiaddr, PeerId,
+    AgentInfo, Multiaddr, PeerId,
 };
-
-const AGENT_NAME: &str = env!("CARGO_PKG_NAME");
-const AGENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
@@ -144,6 +145,7 @@ impl BaseBehaviour {
         boot_nodes: Vec<BootNode>,
         relay: relay::client::Behaviour,
         dht_protocol: StreamProtocol,
+        agent_info: AgentInfo,
     ) -> Self {
         let local_peer_id = keypair.public().to_peer_id();
         let mut kad_config = kad::Config::new(dht_protocol);
@@ -153,7 +155,7 @@ impl BaseBehaviour {
                 identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
                     .with_interval(config.identify_interval)
                     .with_push_listen_addr_updates(true)
-                    .with_agent_version(format!("{AGENT_NAME}/{AGENT_VERSION}")),
+                    .with_agent_version(agent_info.to_string()),
             ),
             kademlia: kad::Behaviour::with_config(
                 local_peer_id,
@@ -274,6 +276,8 @@ impl BaseBehaviour {
     pub fn publish_ping(&mut self, mut ping: Ping) {
         self.sign(&mut ping);
         self.inner.pubsub.publish(PING_TOPIC, ping.encode_to_vec());
+        #[cfg(feature = "metrics")]
+        PINGS_PUBLISHED.inc();
     }
 
     pub fn publish_worker_logs(&mut self, mut logs: Vec<QueryExecuted>) {
@@ -282,11 +286,15 @@ impl BaseBehaviour {
         }
         for msg in bundle_logs(logs, self.max_pubsub_msg_size / 2) {
             self.inner.pubsub.publish(WORKER_LOGS_TOPIC, msg.encode_to_vec());
+            #[cfg(feature = "metrics")]
+            WORKER_LOGS_PUBLISHED.inc();
         }
     }
 
     pub fn publish_logs_collected(&mut self, logs_collected: &LogsCollected) {
         self.inner.pubsub.publish(LOGS_COLLECTED_TOPIC, logs_collected.encode_to_vec());
+        #[cfg(feature = "metrics")]
+        LOGS_COLLECTED_PUBLISHED.inc();
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -663,6 +671,8 @@ impl BaseBehaviour {
             .map_err(|e| log::warn!("Error decoding logs collected msg: {e:?}"))
             .ok()?;
         *self.logs_collected.write() = logs_collected.sequence_numbers.clone();
+        #[cfg(feature = "metrics")]
+        LOGS_COLLECTED_RECEIVED.inc();
         Some(BaseBehaviourEvent::LogsCollected(logs_collected))
     }
 
@@ -684,6 +694,8 @@ fn decode_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
         log::warn!("Invalid ping signature from {worker_id}");
         return None;
     }
+    #[cfg(feature = "metrics")]
+    PINGS_RECEIVED.inc();
     Some(BaseBehaviourEvent::Ping { peer_id, ping })
 }
 
@@ -693,6 +705,8 @@ fn decode_worker_logs_msg(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourE
         .ok()?;
     match msg.msg {
         Some(worker_logs_msg::Msg::QueryLogs(query_logs)) => {
+            #[cfg(feature = "metrics")]
+            WORKER_LOGS_RECEIVED.inc();
             Some(BaseBehaviourEvent::WorkerQueryLogs {
                 peer_id,
                 query_logs,

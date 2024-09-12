@@ -17,6 +17,9 @@ use sqd_messages::{
     QueryResult,
 };
 
+#[cfg(feature = "metrics")]
+use crate::metrics::PONGS_RECEIVED;
+
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent},
@@ -182,6 +185,8 @@ impl WorkerBehaviour {
             return None;
         }
         log::debug!("Received pong from scheduler: {request:?}");
+        #[cfg(feature = "metrics")]
+        PONGS_RECEIVED.inc();
         // Send minimal response to avoid getting errors
         _ = self.inner.pong.try_send_response(response_channel, 1);
         Some(WorkerEvent::Pong(request))

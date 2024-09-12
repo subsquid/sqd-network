@@ -17,9 +17,10 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::signal::unix::{signal, SignalKind};
 
 use sqd_network_transport::{
+    get_agent_info,
     protocol::{dht_protocol, ID_PROTOCOL},
     util::{addr_is_reachable, get_keypair},
-    BootNode, Keypair, QuicConfig, TransportArgs, WhitelistBehavior, Wrapped,
+    AgentInfo, BootNode, Keypair, QuicConfig, TransportArgs, WhitelistBehavior, Wrapped,
 };
 
 #[cfg(not(target_env = "msvc"))]
@@ -72,11 +73,13 @@ async fn main() -> anyhow::Result<()> {
     };
     let mut kad_config = kad::Config::new(dht_protocol(cli.transport.rpc.network));
     kad_config.set_replication_factor(20.try_into().unwrap());
+    let agent_info: AgentInfo = get_agent_info!();
     let behaviour = |keypair: &Keypair| Behaviour {
         identify: identify::Behaviour::new(
             identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
                 .with_interval(Duration::from_secs(60))
-                .with_push_listen_addr_updates(true),
+                .with_push_listen_addr_updates(true)
+                .with_agent_version(agent_info.to_string()),
         ),
         kademlia: kad::Behaviour::with_config(
             local_peer_id,

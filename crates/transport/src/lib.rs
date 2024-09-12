@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+use std::fmt::{Display, Formatter};
+
 use libp2p::{noise, swarm::DialError, TransportError};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -142,6 +144,28 @@ impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Self::Transport(e.to_string())
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct AgentInfo {
+    pub name: &'static str,
+    pub version: &'static str,
+}
+
+impl Display for AgentInfo {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.name, self.version)
+    }
+}
+
+#[macro_export]
+macro_rules! get_agent_info {
+    () => {
+        AgentInfo {
+            name: env!("CARGO_PKG_NAME"),
+            version: env!("CARGO_PKG_VERSION"),
+        }
+    };
 }
 
 #[cfg(feature = "behaviour")]
