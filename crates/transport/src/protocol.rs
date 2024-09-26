@@ -16,7 +16,7 @@ pub const PONG_PROTOCOL: &str = "/subsquid/pong/1.0.0";
 pub const MAX_QUERY_SIZE: u64 = 1024 * 1024;
 pub const MAX_QUERY_RESULT_SIZE: u64 = 100 * 1024 * 1024;
 pub const MAX_GATEWAY_LOG_SIZE: u64 = 1024 * 1024;
-pub const MAX_PONG_SIZE: u64 = 1024 * 1024;
+pub const MAX_PONG_SIZE: u64 = 10 * 1024 * 1024;
 pub const MAX_PUBSUB_MSG_SIZE: usize = 65536;
 pub const KEEP_LAST_WORKER_LOGS: u64 = 100;
 
