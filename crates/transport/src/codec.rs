@@ -50,7 +50,10 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
         T: futures::AsyncRead + Unpin + Send,
     {
         let mut buf = Vec::new();
-        io.take(self.max_req_size).read_to_end(&mut buf).await?;
+        let bytes_read = io.take(self.max_req_size + 1).read_to_end(&mut buf).await?;
+        if bytes_read as u64 > self.max_req_size {
+            return Err(std::io::Error::new(ErrorKind::InvalidData, "Request too large to read"));
+        }
         // Empty request is fine if the Req type is ()
         if buf.is_empty() && TypeId::of::<Req>() != TypeId::of::<()>() {
             log::warn!("{protocol}: received an empty request");
@@ -67,7 +70,10 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
         T: futures::AsyncRead + Unpin + Send,
     {
         let mut buf = Vec::new();
-        io.take(self.max_res_size).read_to_end(&mut buf).await?;
+        let bytes_read = io.take(self.max_res_size).read_to_end(&mut buf).await?;
+        if bytes_read as u64 > self.max_res_size {
+            return Err(std::io::Error::new(ErrorKind::InvalidData, "Response too large to read"));
+        }
         // Empty response is fine if the Res type is ()
         if buf.is_empty() && TypeId::of::<Res>() != TypeId::of::<()>() {
             log::warn!("{protocol}: received an empty response");
@@ -85,7 +91,7 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
         T: futures::AsyncWrite + Unpin + Send,
     {
         if req.encoded_len() as u64 > self.max_req_size {
-            return Err(std::io::Error::new(ErrorKind::InvalidData, "Request too large"));
+            return Err(std::io::Error::new(ErrorKind::InvalidData, "Request too large to write"));
         }
         let buf = req.encode_to_vec();
         io.write_all(buf.as_slice()).await
@@ -101,7 +107,7 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
         T: futures::AsyncWrite + Unpin + Send,
     {
         if res.encoded_len() as u64 > self.max_res_size {
-            return Err(std::io::Error::new(ErrorKind::InvalidData, "Response too large"));
+            return Err(std::io::Error::new(ErrorKind::InvalidData, "Response too large to write"));
         }
         let buf = res.encode_to_vec();
         io.write_all(buf.as_slice()).await
