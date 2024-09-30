@@ -127,10 +127,12 @@ pub trait Client: Send + Sync + 'static {
         Box::pin(IntervalStream::new(tokio::time::interval(interval)).then(move |_| {
             let client = self.clone_client();
             async move {
-                let gateways = client.active_gateways().await?.into_iter().collect();
-                let workers =
-                    client.active_workers().await?.into_iter().map(|w| w.peer_id).collect();
-                Ok(NetworkNodes { gateways, workers })
+                let (gateways, workers) =
+                    tokio::try_join!(client.active_gateways(), client.active_workers())?;
+                Ok(NetworkNodes {
+                    gateways: gateways.into_iter().collect(),
+                    workers: workers.into_iter().map(|w| w.peer_id).collect(),
+                })
             }
         }))
     }
