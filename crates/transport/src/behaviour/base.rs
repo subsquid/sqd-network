@@ -8,7 +8,6 @@ use std::{
 };
 
 use bimap::BiHashMap;
-use futures::StreamExt;
 use futures_bounded::FuturesMap;
 use libp2p::{
     autonat,
@@ -34,7 +33,7 @@ use parking_lot::RwLock;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
-use sqd_contract_client::{Client as ContractClient, EpochStream, NetworkNodes};
+use sqd_contract_client::{Client as ContractClient, NetworkNodes};
 use sqd_messages::{
     signatures::SignedMessage, worker_logs_msg, LogsCollected, Ping, QueryExecuted, QueryLogs,
     WorkerLogsMsg,
@@ -54,9 +53,9 @@ use crate::{
     },
     cli::BootNode,
     protocol::{
-        EPOCH_SEAL_TIMEOUT, ID_PROTOCOL, KEEP_LAST_WORKER_LOGS, LOGS_COLLECTED_MIN_INTERVAL,
-        LOGS_COLLECTED_TOPIC, LOGS_MIN_INTERVAL, MAX_PUBSUB_MSG_SIZE, PINGS_MIN_INTERVAL,
-        PING_TOPIC, WORKER_LOGS_TOPIC,
+        APPROX_EPOCH_LEN, EPOCH_SEAL_TIMEOUT, ID_PROTOCOL, KEEP_LAST_WORKER_LOGS,
+        LOGS_COLLECTED_MIN_INTERVAL, LOGS_COLLECTED_TOPIC, LOGS_MIN_INTERVAL, MAX_PUBSUB_MSG_SIZE,
+        PINGS_MIN_INTERVAL, PING_TOPIC, WORKER_LOGS_TOPIC,
     },
     record_event,
     util::{addr_is_reachable, parse_env_var},
@@ -130,9 +129,7 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
-    current_epoch_start: Arc<RwLock<SystemTime>>,
     logs_collected: Arc<RwLock<HashMap<String, u64>>>, // peer_id (base58) -> highest collected seq_no
-    epoch_stream: EpochStream,
     max_pubsub_msg_size: usize,
 }
 
@@ -195,9 +192,7 @@ impl BaseBehaviour {
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_workers: Arc::new(RwLock::new(Default::default())),
-            current_epoch_start: Arc::new(RwLock::new(SystemTime::UNIX_EPOCH)),
             logs_collected: Arc::new(RwLock::new(Default::default())),
-            epoch_stream: contract_client.epoch_stream(config.onchain_update_interval),
             max_pubsub_msg_size: config.max_pubsub_msg_size,
         }
     }
@@ -219,7 +214,6 @@ impl BaseBehaviour {
         // Unordered messages need to be allowed, because we're interested in all messages from
         // each worker, not only the most recent one (as in the case of pings).
         let registered_workers = self.registered_workers.clone();
-        let epoch_start = self.current_epoch_start.clone();
         let logs_collected = self.logs_collected.clone();
         let config = MsgValidationConfig::new(LOGS_MIN_INTERVAL)
             .max_burst(10)
@@ -244,7 +238,7 @@ impl BaseBehaviour {
                 };
                 // Don't propagate logs which are old & no longer relevant
                 let last_log_time = SystemTime::UNIX_EPOCH + Duration::from_millis(last_timestamp);
-                if last_log_time + EPOCH_SEAL_TIMEOUT < *epoch_start.read() {
+                if last_log_time + EPOCH_SEAL_TIMEOUT + APPROX_EPOCH_LEN < SystemTime::now() {
                     return Err(ValidationError::Ignored("Old worker logs"));
                 }
                 // Don't propagate worker logs which have already been collected
@@ -394,18 +388,6 @@ impl BaseBehaviour {
     pub fn allow_peer(&mut self, peer_id: PeerId) {
         self.inner.whitelist.allow_peer(peer_id);
     }
-
-    fn on_epoch_update(&self, result: Result<(u32, SystemTime), sqd_contract_client::ClientError>) {
-        let epoch_start = match result {
-            Err(e) => {
-                log::error!("Error retrieving current epoch from chain: {e:?}");
-                return;
-            }
-            Ok((_, epoch_start)) => epoch_start,
-        };
-
-        *self.current_epoch_start.write() = epoch_start;
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -493,15 +475,6 @@ impl BehaviourWrapper for BaseBehaviour {
         loop {
             if let Some(ev) = self.pending_events.pop_front() {
                 return Poll::Ready(Some(ev));
-            }
-
-            match self.epoch_stream.poll_next_unpin(cx) {
-                Poll::Ready(Some(res)) => {
-                    self.on_epoch_update(res);
-                    continue;
-                }
-                Poll::Pending => {}
-                _ => unreachable!(), // infinite stream
             }
 
             match self.probe_timeouts.poll_unpin(cx) {

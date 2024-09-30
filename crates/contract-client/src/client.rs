@@ -137,6 +137,7 @@ pub trait Client: Send + Sync + 'static {
 
     /// Get a stream of current epoch number and start time
     /// Updated on the given interval
+    #[deprecated = "This function makes 3 RPC calls, use `current_epoch` and `current_epoch_start` separately"]
     fn epoch_stream(self: Box<Self>, interval: Duration) -> EpochStream {
         Box::pin(IntervalStream::new(tokio::time::interval(interval)).then(move |_| {
             let client = self.clone_client();
@@ -236,8 +237,11 @@ impl Client for EthersClient {
     }
 
     async fn current_epoch_start(&self) -> Result<SystemTime, ClientError> {
-        let next_epoch_start_block = self.network_controller.next_epoch().call().await?;
-        let epoch_length_blocks = self.network_controller.worker_epoch_length().call().await?;
+        // TODO: make it a single multicall
+        let next_epoch_call = self.network_controller.next_epoch();
+        let epoch_length_call = self.network_controller.worker_epoch_length();
+        let (next_epoch_start_block, epoch_length_blocks) =
+            tokio::try_join!(next_epoch_call.call(), epoch_length_call.call())?;
         let block_num: u64 = (next_epoch_start_block - epoch_length_blocks)
             .try_into()
             .expect("Epoch number should not exceed u64 range");
