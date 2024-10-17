@@ -41,6 +41,8 @@ message Ping {
   optional uint64 stored_bytes = 3;
   repeated DatasetRanges stored_ranges = 4;
   bytes signature = 5;
+  optional string assignment_id = 6;
+  bytes missing_chunks = 7; 
 }
 
 message HttpHeader {
