@@ -112,6 +112,7 @@ pub trait Client: Send + Sync + 'static {
     async fn active_gateways(&self) -> Result<Vec<PeerId>, ClientError>;
 
     /// Get client's allocations for the current epoch.
+    #[deprecated = "Use `gateway_clusters` instead"]
     async fn current_allocations(
         &self,
         client_id: PeerId,
