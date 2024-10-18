@@ -64,6 +64,12 @@ impl From<query_error::Err> for query_result::Result {
     }
 }
 
+impl From<query_error::Err> for query_executed::Result {
+    fn from(err: query_error::Err) -> Self {
+        query_executed::Result::Err(QueryError { err: Some(err) })
+    }
+}
+
 impl QueryResult {
     pub fn new(
         query_id: String,

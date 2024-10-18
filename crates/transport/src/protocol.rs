@@ -5,8 +5,6 @@ use libp2p::StreamProtocol;
 use sqd_contract_client::Network;
 
 pub const PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
-pub const WORKER_LOGS_TOPIC: &str = "/subsquid/worker_query_logs/1.1.0";
-pub const LOGS_COLLECTED_TOPIC: &str = "/subsquid/logs_collected/1.0.0";
 
 pub const ID_PROTOCOL: &str = "/subsquid/1.0.0";
 pub const QUERY_PROTOCOL: &str = "/subsquid/query/1.0.0";
