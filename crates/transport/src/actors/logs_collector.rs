@@ -10,10 +10,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{
-    gateway_log_msg, signatures::SignedMessage, GatewayLogMsg, LogsCollected, QueryExecuted,
-    QueryFinished, QueryLogs, QuerySubmitted,
-};
+use sqd_messages::{QueryExecuted, QueryLogs};
 
 use crate::{
     behaviour::{
@@ -22,9 +19,9 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::{ProtoCodec, ACK_SIZE},
-    protocol::{GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE},
+    protocol::GATEWAY_LOGS_PROTOCOL,
     record_event,
-    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
 };
 
@@ -35,21 +32,15 @@ pub enum LogsCollectorEvent {
         peer_id: PeerId,
         logs: Vec<QueryExecuted>,
     },
-    /// Gateway reports a submitted query
-    QuerySubmitted(QuerySubmitted),
-    /// Gateway reports a finished query (result received or timeout)
-    QueryFinished(QueryFinished),
 }
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
-    gateway_logs: Wrapped<ServerBehaviour<ProtoCodec<GatewayLogMsg, u32>>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LogsCollectorConfig {
-    pub max_gateway_log_size: u64,
     pub logs_collected_queue_size: usize,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
@@ -59,7 +50,6 @@ pub struct LogsCollectorConfig {
 impl Default for LogsCollectorConfig {
     fn default() -> Self {
         Self {
-            max_gateway_log_size: MAX_GATEWAY_LOG_SIZE,
             logs_collected_queue_size: 100,
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
@@ -74,21 +64,12 @@ pub struct LogsCollectorBehaviour {
 
 impl LogsCollectorBehaviour {
     pub fn new(
-        mut base: BaseBehaviour,
-        local_peer_id: PeerId,
-        config: LogsCollectorConfig,
+        base: BaseBehaviour,
+        _local_peer_id: PeerId,
+        _config: LogsCollectorConfig,
     ) -> Wrapped<Self> {
-        base.subscribe_worker_logs(local_peer_id);
         Self {
-            inner: InnerBehaviour {
-                base: base.into(),
-                gateway_logs: ServerBehaviour::new(
-                    ProtoCodec::new(config.max_gateway_log_size, ACK_SIZE),
-                    GATEWAY_LOGS_PROTOCOL,
-                    config.logs_ack_timeout,
-                )
-                .into(),
-            },
+            inner: InnerBehaviour { base: base.into() },
         }
         .into()
     }
@@ -96,39 +77,18 @@ impl LogsCollectorBehaviour {
     fn on_worker_logs(&mut self, peer_id: PeerId, logs: QueryLogs) -> Option<LogsCollectorEvent> {
         let mut logs = logs.queries_executed;
         log::debug!("Got {} query logs from {peer_id}", logs.len());
-        let worker_id = peer_id.to_base58();
         logs = logs
             .into_iter()
-            .filter_map(|mut log| {
-                (log.worker_id == worker_id && log.verify_signature(&peer_id)).then_some(log)
+            .filter(|log| {
+                if log.verify_client_signature(peer_id) {
+                    true
+                } else {
+                    log::warn!("Invalid client signature in query log: {log:?}");
+                    false
+                }
             })
             .collect();
         (!logs.is_empty()).then_some(LogsCollectorEvent::WorkerLogs { peer_id, logs })
-    }
-
-    fn on_gateway_log(
-        &mut self,
-        peer_id: PeerId,
-        log_msg: GatewayLogMsg,
-    ) -> Option<LogsCollectorEvent> {
-        log::debug!("Got gateway log from {peer_id}: {log_msg:?}");
-        let gateway_id = peer_id.to_base58();
-        match log_msg.msg {
-            Some(gateway_log_msg::Msg::QueryFinished(log)) if log.client_id == gateway_id => {
-                Some(LogsCollectorEvent::QueryFinished(log))
-            }
-            Some(gateway_log_msg::Msg::QuerySubmitted(log)) if log.client_id == gateway_id => {
-                Some(LogsCollectorEvent::QuerySubmitted(log))
-            }
-            _ => {
-                log::warn!("Invalid gateway log message: {log_msg:?}");
-                None
-            }
-        }
-    }
-
-    pub fn logs_collected(&mut self, logs_collected: &LogsCollected) {
-        self.inner.base.publish_logs_collected(logs_collected)
     }
 }
 
@@ -145,18 +105,6 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
-            InnerBehaviourEvent::Base(BaseBehaviourEvent::WorkerQueryLogs {
-                peer_id,
-                query_logs,
-            }) => self.on_worker_logs(peer_id, query_logs),
-            InnerBehaviourEvent::GatewayLogs(Request {
-                peer_id,
-                request,
-                response_channel,
-            }) => {
-                _ = self.inner.gateway_logs.try_send_response(response_channel, 1);
-                self.on_gateway_log(peer_id, request)
-            }
             _ => None,
         };
         ev.map(ToSwarm::GenerateEvent)
@@ -165,7 +113,6 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
 
 struct LogsCollectorTransport {
     swarm: Swarm<Wrapped<LogsCollectorBehaviour>>,
-    logs_collected_rx: Receiver<LogsCollected>,
     events_tx: Sender<LogsCollectorEvent>,
 }
 
@@ -176,7 +123,6 @@ impl LogsCollectorTransport {
             tokio::select! {
                 _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
-                Some(logs_collected) = self.logs_collected_rx.recv() => self.swarm.behaviour_mut().logs_collected(&logs_collected),
             }
         }
         log::info!("Shutting down logs collector P2P transport");
@@ -193,27 +139,16 @@ impl LogsCollectorTransport {
 
 #[derive(Clone)]
 pub struct LogsCollectorTransportHandle {
-    logs_collected_tx: Sender<LogsCollected>,
     _task_manager: Arc<TaskManager>,
 }
 
 impl LogsCollectorTransportHandle {
-    fn new(
-        logs_collected_tx: Sender<LogsCollected>,
-        transport: LogsCollectorTransport,
-        shutdown_timeout: Duration,
-    ) -> Self {
+    fn new(transport: LogsCollectorTransport, shutdown_timeout: Duration) -> Self {
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(c));
         Self {
-            logs_collected_tx,
             _task_manager: Arc::new(task_manager),
         }
-    }
-
-    pub fn logs_collected(&self, logs_collected: LogsCollected) -> Result<(), QueueFull> {
-        log::debug!("Queueing LogsCollected message: {logs_collected:?}");
-        self.logs_collected_tx.try_send(logs_collected)
     }
 }
 
@@ -221,15 +156,8 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<LogsCollectorBehaviour>>,
     config: LogsCollectorConfig,
 ) -> (impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle) {
-    let (logs_collected_tx, logs_collected_rx) =
-        new_queue(config.logs_collected_queue_size, "logs_collected");
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
-    let transport = LogsCollectorTransport {
-        swarm,
-        logs_collected_rx,
-        events_tx,
-    };
-    let handle =
-        LogsCollectorTransportHandle::new(logs_collected_tx, transport, config.shutdown_timeout);
+    let transport = LogsCollectorTransport { swarm, events_tx };
+    let handle = LogsCollectorTransportHandle::new(transport, config.shutdown_timeout);
     (events_rx, handle)
 }

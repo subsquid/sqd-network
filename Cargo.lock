@@ -4718,7 +4718,7 @@ dependencies = [
 
 [[package]]
 name = "sqd-network-transport"
-version = "1.0.25"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "async-trait",

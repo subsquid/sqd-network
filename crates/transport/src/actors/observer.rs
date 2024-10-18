@@ -9,7 +9,7 @@ use libp2p::{
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{LogsCollected, Ping, QueryLogs};
+use sqd_messages::Ping;
 
 use crate::{
     behaviour::{
@@ -22,15 +22,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObserverEvent {
-    Ping {
-        peer_id: PeerId,
-        ping: Ping,
-    },
-    LogsCollected(LogsCollected),
-    WorkerQueryLogs {
-        peer_id: PeerId,
-        query_logs: QueryLogs,
-    },
+    Ping { peer_id: PeerId, ping: Ping },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -57,26 +49,15 @@ pub struct ObserverBehaviour {
 impl ObserverBehaviour {
     pub fn new(mut base: BaseBehaviour, logs_collector_id: PeerId) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.subscribe_worker_logs(logs_collector_id);
         base.allow_peer(logs_collector_id);
         Self { base: base.into() }.into()
     }
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<ObserverEvent> {
         match ev {
-            BaseBehaviourEvent::LogsCollected(logs_collected) => {
-                Some(ObserverEvent::LogsCollected(logs_collected))
-            }
             BaseBehaviourEvent::Ping { peer_id, ping } => {
                 Some(ObserverEvent::Ping { peer_id, ping })
             }
-            BaseBehaviourEvent::WorkerQueryLogs {
-                peer_id,
-                query_logs,
-            } => Some(ObserverEvent::WorkerQueryLogs {
-                peer_id,
-                query_logs,
-            }),
             _ => None,
         }
     }

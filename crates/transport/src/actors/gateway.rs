@@ -17,10 +17,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{
-    gateway_log_msg, query_result, GatewayLogMsg, Ping, Query, QueryFinished, QueryResult,
-    QuerySubmitted,
-};
+use sqd_messages::{query_error, Ping, Query, QueryResult};
 
 use crate::{
     behaviour::{
@@ -28,11 +25,8 @@ use crate::{
         request_client::{ClientBehaviour, ClientConfig, ClientEvent, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    codec::{ProtoCodec, ACK_SIZE},
-    protocol::{
-        GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE,
-        QUERY_PROTOCOL,
-    },
+    codec::ProtoCodec,
+    protocol::{MAX_GATEWAY_LOG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, QUERY_PROTOCOL},
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
@@ -57,12 +51,10 @@ pub enum GatewayEvent {
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
     query: Wrapped<ClientBehaviour<ProtoCodec<Query, QueryResult>>>,
-    logs: Wrapped<ClientBehaviour<ProtoCodec<GatewayLogMsg, u32>>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GatewayConfig {
-    pub logs_collector_id: PeerId,
     pub query_config: ClientConfig,
     pub logs_config: ClientConfig,
     pub max_query_size: u64,
@@ -75,9 +67,8 @@ pub struct GatewayConfig {
 }
 
 impl GatewayConfig {
-    pub fn new(logs_collector_id: PeerId) -> Self {
+    pub fn new() -> Self {
         Self {
-            logs_collector_id,
             query_config: Default::default(),
             logs_config: Default::default(),
             max_query_size: MAX_QUERY_SIZE,
@@ -93,7 +84,6 @@ impl GatewayConfig {
 
 pub struct GatewayBehaviour {
     inner: InnerBehaviour,
-    logs_collector_id: PeerId,
     query_ids: BTreeMap<OutboundRequestId, String>,
     dropped_queries: VecDeque<String>,
 }
@@ -101,7 +91,6 @@ pub struct GatewayBehaviour {
 impl GatewayBehaviour {
     pub fn new(mut base: BaseBehaviour, config: GatewayConfig) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.allow_peer(config.logs_collector_id);
         let inner = InnerBehaviour {
             base: base.into(),
             query: ClientBehaviour::new(
@@ -110,16 +99,9 @@ impl GatewayBehaviour {
                 config.query_config,
             )
             .into(),
-            logs: ClientBehaviour::new(
-                ProtoCodec::new(config.max_query_log_size, ACK_SIZE),
-                GATEWAY_LOGS_PROTOCOL,
-                config.logs_config,
-            )
-            .into(),
         };
         Self {
             inner,
-            logs_collector_id: config.logs_collector_id,
             query_ids: Default::default(),
             dropped_queries: Default::default(),
         }
@@ -162,7 +144,8 @@ impl GatewayBehaviour {
                     peer_id,
                     result: QueryResult {
                         query_id,
-                        result: Some(query_result::Result::ServerError(err.to_string())),
+                        retry_after_ms: result.retry_after_ms,
+                        result: Some(query_error::Err::ServerError(err.to_string()).into()),
                     },
                 })
             }
@@ -177,10 +160,7 @@ impl GatewayBehaviour {
     ) -> Option<GatewayEvent> {
         log::debug!("Query failure: {error} (peer_id={peer_id})");
         let query_id = self.take_query_id(&req_id)?;
-        let result = QueryResult {
-            query_id,
-            result: Some(query_result::Result::ServerError(error)),
-        };
+        let result = QueryResult::new(query_id, query_error::Err::ServerError(error), None);
         Some(GatewayEvent::QueryResult { peer_id, result })
     }
 
@@ -221,7 +201,11 @@ impl GatewayBehaviour {
         log::debug!("Query {query_id} timed out");
         Some(GatewayEvent::QueryResult {
             peer_id,
-            result: QueryResult::new(query_id, query_result::Result::Timeout(timeout.to_string())),
+            result: QueryResult::new(
+                query_id,
+                query_error::Err::Timeout(timeout.to_string()),
+                None,
+            ),
         })
     }
 
@@ -237,12 +221,9 @@ impl GatewayBehaviour {
 
     pub fn send_query(&mut self, peer_id: PeerId, mut query: Query) {
         log::debug!("Sending query {query:?} to {peer_id}");
-        // Validate if query has ID and sign it
-        let query_id = match query.query_id.as_ref() {
-            Some(id) => id.clone(),
-            None => return log::error!("Query without ID dropped"),
-        };
-        self.inner.base.sign(&mut query);
+        // Sign the query
+        let query_id = query.query_id.clone();
+        query.sign(self.inner.base.keypair(), peer_id);
 
         // Validate query size
         let query_size = query.encoded_len() as u64;
@@ -258,19 +239,6 @@ impl GatewayBehaviour {
             self.dropped_queries.push_back(query_id)
         }
     }
-
-    pub fn send_log_msg(&mut self, msg: GatewayLogMsg) {
-        log::debug!("Sending log message: {msg:?}");
-
-        let msg_size = msg.encoded_len() as u64;
-        if msg_size > MAX_GATEWAY_LOG_SIZE {
-            return log::error!("Log message size too large: {msg_size}");
-        }
-
-        if self.inner.logs.try_send_request(self.logs_collector_id, msg).is_err() {
-            log::error!("Cannot send query logs: outbound queue full")
-        }
-    }
 }
 
 fn validate_query_result(query_id: &str, result: &QueryResult) -> Result<(), &'static str> {
@@ -283,6 +251,7 @@ fn validate_query_result(query_id: &str, result: &QueryResult) -> Result<(), &'s
     } else {
         Ok(())
     }
+    // TODO: optionally check result hash and signature
 }
 
 impl BehaviourWrapper for GatewayBehaviour {
@@ -300,7 +269,6 @@ impl BehaviourWrapper for GatewayBehaviour {
         let ev = match ev {
             InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
             InnerBehaviourEvent::Query(query_res) => self.on_query_event(query_res),
-            InnerBehaviourEvent::Logs(ev) => self.on_logs_event(&ev),
         };
         ev.map(ToSwarm::GenerateEvent)
     }
@@ -318,7 +286,6 @@ impl BehaviourWrapper for GatewayBehaviour {
 struct GatewayTransport {
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
     queries_rx: Receiver<(PeerId, Query)>,
-    logs_rx: Receiver<GatewayLogMsg>,
     events_tx: Sender<GatewayEvent>,
 }
 
@@ -330,7 +297,6 @@ impl GatewayTransport {
                 _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
                 Some((peer_id, query)) = self.queries_rx.recv() => self.swarm.behaviour_mut().send_query(peer_id, query),
-                Some(log_msg) = self.logs_rx.recv() => self.swarm.behaviour_mut().send_log_msg(log_msg),
             }
         }
         log::info!("Shutting down gateway P2P transport");
@@ -348,14 +314,12 @@ impl GatewayTransport {
 #[derive(Clone)]
 pub struct GatewayTransportHandle {
     queries_tx: Sender<(PeerId, Query)>,
-    logs_tx: Sender<GatewayLogMsg>,
     _task_manager: Arc<TaskManager>,
 }
 
 impl GatewayTransportHandle {
     fn new(
         queries_tx: Sender<(PeerId, Query)>,
-        logs_tx: Sender<GatewayLogMsg>,
         transport: GatewayTransport,
         shutdown_timeout: Duration,
     ) -> Self {
@@ -363,25 +327,12 @@ impl GatewayTransportHandle {
         task_manager.spawn(|c| transport.run(c));
         Self {
             queries_tx,
-            logs_tx,
             _task_manager: Arc::new(task_manager),
         }
     }
     pub fn send_query(&self, peer_id: PeerId, query: Query) -> Result<(), QueueFull> {
         log::debug!("Queueing query {query:?}");
         self.queries_tx.try_send((peer_id, query))
-    }
-
-    pub fn query_submitted(&self, msg: QuerySubmitted) -> Result<(), QueueFull> {
-        log::debug!("Queueing QuerySubmitted message: {msg:?}");
-        let msg = gateway_log_msg::Msg::QuerySubmitted(msg).into();
-        self.logs_tx.try_send(msg)
-    }
-
-    pub fn query_finished(&self, msg: QueryFinished) -> Result<(), QueueFull> {
-        log::debug!("Queueing QueryFinished message: {msg:?}");
-        let msg = gateway_log_msg::Msg::QueryFinished(msg).into();
-        self.logs_tx.try_send(msg)
     }
 }
 
@@ -390,15 +341,12 @@ pub fn start_transport(
     config: GatewayConfig,
 ) -> (impl Stream<Item = GatewayEvent>, GatewayTransportHandle) {
     let (queries_tx, queries_rx) = new_queue(config.queries_queue_size, "queries");
-    let (logs_tx, logs_rx) = new_queue(config.logs_queue_size, "logs");
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = GatewayTransport {
         swarm,
         queries_rx,
-        logs_rx,
         events_tx,
     };
-    let handle =
-        GatewayTransportHandle::new(queries_tx, logs_tx, transport, config.shutdown_timeout);
+    let handle = GatewayTransportHandle::new(queries_tx, transport, config.shutdown_timeout);
     (events_rx, handle)
 }
