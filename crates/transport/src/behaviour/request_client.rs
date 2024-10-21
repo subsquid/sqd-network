@@ -212,7 +212,7 @@ where
         log::debug!("Request {req_id} failed: {error}");
 
         // If request was submitted for the first time and dial failed, try to find peer and connect
-        // Keep the request contents in buffer for re-submitting, if loookup is successful
+        // Keep the request contents in buffer for re-submitting, if lookup is successful
         if matches!(&error, OutboundFailure::DialFailure)
             && !self.resubmitted_requests.contains_key(&req_id)
         {

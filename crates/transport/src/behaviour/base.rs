@@ -542,7 +542,7 @@ impl BaseBehaviour {
         log::trace!("Pub-sub message received: peer_id={peer_id} topic={topic}");
         let data = data.as_ref();
         let ev = match topic {
-            PING_TOPIC => self.decode_ping(peer_id, data)?,
+            PING_TOPIC => decode_ping(peer_id, data)?,
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
@@ -553,15 +553,11 @@ impl BaseBehaviour {
         *self.registered_workers.write() = nodes.workers;
         None
     }
+}
 
-    fn decode_ping(&self, peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-        if !self.registered_workers.read().contains(&peer_id) {
-            log::warn!("Ping from unregistered worker: {peer_id}");
-            return None;
-        }
-        let ping = Ping::decode(data).map_err(|e| log::warn!("Error decoding ping: {e:?}")).ok()?;
-        #[cfg(feature = "metrics")]
-        PINGS_RECEIVED.inc();
-        Some(BaseBehaviourEvent::Ping { peer_id, ping })
-    }
+fn decode_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
+    let ping = Ping::decode(data).map_err(|e| log::warn!("Error decoding ping: {e:?}")).ok()?;
+    #[cfg(feature = "metrics")]
+    PINGS_RECEIVED.inc();
+    Some(BaseBehaviourEvent::Ping { peer_id, ping })
 }
