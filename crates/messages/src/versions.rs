@@ -2,7 +2,7 @@ use crate::Ping;
 
 impl Ping {
     pub fn version_matches(&self, req: &semver::VersionReq) -> bool {
-        let Some(version) = self.version.as_ref().and_then(|v| v.parse().ok()) else {
+        let Ok(version) = self.version.parse() else {
             return false;
         };
         version_matches(&version, req)
