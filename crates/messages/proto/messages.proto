@@ -13,6 +13,11 @@ message RangeSet {
   repeated Range ranges = 1;
 }
 
+message WorkerState {
+  option deprecated = true;
+  map<string, RangeSet> datasets = 1;
+}
+
 message DatasetRanges {
   option deprecated = true;
 
