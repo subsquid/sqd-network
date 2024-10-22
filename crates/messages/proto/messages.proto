@@ -3,8 +3,8 @@ package messages;
 import "google/protobuf/empty.proto";
 
 message Range {
-  uint32 begin = 1;
-  uint32 end = 2;
+  uint64 begin = 1;
+  uint64 end = 2;
 }
 
 message RangeSet {
@@ -93,14 +93,15 @@ message Pong {
 }
 
 // Portal -> Worker
-message Query {// Optional fields enforce serializing default values
+message Query {
   string query_id = 1;
-  string dataset = 2;  // "czM6Ly9ldGhlcmV1bS1tYWlubmV0"
-  string query = 3;  // 512 KB max
+  string dataset = 2;  // "s3://ethereum-mainnet"
+  string query = 3;  // 256 KB max
   // If present, these values should be used instead of from_block and to_block in the query contents
   optional Range block_range = 7;
-  uint64 timestamp_ms = 8;
-  bytes signature = 9;  // covers all the above fields + worker's peer ID
+  string chunk_id = 8;  // "0000000000/0000808640-0000816499-b0486318"
+  uint64 timestamp_ms = 9;
+  bytes signature = 10;  // covers all the above fields + worker's peer ID
 }
 
 // Worker -> Portal
@@ -135,7 +136,7 @@ message QueryFinished {
   string worker_id = 2;
   string query_id = 3;
 
-  uint32 total_time_ms = 4;
+  uint32 total_time_micros = 4;
   oneof result {
     QueryOkSummary ok = 5;
     QueryError err = 11;
@@ -160,7 +161,7 @@ message QueryExecuted {
   string client_id = 1;
   Query query = 3;
 
-  uint32 exec_time_ms = 6;
+  uint32 exec_time_micros = 6;
   uint64 timestamp_ms = 11;
   oneof result {
     QueryOkSummary ok = 7;

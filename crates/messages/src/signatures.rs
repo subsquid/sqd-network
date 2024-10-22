@@ -60,6 +60,8 @@ impl Query {
                 + self.dataset.as_bytes().len()
                 + size_of::<u32>()
                 + self.query.as_bytes().len()
+                + size_of::<u32>()
+                + self.chunk_id.as_bytes().len()
                 + size_of::<u64>() * 2,
         );
         msg.extend_from_slice(self.query_id.as_bytes());
@@ -69,6 +71,8 @@ impl Query {
         msg.extend_from_slice(self.dataset.as_bytes());
         msg.extend_from_slice(&(self.query.len() as u32).to_le_bytes());
         msg.extend_from_slice(self.query.as_bytes());
+        msg.extend_from_slice(&(self.chunk_id.len() as u32).to_le_bytes());
+        msg.extend_from_slice(self.chunk_id.as_bytes());
         if let Some(range) = self.block_range {
             msg.extend_from_slice(&range.begin.to_le_bytes());
             msg.extend_from_slice(&range.end.to_le_bytes());
