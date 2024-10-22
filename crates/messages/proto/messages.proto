@@ -32,15 +32,22 @@ message BitString {
 
 // Worker -> Scheduler, Portal, Ping collector
 message Ping {
-  optional string worker_id = 1 [deprecated = true];
-  repeated DatasetRanges stored_ranges = 4 [deprecated = true];
-  bytes signature = 5 [deprecated = true];
-
-  string version = 2;  // "1.0.0"
-  optional uint64 stored_bytes = 3;
-  string assignment_id = 6;  // "20241008T141245_242da92f7d6c"
+  string version = 1;  // "1.0.0"
+  string assignment_id = 2;  // "20241008T141245_242da92f7d6c"
   // Points to the chunks in this worker's assignment list referenced by `assignment_id`.
-  BitString missing_chunks = 7;
+  BitString missing_chunks = 3;
+  optional uint64 stored_bytes = 4;
+}
+
+// Worker -> Scheduler, Portal, Ping collector
+message OldPing {
+  option deprecated = true;
+
+  optional string worker_id = 1;
+  optional string version = 2;
+  optional uint64 stored_bytes = 3;
+  repeated DatasetRanges stored_ranges = 4;
+  bytes signature = 5;
 }
 
 message HttpHeader {
