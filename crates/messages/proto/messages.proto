@@ -111,12 +111,12 @@ message QueryResult {
     QueryError err = 8;
   }
   optional uint32 retry_after_ms = 9;
+  bytes signature = 10;  // signs `query_id`, data hash and `last_block`
 }
 
 message QueryOk {
   bytes data = 1;
-  optional uint64 last_block = 3;
-  QueryResultSummary summary = 4;
+  uint64 last_block = 3;
 }
 
 message QueryError {
@@ -137,9 +137,10 @@ message QueryFinished {
 
   uint32 total_time_ms = 4;
   oneof result {
-    QueryResultSummary ok = 5;
+    QueryOkSummary ok = 5;
     QueryError err = 11;
   }
+  bytes worker_signature = 12;
 }
 
 // Logs collector -> Worker
@@ -162,13 +163,13 @@ message QueryExecuted {
   uint32 exec_time_ms = 6;
   uint64 timestamp_ms = 11;
   oneof result {
-    QueryResultSummary ok = 7;
+    QueryOkSummary ok = 7;
     QueryError err = 14;
   }
 }
 
-message QueryResultSummary {
-  uint64 size = 1;
-  bytes hash = 2;  // sha3_256
-  optional bytes signature = 3;  // signs `query_id` and `hash`
+message QueryOkSummary {
+  uint64 uncompressed_byte_size = 1;
+  bytes data_hash = 2;  // sha3_256
+  uint64 last_block = 3;
 }

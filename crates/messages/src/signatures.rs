@@ -6,17 +6,17 @@ use libp2p::{
 };
 
 use crate::{
-    query_finished, query_result, ProstMsg, Query, QueryExecuted, QueryFinished, QueryOk, QueryResult, QueryResultSummary
+    query_error, query_finished, query_result, Query, QueryError, QueryExecuted, QueryFinished,
+    QueryResult,
 };
 
-fn sha3_256(msg: &[u8]) -> [u8; 32] {
+const SHA3_256_SIZE: usize = 32;
+const UUID_V4_SIZE: usize = 36;
+
+pub fn sha3_256(msg: &[u8]) -> [u8; 32] {
     let mut hasher = Sha3_256::default();
     hasher.update(msg);
     hasher.finalize().into()
-}
-
-pub fn msg_hash<M: ProstMsg>(msg: &M) -> [u8; 32] {
-    sha3_256(&msg.encode_to_vec())
 }
 
 fn sign(msg: &[u8], keypair: &Keypair) -> Vec<u8> {
@@ -31,111 +31,98 @@ fn verify_signature(peer_id: PeerId, msg: &[u8], signature: &[u8]) -> bool {
 }
 
 impl Query {
-    pub fn sign(&mut self, keypair: &Keypair, worker_id: PeerId) {
-        let msg = self.signed_msg(worker_id);
+    pub fn sign(&mut self, keypair: &Keypair, worker_id: PeerId) -> Result<(), &'static str> {
+        let msg = self.signed_msg(worker_id).ok_or("couldn't sign invalid Query")?;
         self.signature = sign(&msg, keypair);
+        Ok(())
     }
 
     pub fn verify_signature(&self, signer_id: PeerId, worker_id: PeerId) -> bool {
-        verify_signature(signer_id, &self.signed_msg(worker_id), &self.signature)
+        if let Some(msg) = self.signed_msg(worker_id) {
+            verify_signature(signer_id, &msg, &self.signature)
+        } else {
+            false
+        }
     }
 
-    fn signed_msg(&self, worker_id: PeerId) -> Vec<u8> {
-        let mut msg = Vec::with_capacity(525000);
+    fn signed_msg(&self, worker_id: PeerId) -> Option<Vec<u8>> {
+        // No two queries should have the same encoding. The easiest way to guarantee that
+        // is to use invertible encoding. That's why variable length fields are prefixed with their length.
+        if self.query_id.len() != UUID_V4_SIZE {
+            return None;
+        }
+        let worker_id_bytes = worker_id.to_bytes();
+        let mut msg = Vec::with_capacity(
+            UUID_V4_SIZE
+                + worker_id_bytes.len()
+                + size_of_val(&self.timestamp_ms)
+                + size_of::<u32>()
+                + self.dataset.as_bytes().len()
+                + size_of::<u32>()
+                + self.query.as_bytes().len()
+                + size_of::<u64>() * 2,
+        );
         msg.extend_from_slice(self.query_id.as_bytes());
-        msg.extend_from_slice(&worker_id.to_bytes());
+        msg.extend_from_slice(&worker_id_bytes);
         msg.extend_from_slice(&self.timestamp_ms.to_le_bytes());
+        msg.extend_from_slice(&(self.dataset.len() as u32).to_le_bytes());
         msg.extend_from_slice(self.dataset.as_bytes());
+        msg.extend_from_slice(&(self.query.len() as u32).to_le_bytes());
         msg.extend_from_slice(self.query.as_bytes());
         if let Some(range) = self.block_range {
             msg.extend_from_slice(&range.begin.to_le_bytes());
             msg.extend_from_slice(&range.end.to_le_bytes());
         }
-        msg
-    }
-}
-
-impl QueryResultSummary {
-    pub fn new(result: &[u8]) -> Self {
-        let hash = sha3_256(result).to_vec();
-        Self {
-            hash,
-            size: result.len() as u64,
-            signature: None,
-        }
-    }
-
-    pub fn sign(&mut self, keypair: &Keypair, query_id: &str) {
-        let msg = Self::signed_msg(&self.hash, query_id);
-        self.signature = Some(sign(&msg, keypair));
-    }
-
-    pub fn verify_signature(&self, signer_id: PeerId, query_id: &str) -> bool {
-        if let Some(signature) = &self.signature {
-            verify_signature(signer_id, &Self::signed_msg(&self.hash, query_id), signature)
-        } else {
-            false
-        }
-    }
-
-    fn signed_msg(hash: &[u8], query_id: &str) -> Vec<u8> {
-        let mut msg = Vec::with_capacity(32 + query_id.len());
-        msg.extend_from_slice(hash);
-        msg.extend_from_slice(query_id.as_bytes());
-        msg
-    }
-}
-
-impl QueryOk {
-    pub fn new(result: Vec<u8>, last_block: u64) -> Self {
-        Self {
-            summary: Some(QueryResultSummary::new(&result)),
-            data: result,
-            last_block: Some(last_block),
-        }
-    }
-
-    pub fn sign(&mut self, keypair: &Keypair, query_id: &str) {
-        if let Some(summary) = &mut self.summary {
-            summary.sign(keypair, query_id);
-        }
-    }
-
-    pub fn verify_signature(&self, signer_id: PeerId, query_id: &str) -> bool {
-        if let Some(summary) = &self.summary {
-            summary.verify_signature(signer_id, query_id)
-        } else {
-            false
-        }
+        Some(msg)
     }
 }
 
 impl QueryResult {
-    pub fn sign(&mut self, keypair: &Keypair) {
-        if let Some(query_result::Result::Ok(result)) = &mut self.result {
-            result.sign(keypair, &self.query_id);
-        }
+    pub fn sign(&mut self, keypair: &Keypair) -> Result<(), &'static str> {
+        let msg = self.signed_msg().ok_or("couldn't sign invalid QueryResult")?;
+        self.signature = sign(&msg, keypair);
+        Ok(())
     }
 
     pub fn verify_signature(&self, signer_id: PeerId) -> bool {
-        if let Some(query_result::Result::Ok(result)) = &self.result {
-            result.verify_signature(signer_id, &self.query_id)
+        if let Some(msg) = self.signed_msg() {
+            verify_signature(signer_id, &msg, &self.signature)
         } else {
-            true
+            false
+        }
+    }
+
+    fn signed_msg(&self) -> Option<Vec<u8>> {
+        match &self.result {
+            Some(query_result::Result::Ok(result)) => {
+                signed_msg_query_ok(&self.query_id, &sha3_256(&result.data), result.last_block)
+            }
+            Some(query_result::Result::Err(QueryError { err: Some(err) })) => {
+                signed_msg_query_err(&self.query_id, err)
+            }
+            _ => None,
         }
     }
 }
 
 impl QueryFinished {
     pub fn verify_signature(&self) -> bool {
-        if let Some(query_finished::Result::Ok(result)) = &self.result {
-            let Ok(worker_id) = self.worker_id.parse() else {
-                return false;
-            };
-            result.verify_signature(worker_id, &self.query_id)
-        } else {
-            true
-        }
+        let msg = match &self.result {
+            Some(query_finished::Result::Ok(result)) => {
+                signed_msg_query_ok(&self.query_id, &result.data_hash, result.last_block)
+            }
+            Some(query_finished::Result::Err(QueryError { err: Some(err) })) => {
+                signed_msg_query_err(&self.query_id, err)
+            }
+            _ => return false,
+        };
+        let Some(msg) = msg else {
+            return false;
+        };
+        let Ok(worker_id) = self.worker_id.parse() else {
+            return false;
+        };
+        verify_signature(worker_id, &msg, &self.worker_signature)
     }
 }
 
@@ -149,4 +136,36 @@ impl QueryExecuted {
         };
         query.verify_signature(client_id, worker_id)
     }
+}
+
+fn signed_msg_query_ok(query_id: &str, data_hash: &[u8], last_block: u64) -> Option<Vec<u8>> {
+    if data_hash.len() != SHA3_256_SIZE {
+        return None;
+    }
+    if query_id.len() != UUID_V4_SIZE {
+        return None;
+    }
+    let mut msg = Vec::with_capacity(UUID_V4_SIZE + SHA3_256_SIZE + size_of_val(&last_block));
+    msg.extend_from_slice(query_id.as_bytes());
+    msg.extend_from_slice(data_hash);
+    msg.extend_from_slice(&last_block.to_le_bytes());
+    Some(msg)
+}
+
+fn signed_msg_query_err(query_id: &str, err: &query_error::Err) -> Option<Vec<u8>> {
+    if query_id.len() != UUID_V4_SIZE {
+        return None;
+    }
+    let code = match err {
+        query_error::Err::BadRequest(_) => 1,
+        query_error::Err::NotFound(_) => 2,
+        query_error::Err::ServerError(_) => 3,
+        query_error::Err::TooManyRequests(_) => 4,
+        query_error::Err::ServerOverloaded(_) => 5,
+        query_error::Err::Timeout(_) => 6,
+    };
+    let mut msg = Vec::with_capacity(UUID_V4_SIZE + 1);
+    msg.extend_from_slice(query_id.as_bytes());
+    msg.push(code);
+    Some(msg)
 }

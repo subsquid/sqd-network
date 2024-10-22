@@ -74,6 +74,7 @@ impl QueryResult {
             query_id,
             result: Some(result.into()),
             retry_after_ms: retry_after.map(|d| d.as_millis() as u32),
+            ..Default::default()
         }
     }
 }
