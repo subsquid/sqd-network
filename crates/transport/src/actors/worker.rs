@@ -12,7 +12,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{query_error, Ping, Query, QueryExecuted, QueryResult};
+use sqd_messages::{Heartbeat, LogsRequest, Query, QueryLogs, QueryResult};
 
 use crate::{
     behaviour::{
@@ -21,7 +21,10 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
-    protocol::{MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, QUERY_PROTOCOL},
+    protocol::{
+        MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE,
+        QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL,
+    },
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
@@ -31,43 +34,44 @@ use crate::{
 pub enum WorkerEvent {
     /// Query received from a gateway
     Query { peer_id: PeerId, query: Query },
+    /// Logs requested by a collector
+    LogsRequest {
+        peer_id: PeerId,
+        request: LogsRequest,
+    },
 }
 
 type QueryBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Query, QueryResult>>>;
+type LogsBehaviour = Wrapped<ServerBehaviour<ProtoCodec<LogsRequest, QueryLogs>>>;
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
     query: QueryBehaviour,
+    logs: LogsBehaviour,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct WorkerConfig {
-    pub logs_collector_id: PeerId,
-    pub max_query_size: u64,
-    pub max_query_result_size: u64,
     pub pings_queue_size: usize,
     pub query_results_queue_size: usize,
     pub logs_queue_size: usize,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
     pub query_execution_timeout: Duration,
-    pub pong_ack_timeout: Duration,
+    pub send_logs_timeout: Duration,
 }
 
 impl WorkerConfig {
-    pub fn new(logs_collector_id: PeerId) -> Self {
+    pub fn new() -> Self {
         Self {
-            logs_collector_id,
-            max_query_size: MAX_QUERY_SIZE,
-            max_query_result_size: MAX_QUERY_RESULT_SIZE,
             pings_queue_size: 100,
             query_results_queue_size: 100,
-            logs_queue_size: 100,
+            logs_queue_size: 1,
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
             query_execution_timeout: Duration::from_secs(20),
-            pong_ack_timeout: Duration::from_secs(5),
+            send_logs_timeout: Duration::from_secs(5),
         }
     }
 }
@@ -76,6 +80,7 @@ pub struct WorkerBehaviour {
     inner: InnerBehaviour,
     local_peer_id: PeerId,
     query_response_channels: HashMap<String, ResponseChannel<QueryResult>>,
+    logs_response_channel: Option<ResponseChannel<QueryLogs>>,
 }
 
 impl WorkerBehaviour {
@@ -85,19 +90,25 @@ impl WorkerBehaviour {
         config: WorkerConfig,
     ) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.allow_peer(config.logs_collector_id);
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
                 query: ServerBehaviour::new(
-                    ProtoCodec::new(config.max_query_size, config.max_query_result_size),
+                    ProtoCodec::new(MAX_QUERY_SIZE, MAX_QUERY_RESULT_SIZE),
                     QUERY_PROTOCOL,
+                    config.query_execution_timeout,
+                )
+                .into(),
+                logs: ServerBehaviour::new(
+                    ProtoCodec::new(MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE),
+                    WORKER_LOGS_PROTOCOL,
                     config.query_execution_timeout,
                 )
                 .into(),
             },
             local_peer_id,
             query_response_channels: Default::default(),
+            logs_response_channel: None,
         }
         .into()
     }
@@ -110,7 +121,7 @@ impl WorkerBehaviour {
         &mut self,
         peer_id: PeerId,
         query: Query,
-        resp_chan: Option<ResponseChannel<QueryResult>>,
+        resp_chan: ResponseChannel<QueryResult>,
     ) -> Option<WorkerEvent> {
         // Verify query signature
         if !query.verify_signature(peer_id, self.local_peer_id) {
@@ -126,28 +137,24 @@ impl WorkerBehaviour {
             return None;
         };
         log::debug!("Query {query_id} verified");
-        if let Some(resp_chan) = resp_chan {
-            self.query_response_channels.insert(query_id.clone(), resp_chan);
-        }
+        self.query_response_channels.insert(query_id.clone(), resp_chan);
         Some(WorkerEvent::Query { peer_id, query })
     }
 
-    pub fn send_ping(&mut self, ping: Ping) {
+    pub fn send_ping(&mut self, ping: Heartbeat) {
         self.inner.base.publish_ping(ping);
     }
 
-    pub fn send_query_result(&mut self, mut result: QueryResult) {
+    pub fn send_query_result(&mut self, result: QueryResult) {
         log::debug!("Sending query result {result:?}");
         let Some(resp_chan) = self.query_response_channels.remove(&result.query_id) else {
-            return log::error!("No response channel for query: {}", result.query_id);
+            panic!("No response channel for query: {}", result.query_id);
         };
 
         // Check query result size limit
         let result_size = result.encoded_len() as u64;
         if result_size > MAX_QUERY_RESULT_SIZE {
-            let err = format!("Query result size too large: {result_size}");
-            log::error!("{err}");
-            result = QueryResult::new(result.query_id, query_error::Err::ServerError(err), None);
+            log::error!("Query result size too large: {result_size}");
         }
 
         // TODO: sign the result
@@ -156,6 +163,38 @@ impl WorkerBehaviour {
             .query
             .try_send_response(resp_chan, result)
             .unwrap_or_else(|e| log::error!("Cannot send result for query {}", e.query_id));
+    }
+
+    fn on_logs_request(
+        &mut self,
+        peer_id: PeerId,
+        request: LogsRequest,
+        resp_chan: ResponseChannel<QueryLogs>,
+    ) -> Option<WorkerEvent> {
+        if self.logs_response_channel.is_some() {
+            log::warn!("Concurrent logs request from {peer_id}");
+        }
+        self.logs_response_channel = Some(resp_chan);
+        Some(WorkerEvent::LogsRequest { peer_id, request })
+    }
+
+    pub fn send_logs(&mut self, logs: QueryLogs) {
+        let Some(resp_chan) = self.logs_response_channel.take() else {
+            log::warn!("No pending log requests");
+            return;
+        };
+        log::debug!("Sending {} query logs", logs.queries_executed.len());
+
+        // Check size limit
+        let result_size = logs.encoded_len() as u64;
+        if result_size > MAX_LOGS_RESPONSE_SIZE {
+            log::error!("Logs size too large: {result_size}");
+        }
+
+        self.inner
+            .logs
+            .try_send_response(resp_chan, logs)
+            .unwrap_or_else(|_| log::error!("Couldn't send logs"));
     }
 }
 
@@ -177,7 +216,12 @@ impl BehaviourWrapper for WorkerBehaviour {
                 peer_id,
                 request,
                 response_channel,
-            }) => self.on_query(peer_id, request, Some(response_channel)),
+            }) => self.on_query(peer_id, request, response_channel),
+            InnerBehaviourEvent::Logs(Request {
+                peer_id,
+                request,
+                response_channel,
+            }) => self.on_logs_request(peer_id, request, response_channel),
         };
         ev.map(ToSwarm::GenerateEvent)
     }
@@ -185,9 +229,9 @@ impl BehaviourWrapper for WorkerBehaviour {
 
 struct WorkerTransport {
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
-    pings_rx: Receiver<Ping>,
+    pings_rx: Receiver<Heartbeat>,
     query_results_rx: Receiver<QueryResult>,
-    logs_rx: Receiver<Vec<QueryExecuted>>,
+    logs_rx: Receiver<QueryLogs>,
     events_tx: Sender<WorkerEvent>,
 }
 
@@ -200,6 +244,7 @@ impl WorkerTransport {
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
                 Some(ping) = self.pings_rx.recv() => self.swarm.behaviour_mut().send_ping(ping),
                 Some(res) = self.query_results_rx.recv() => self.swarm.behaviour_mut().send_query_result(res),
+                Some(logs) = self.logs_rx.recv() => self.swarm.behaviour_mut().send_logs(logs),
             }
         }
         log::info!("Shutting down worker P2P transport");
@@ -216,17 +261,17 @@ impl WorkerTransport {
 
 #[derive(Clone)]
 pub struct WorkerTransportHandle {
-    pings_tx: Sender<Ping>,
+    pings_tx: Sender<Heartbeat>,
     query_results_tx: Sender<QueryResult>,
-    logs_tx: Sender<Vec<QueryExecuted>>,
+    logs_tx: Sender<QueryLogs>,
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
 }
 
 impl WorkerTransportHandle {
     fn new(
-        pings_tx: Sender<Ping>,
+        pings_tx: Sender<Heartbeat>,
         query_results_tx: Sender<QueryResult>,
-        logs_tx: Sender<Vec<QueryExecuted>>,
+        logs_tx: Sender<QueryLogs>,
         transport: WorkerTransport,
         shutdown_timeout: Duration,
     ) -> Self {
@@ -240,7 +285,7 @@ impl WorkerTransportHandle {
         }
     }
 
-    pub fn send_ping(&self, ping: Ping) -> Result<(), QueueFull> {
+    pub fn send_ping(&self, ping: Heartbeat) -> Result<(), QueueFull> {
         log::trace!("Queueing ping {ping:?}");
         self.pings_tx.try_send(ping)
     }
@@ -250,8 +295,8 @@ impl WorkerTransportHandle {
         self.query_results_tx.try_send(result)
     }
 
-    pub fn send_logs(&self, logs: Vec<QueryExecuted>) -> Result<(), QueueFull> {
-        log::debug!("Queueing {} query logs", logs.len());
+    pub fn send_logs(&self, logs: QueryLogs) -> Result<(), QueueFull> {
+        log::debug!("Queueing {} query logs", logs.queries_executed.len());
         self.logs_tx.try_send(logs)
     }
 }

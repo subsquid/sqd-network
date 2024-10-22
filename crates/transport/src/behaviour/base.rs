@@ -34,7 +34,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
-use sqd_messages::Ping;
+use sqd_messages::{Heartbeat, OldPing};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::{
@@ -48,7 +48,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE, PINGS_MIN_INTERVAL, PING_TOPIC},
+    protocol::{ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE, OLD_PING_TOPIC, PINGS_MIN_INTERVAL, PING_TOPIC},
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, Multiaddr, PeerId,
@@ -121,7 +121,6 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
-    max_pubsub_msg_size: usize,
 }
 
 #[allow(dead_code)]
@@ -183,12 +182,24 @@ impl BaseBehaviour {
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_workers: Arc::new(RwLock::new(Default::default())),
-            max_pubsub_msg_size: config.max_pubsub_msg_size,
         }
     }
 
     pub fn keypair(&self) -> &Keypair {
         &self.keypair
+    }
+
+    pub fn subscribe_old_pings(&mut self) {
+        let registered_workers = self.registered_workers.clone();
+        let config = MsgValidationConfig::new(PINGS_MIN_INTERVAL).max_burst(2).msg_validator(
+            move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
+                if !registered_workers.read().contains(&peer_id) {
+                    return Err(ValidationError::Invalid("Worker not registered"));
+                }
+                Ok(())
+            },
+        );
+        self.inner.pubsub.subscribe(OLD_PING_TOPIC, config);
     }
 
     pub fn subscribe_pings(&mut self) {
@@ -204,7 +215,7 @@ impl BaseBehaviour {
         self.inner.pubsub.subscribe(PING_TOPIC, config);
     }
 
-    pub fn publish_ping(&mut self, ping: Ping) {
+    pub fn publish_ping(&mut self, ping: Heartbeat) {
         self.inner.pubsub.publish(PING_TOPIC, ping.encode_to_vec());
         #[cfg(feature = "metrics")]
         PINGS_PUBLISHED.inc();
@@ -311,7 +322,8 @@ impl BaseBehaviour {
 
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
-    Ping { peer_id: PeerId, ping: Ping },
+    OldPing { peer_id: PeerId, ping: OldPing },
+    Ping { peer_id: PeerId, ping: Heartbeat },
     PeerProbed(PeerProbed),
 }
 
@@ -542,6 +554,7 @@ impl BaseBehaviour {
         log::trace!("Pub-sub message received: peer_id={peer_id} topic={topic}");
         let data = data.as_ref();
         let ev = match topic {
+            OLD_PING_TOPIC => decode_old_ping(peer_id, data)?,
             PING_TOPIC => decode_ping(peer_id, data)?,
             _ => return None,
         };
@@ -555,8 +568,19 @@ impl BaseBehaviour {
     }
 }
 
+fn decode_old_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
+    let ping = OldPing::decode(data)
+        .map_err(|e| log::warn!("Error decoding old ping: {e:?}"))
+        .ok()?;
+    #[cfg(feature = "metrics")]
+    PINGS_RECEIVED.inc();
+    Some(BaseBehaviourEvent::OldPing { peer_id, ping })
+}
+
 fn decode_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-    let ping = Ping::decode(data).map_err(|e| log::warn!("Error decoding ping: {e:?}")).ok()?;
+    let ping = Heartbeat::decode(data)
+        .map_err(|e| log::warn!("Error decoding ping: {e:?}"))
+        .ok()?;
     #[cfg(feature = "metrics")]
     PINGS_RECEIVED.inc();
     Some(BaseBehaviourEvent::Ping { peer_id, ping })

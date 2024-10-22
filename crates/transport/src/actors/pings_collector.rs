@@ -23,7 +23,7 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ping {
     pub peer_id: PeerId,
-    pub ping: sqd_messages::Ping,
+    pub ping: sqd_messages::Heartbeat,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

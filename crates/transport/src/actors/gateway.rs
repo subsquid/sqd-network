@@ -17,7 +17,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{query_error, Ping, Query, QueryResult};
+use sqd_messages::{Heartbeat, Query, QueryResult};
 
 use crate::{
     behaviour::{
@@ -26,7 +26,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
-    protocol::{MAX_GATEWAY_LOG_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, QUERY_PROTOCOL},
+    protocol::{MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, QUERY_PROTOCOL},
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
@@ -36,15 +36,22 @@ use crate::{
 pub enum GatewayEvent {
     Ping {
         peer_id: PeerId,
-        ping: Ping,
+        ping: Heartbeat,
     },
     QueryResult {
         peer_id: PeerId,
-        result: QueryResult,
+        result: Result<QueryResult, QueryFailure>,
     },
     QueryDropped {
         query_id: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QueryFailure {
+    Timeout(Timeout),
+    ValidationError(String),
+    TransportError(String),
 }
 
 #[derive(NetworkBehaviour)]
@@ -56,10 +63,7 @@ pub struct InnerBehaviour {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct GatewayConfig {
     pub query_config: ClientConfig,
-    pub logs_config: ClientConfig,
-    pub max_query_size: u64,
     pub max_query_result_size: u64,
-    pub max_query_log_size: u64,
     pub queries_queue_size: usize,
     pub logs_queue_size: usize,
     pub events_queue_size: usize,
@@ -70,10 +74,7 @@ impl GatewayConfig {
     pub fn new() -> Self {
         Self {
             query_config: Default::default(),
-            logs_config: Default::default(),
-            max_query_size: MAX_QUERY_SIZE,
             max_query_result_size: MAX_QUERY_RESULT_SIZE,
-            max_query_log_size: MAX_GATEWAY_LOG_SIZE,
             queries_queue_size: 100,
             logs_queue_size: 100,
             events_queue_size: 100,
@@ -94,7 +95,7 @@ impl GatewayBehaviour {
         let inner = InnerBehaviour {
             base: base.into(),
             query: ClientBehaviour::new(
-                ProtoCodec::new(config.max_query_size, config.max_query_result_size),
+                ProtoCodec::new(MAX_QUERY_SIZE, config.max_query_result_size),
                 QUERY_PROTOCOL,
                 config.query_config,
             )
@@ -114,7 +115,7 @@ impl GatewayBehaviour {
         }
     }
 
-    fn on_ping(&mut self, peer_id: PeerId, ping: Ping) -> Option<GatewayEvent> {
+    fn on_ping(&mut self, peer_id: PeerId, ping: Heartbeat) -> Option<GatewayEvent> {
         log::debug!("Got ping from {peer_id}");
         log::trace!("{ping:?}");
         Some(GatewayEvent::Ping { peer_id, ping })
@@ -136,20 +137,14 @@ impl GatewayBehaviour {
     ) -> Option<GatewayEvent> {
         log::debug!("Got query result from {peer_id}: {result:?}");
         let query_id = self.take_query_id(&req_id)?;
-        match validate_query_result(&query_id, &result) {
-            Ok(()) => Some(GatewayEvent::QueryResult { peer_id, result }),
+        let result = match validate_query_result(&query_id, &result) {
+            Ok(()) => Ok(result),
             Err(err) => {
                 log::warn!("Invalid result for query {query_id} from peer {peer_id}: {err}");
-                Some(GatewayEvent::QueryResult {
-                    peer_id,
-                    result: QueryResult {
-                        query_id,
-                        retry_after_ms: result.retry_after_ms,
-                        result: Some(query_error::Err::ServerError(err.to_string()).into()),
-                    },
-                })
+                Err(QueryFailure::ValidationError(err.to_owned()))
             }
-        }
+        };
+        Some(GatewayEvent::QueryResult { peer_id, result })
     }
 
     fn on_query_failure(
@@ -159,9 +154,11 @@ impl GatewayBehaviour {
         error: String,
     ) -> Option<GatewayEvent> {
         log::debug!("Query failure: {error} (peer_id={peer_id})");
-        let query_id = self.take_query_id(&req_id)?;
-        let result = QueryResult::new(query_id, query_error::Err::ServerError(error), None);
-        Some(GatewayEvent::QueryResult { peer_id, result })
+        self.take_query_id(&req_id)?;
+        Some(GatewayEvent::QueryResult {
+            peer_id,
+            result: Err(QueryFailure::TransportError(error)),
+        })
     }
 
     fn on_query_event(&mut self, ev: ClientEvent<QueryResult>) -> Option<GatewayEvent> {
@@ -194,36 +191,21 @@ impl GatewayBehaviour {
         peer_id: PeerId,
         timeout: Timeout,
     ) -> Option<GatewayEvent> {
-        let Some(query_id) = self.query_ids.remove(&req_id) else {
-            log::error!("Unknown request ID: {req_id}");
-            return None;
-        };
+        let query_id = self.take_query_id(&req_id)?;
         log::debug!("Query {query_id} timed out");
         Some(GatewayEvent::QueryResult {
             peer_id,
-            result: QueryResult::new(
-                query_id,
-                query_error::Err::Timeout(timeout.to_string()),
-                None,
-            ),
+            result: Err(QueryFailure::Timeout(timeout)),
         })
-    }
-
-    fn on_logs_event(&mut self, ev: &ClientEvent<u32>) -> Option<GatewayEvent> {
-        log::debug!("Logs event: {ev:?}");
-        match ev {
-            ClientEvent::PeerUnknown { peer_id } => self.inner.base.find_and_dial(*peer_id),
-            ClientEvent::Timeout { .. } => log::warn!("Sending logs to collector timed out"),
-            _ => {}
-        }
-        None
     }
 
     pub fn send_query(&mut self, peer_id: PeerId, mut query: Query) {
         log::debug!("Sending query {query:?} to {peer_id}");
         // Sign the query
         let query_id = query.query_id.clone();
-        query.sign(self.inner.base.keypair(), peer_id);
+        query
+            .sign(self.inner.base.keypair(), peer_id)
+            .expect("query should be valid to sign");
 
         // Validate query size
         let query_size = query.encoded_len() as u64;
@@ -235,8 +217,8 @@ impl GatewayBehaviour {
         if let Ok(req_id) = self.inner.query.try_send_request(peer_id, query) {
             self.query_ids.insert(req_id, query_id);
         } else {
-            log::warn!("Outbound message queue full. Query {query_id} dropped.");
             self.dropped_queries.push_back(query_id)
+            // TODO: notify the waker
         }
     }
 }
@@ -251,7 +233,6 @@ fn validate_query_result(query_id: &str, result: &QueryResult) -> Result<(), &'s
     } else {
         Ok(())
     }
-    // TODO: optionally check result hash and signature
 }
 
 impl BehaviourWrapper for GatewayBehaviour {

@@ -12,7 +12,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{Ping, Pong};
+use sqd_messages::{Heartbeat, OldPing, Pong};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::PONGS_SENT;
@@ -33,9 +33,19 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SchedulerEvent {
     /// Ping received from a worker
-    Ping { peer_id: PeerId, ping: Ping },
+    OldPing {
+        peer_id: PeerId,
+        ping: OldPing,
+    },
+    Ping {
+        peer_id: PeerId,
+        ping: Heartbeat,
+    },
     /// Peer was probed for reachability
-    PeerProbed { peer_id: PeerId, reachable: bool },
+    PeerProbed {
+        peer_id: PeerId,
+        reachable: bool,
+    },
 }
 
 type PongBehaviour = Wrapped<ClientBehaviour<ProtoCodec<Pong, u32>>>;
@@ -84,6 +94,7 @@ pub struct SchedulerBehaviour {
 
 impl SchedulerBehaviour {
     pub fn new(mut base: BaseBehaviour, config: SchedulerConfig) -> Wrapped<Self> {
+        base.subscribe_old_pings();
         base.subscribe_pings();
         Self {
             inner: InnerBehaviour {
@@ -102,13 +113,19 @@ impl SchedulerBehaviour {
     #[rustfmt::skip]
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<SchedulerEvent> {
         match ev {
+            BaseBehaviourEvent::OldPing { peer_id, ping } => self.on_old_ping(peer_id, ping),
             BaseBehaviourEvent::Ping { peer_id, ping } => self.on_ping(peer_id, ping),
             BaseBehaviourEvent::PeerProbed(PeerProbed { peer_id, result }) => self.on_peer_probed(peer_id, &result),
-            _ => None
         }
     }
 
-    fn on_ping(&mut self, peer_id: PeerId, ping: Ping) -> Option<SchedulerEvent> {
+    fn on_old_ping(&mut self, peer_id: PeerId, ping: OldPing) -> Option<SchedulerEvent> {
+        log::debug!("Got old ping from {peer_id}");
+        log::trace!("{ping:?}");
+        Some(SchedulerEvent::OldPing { peer_id, ping })
+    }
+
+    fn on_ping(&mut self, peer_id: PeerId, ping: Heartbeat) -> Option<SchedulerEvent> {
         log::debug!("Got ping from {peer_id}");
         log::trace!("{ping:?}");
         Some(SchedulerEvent::Ping { peer_id, ping })
@@ -144,7 +161,7 @@ impl SchedulerBehaviour {
         }
 
         if self.inner.pong.try_send_request(peer_id, pong).is_err() {
-            log::error!("Cannot send pong to {peer_id}: outbound queue full")
+            return log::error!("Cannot send pong to {peer_id}: outbound queue full");
         }
         #[cfg(feature = "metrics")]
         PONGS_SENT.inc();

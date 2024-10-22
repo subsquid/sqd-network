@@ -24,8 +24,7 @@ use crate::actors::gateway::{
 };
 #[cfg(feature = "logs-collector")]
 use crate::actors::logs_collector::{
-    self, LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent,
-    LogsCollectorTransportHandle,
+    self, LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorTransport,
 };
 #[cfg(feature = "observer")]
 use crate::actors::observer::{
@@ -210,7 +209,7 @@ impl P2PTransportBuilder {
     pub fn build_logs_collector(
         self,
         config: LogsCollectorConfig,
-    ) -> Result<(impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle), Error> {
+    ) -> Result<LogsCollectorTransport, Error> {
         let local_peer_id = self.local_peer_id();
         let swarm =
             self.build_swarm(|base| LogsCollectorBehaviour::new(base, local_peer_id, config))?;

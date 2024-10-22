@@ -9,7 +9,7 @@ use libp2p::{
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::Ping;
+use sqd_messages::Heartbeat;
 
 use crate::{
     behaviour::{
@@ -22,7 +22,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ObserverEvent {
-    Ping { peer_id: PeerId, ping: Ping },
+    Ping { peer_id: PeerId, ping: Heartbeat },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

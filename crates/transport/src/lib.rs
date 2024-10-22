@@ -50,7 +50,7 @@ pub use crate::actors::gateway::{
 };
 #[cfg(feature = "logs-collector")]
 pub use crate::actors::logs_collector::{
-    LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent, LogsCollectorTransportHandle,
+    LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent, LogsCollectorTransport,
 };
 #[cfg(feature = "observer")]
 pub use crate::actors::observer::{
