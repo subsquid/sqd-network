@@ -31,7 +31,7 @@ message BitString {
 }
 
 // Worker -> Scheduler, Portal, Ping collector
-message Ping {
+message PingV2 {
   string version = 1;  // "1.0.0"
   string assignment_id = 2;  // "20241008T141245_242da92f7d6c"
   // Points to the chunks in this worker's assignment list referenced by `assignment_id`.

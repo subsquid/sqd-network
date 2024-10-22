@@ -1,8 +1,8 @@
-use crate::Ping;
+use crate::OldPing;
 
-impl Ping {
+impl OldPing {
     pub fn version_matches(&self, req: &semver::VersionReq) -> bool {
-        let Ok(version) = self.version.parse() else {
+        let Some(version) = self.version.as_ref().and_then(|v| v.parse().ok()) else {
             return false;
         };
         version_matches(&version, req)

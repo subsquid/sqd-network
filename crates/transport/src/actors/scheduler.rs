@@ -12,7 +12,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{Ping, Pong};
+use sqd_messages::{OldPing, PingV2, Pong};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::PONGS_SENT;
@@ -33,7 +33,8 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SchedulerEvent {
     /// Ping received from a worker
-    Ping { peer_id: PeerId, ping: Ping },
+    OldPing { peer_id: PeerId, ping: OldPing },
+    Ping { peer_id: PeerId, ping: PingV2 },
     /// Peer was probed for reachability
     PeerProbed { peer_id: PeerId, reachable: bool },
 }
@@ -84,6 +85,7 @@ pub struct SchedulerBehaviour {
 
 impl SchedulerBehaviour {
     pub fn new(mut base: BaseBehaviour, config: SchedulerConfig) -> Wrapped<Self> {
+        base.subscribe_old_pings();
         base.subscribe_pings();
         Self {
             inner: InnerBehaviour {
@@ -102,16 +104,16 @@ impl SchedulerBehaviour {
     #[rustfmt::skip]
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<SchedulerEvent> {
         match ev {
-            BaseBehaviourEvent::Ping { peer_id, ping } => self.on_ping(peer_id, ping),
+            BaseBehaviourEvent::OldPing { peer_id, ping } => self.on_ping(peer_id, ping),
             BaseBehaviourEvent::PeerProbed(PeerProbed { peer_id, result }) => self.on_peer_probed(peer_id, &result),
             _ => None
         }
     }
 
-    fn on_ping(&mut self, peer_id: PeerId, ping: Ping) -> Option<SchedulerEvent> {
-        log::debug!("Got ping from {peer_id}");
+    fn on_ping(&mut self, peer_id: PeerId, ping: OldPing) -> Option<SchedulerEvent> {
+        log::debug!("Got old ping from {peer_id}");
         log::trace!("{ping:?}");
-        Some(SchedulerEvent::Ping { peer_id, ping })
+        Some(SchedulerEvent::OldPing { peer_id, ping })
     }
 
     fn on_peer_probed(&mut self, peer_id: PeerId, result: &ProbeResult) -> Option<SchedulerEvent> {

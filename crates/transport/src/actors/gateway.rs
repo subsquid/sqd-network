@@ -17,7 +17,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{query_error, Ping, Query, QueryResult};
+use sqd_messages::{query_error, PingV2, Query, QueryResult};
 
 use crate::{
     behaviour::{
@@ -36,7 +36,7 @@ use crate::{
 pub enum GatewayEvent {
     Ping {
         peer_id: PeerId,
-        ping: Ping,
+        ping: PingV2,
     },
     QueryResult {
         peer_id: PeerId,
@@ -114,7 +114,7 @@ impl GatewayBehaviour {
         }
     }
 
-    fn on_ping(&mut self, peer_id: PeerId, ping: Ping) -> Option<GatewayEvent> {
+    fn on_ping(&mut self, peer_id: PeerId, ping: PingV2) -> Option<GatewayEvent> {
         log::debug!("Got ping from {peer_id}");
         log::trace!("{ping:?}");
         Some(GatewayEvent::Ping { peer_id, ping })

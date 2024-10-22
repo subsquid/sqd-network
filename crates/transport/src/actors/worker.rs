@@ -12,7 +12,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{query_error, Ping, Query, QueryExecuted, QueryResult};
+use sqd_messages::{query_error, PingV2, Query, QueryExecuted, QueryResult};
 
 use crate::{
     behaviour::{
@@ -132,7 +132,7 @@ impl WorkerBehaviour {
         Some(WorkerEvent::Query { peer_id, query })
     }
 
-    pub fn send_ping(&mut self, ping: Ping) {
+    pub fn send_ping(&mut self, ping: PingV2) {
         self.inner.base.publish_ping(ping);
     }
 
@@ -185,7 +185,7 @@ impl BehaviourWrapper for WorkerBehaviour {
 
 struct WorkerTransport {
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
-    pings_rx: Receiver<Ping>,
+    pings_rx: Receiver<PingV2>,
     query_results_rx: Receiver<QueryResult>,
     logs_rx: Receiver<Vec<QueryExecuted>>,
     events_tx: Sender<WorkerEvent>,
@@ -216,7 +216,7 @@ impl WorkerTransport {
 
 #[derive(Clone)]
 pub struct WorkerTransportHandle {
-    pings_tx: Sender<Ping>,
+    pings_tx: Sender<PingV2>,
     query_results_tx: Sender<QueryResult>,
     logs_tx: Sender<Vec<QueryExecuted>>,
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
@@ -224,7 +224,7 @@ pub struct WorkerTransportHandle {
 
 impl WorkerTransportHandle {
     fn new(
-        pings_tx: Sender<Ping>,
+        pings_tx: Sender<PingV2>,
         query_results_tx: Sender<QueryResult>,
         logs_tx: Sender<Vec<QueryExecuted>>,
         transport: WorkerTransport,
@@ -240,7 +240,7 @@ impl WorkerTransportHandle {
         }
     }
 
-    pub fn send_ping(&self, ping: Ping) -> Result<(), QueueFull> {
+    pub fn send_ping(&self, ping: PingV2) -> Result<(), QueueFull> {
         log::trace!("Queueing ping {ping:?}");
         self.pings_tx.try_send(ping)
     }
