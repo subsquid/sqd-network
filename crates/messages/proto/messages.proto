@@ -2,26 +2,14 @@ syntax = "proto3";
 package messages;
 import "google/protobuf/empty.proto";
 
-message GatewayLogMsg {
-  oneof msg {
-    QuerySubmitted query_submitted = 1;
-    QueryFinished query_finished = 2;
-  }
-}
-
-message WorkerLogsMsg {
-  oneof msg {
-    QueryLogs query_logs = 1;
-  }
-}
-
 message Range {
-  uint32 begin = 1;
-  uint32 end = 2;
+  uint64 begin = 1;
+  uint64 end = 2;
 }
 
 message RangeSet {
   option deprecated = true;
+
   repeated Range ranges = 1;
 }
 
@@ -31,11 +19,30 @@ message WorkerState {
 }
 
 message DatasetRanges {
+  option deprecated = true;
+
   string url = 1;
   repeated Range ranges = 2;
 }
 
-message Ping {
+message BitString {
+  bytes data = 1;
+  uint64 size = 2;
+}
+
+// Worker -> Scheduler, Portal, Ping collector
+message Heartbeat {
+  string version = 1;  // "1.0.0"
+  string assignment_id = 2;  // "20241008T141245_242da92f7d6c"
+  // Points to the chunks in this worker's assignment list referenced by `assignment_id`.
+  BitString missing_chunks = 3;
+  optional uint64 stored_bytes = 4;
+}
+
+// Worker -> Scheduler, Portal, Ping collector
+message OldPing {
+  option deprecated = true;
+
   optional string worker_id = 1;
   optional string version = 2;
   optional uint64 stored_bytes = 3;
@@ -44,124 +51,125 @@ message Ping {
 }
 
 message HttpHeader {
+  option deprecated = true;
+
   string name = 1;
   string value = 2;
 }
 
 message AssignedChunk {
+  option deprecated = true;
+
   string path = 1;  // "0000000000/0000808640-0000816499-b0486318"
   repeated uint32 filenames = 2;  // index in known_filenames array
 }
 
 message DatasetChunks {
+  option deprecated = true;
+
   string dataset_id = 1;  // "s3://moonbeam-evm-1"
   string download_url = 3;  // "https://moonbeam-evm-1.sqd-datasets.io/"
   repeated AssignedChunk chunks = 4;
 }
 
 message WorkerAssignment {
+  option deprecated = true;
+
   repeated DatasetChunks dataset_chunks = 1;
   repeated HttpHeader http_headers = 2;
   repeated string known_filenames = 3;  // "blocks.parquet"
 }
 
+// Scheduler -> Worker
 message Pong {
+  option deprecated = true;
+
   bytes ping_hash = 1;
   oneof status {
-    //    google.protobuf.Empty not_registered = 2;
     google.protobuf.Empty unsupported_version = 3;
     string jailed = 6;
     WorkerAssignment active = 7;
   }
 }
 
-message Query {// Optional fields enforce serializing default values
-  optional string query_id = 1;
-  optional string dataset = 2;
-  optional string query = 3;
-  optional bool profiling = 4;
-  optional string client_state_json = 5;
-  bytes signature = 6;
+// Portal -> Worker
+message Query {
+  string query_id = 1;
+  string dataset = 2;  // "s3://ethereum-mainnet"
+  string query = 3;  // 256 KB max
   // If present, these values should be used instead of from_block and to_block in the query contents
   optional Range block_range = 7;
+  string chunk_id = 8;  // "0000000000/0000808640-0000816499-b0486318"
+  uint64 timestamp_ms = 9;
+  bytes signature = 10;  // covers all the above fields + worker's peer ID
 }
 
+// Worker -> Portal
 message QueryResult {
   string query_id = 1;
   oneof result {
-    OkResult ok = 2;
-    string bad_request = 3;
-    string server_error = 4;
-    google.protobuf.Empty no_allocation = 5;
-    google.protobuf.Empty timeout_v1 = 6 [deprecated = true];
-    string timeout = 7;
+    QueryOk ok = 2;
+    QueryError err = 8;
   }
+  optional uint32 retry_after_ms = 9;
+  bytes signature = 10;  // signs `query_id`, data hash and `last_block`
 }
 
-message OkResult {
+message QueryOk {
   bytes data = 1;
-  optional bytes exec_plan = 2;
-  optional uint64 last_block = 3;
+  uint64 last_block = 3;
 }
 
-message QuerySubmitted {
-  string client_id = 1;
-  string worker_id = 2;
-  string query_id = 3;
-
-  string dataset = 4;
-  string query = 5;
-  bytes query_hash = 6;
-}
-
-message QueryFinished {
-  string client_id = 1;
-  string worker_id = 2;
-  string query_id = 3;
-
-  uint32 exec_time_ms = 4;
-  oneof result {
-    SizeAndHash ok = 5;
-    string bad_request = 6;
-    string server_error = 7;
-    google.protobuf.Empty timeout_v1 = 8  [deprecated = true];
-    google.protobuf.Empty no_allocation = 9;
-    string timeout = 10;
+message QueryError {
+  oneof err {
+    string bad_request = 1;
+    string not_found = 2;
+    string server_error = 3;
+    google.protobuf.Empty too_many_requests = 4;
+    google.protobuf.Empty server_overloaded = 5;
   }
+}
+
+// Portal -> Logs collector
+message QueryFinished {
+  string worker_id = 2;
+  string query_id = 3;
+
+  uint32 total_time_micros = 4;
+  oneof result {
+    QueryOkSummary ok = 5;
+    QueryError err = 11;
+  }
+  bytes worker_signature = 12;
+}
+
+// Logs collector -> Worker
+message LogsRequest {
+  uint64 from_timestamp_ms = 1;
+  uint64 to_timestamp_ms = 2;
+  optional string last_received_query_id = 3;  // query ID of the last collected query
+}
+
+// Worker -> Logs collector
+message QueryLogs {
+  repeated QueryExecuted queries_executed = 1;
+  bool has_more = 2;
 }
 
 message QueryExecuted {
   string client_id = 1;
-  string worker_id = 2;
-
   Query query = 3;
-  bytes query_hash = 5;
 
-  optional uint32 exec_time_ms = 6; // optional to enforce serializing 0
+  uint32 exec_time_micros = 6;
+  uint64 timestamp_ms = 11;
   oneof result {
-    InputAndOutput ok = 7;
-    string bad_request = 8;
-    string server_error = 9;
+    QueryOkSummary ok = 7;
+    QueryError err = 14;
   }
-  optional uint64 seq_no = 10; // optional to enforce serializing 0
-  optional uint64 timestamp_ms = 11; // optional to enforce serializing 0
-  bytes signature = 12;
 }
 
-message QueryLogs {
-  repeated QueryExecuted queries_executed = 1;
-}
-
-message InputAndOutput {
-  optional uint32 num_read_chunks = 1; // optional to enforce serializing 0
-  SizeAndHash output = 2;
-}
-
-message SizeAndHash {
-  optional uint32 size = 1; // optional to enforce serializing 0
-  bytes sha3_256 = 2;
-}
-
-message LogsCollected {
-  map<string, uint64> sequence_numbers = 1; // peer ID -> last saved seq no
+message QueryOkSummary {
+  uint64 uncompressed_data_size = 1;
+  bytes data_hash = 2;  // sha3_256
+  uint64 last_block = 3;
 }
