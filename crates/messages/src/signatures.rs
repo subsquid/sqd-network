@@ -36,20 +36,20 @@ fn verify_signature(peer_id: PeerId, msg: &[u8], signature: &[u8]) -> bool {
 
 impl Query {
     pub fn sign(&mut self, keypair: &Keypair, worker_id: PeerId) -> Result<(), &'static str> {
-        let msg = self.signed_msg(worker_id).ok_or("couldn't sign invalid Query")?;
+        let msg = self.msg_to_sign(worker_id).ok_or("couldn't sign invalid Query")?;
         self.signature = sign(&msg, keypair);
         Ok(())
     }
 
     pub fn verify_signature(&self, signer_id: PeerId, worker_id: PeerId) -> bool {
-        if let Some(msg) = self.signed_msg(worker_id) {
+        if let Some(msg) = self.msg_to_sign(worker_id) {
             verify_signature(signer_id, &msg, &self.signature)
         } else {
             false
         }
     }
 
-    fn signed_msg(&self, worker_id: PeerId) -> Option<Vec<u8>> {
+    fn msg_to_sign(&self, worker_id: PeerId) -> Option<Vec<u8>> {
         // No two queries should have the same encoding. The easiest way to guarantee that
         // is to use invertible encoding. That's why variable length fields are prefixed with their length.
         if self.query_id.len() != UUID_V4_SIZE {
@@ -87,26 +87,26 @@ impl Query {
 
 impl QueryResult {
     pub fn sign(&mut self, keypair: &Keypair) -> Result<(), &'static str> {
-        let msg = self.signed_msg().ok_or("couldn't sign invalid QueryResult")?;
+        let msg = self.msg_to_sign().ok_or("couldn't sign invalid QueryResult")?;
         self.signature = sign(&msg, keypair);
         Ok(())
     }
 
     pub fn verify_signature(&self, signer_id: PeerId) -> bool {
-        if let Some(msg) = self.signed_msg() {
+        if let Some(msg) = self.msg_to_sign() {
             verify_signature(signer_id, &msg, &self.signature)
         } else {
             false
         }
     }
 
-    fn signed_msg(&self) -> Option<Vec<u8>> {
+    fn msg_to_sign(&self) -> Option<Vec<u8>> {
         match &self.result {
             Some(query_result::Result::Ok(result)) => {
-                signed_msg_query_ok(&self.query_id, &sha3_256(&result.data), result.last_block)
+                msg_to_sign_query_ok(&self.query_id, &sha3_256(&result.data), result.last_block)
             }
             Some(query_result::Result::Err(QueryError { err: Some(err) })) => {
-                signed_msg_query_err(&self.query_id, err)
+                msg_to_sign_query_err(&self.query_id, err)
             }
             _ => None,
         }
@@ -117,10 +117,10 @@ impl QueryFinished {
     pub fn verify_signature(&self) -> bool {
         let msg = match &self.result {
             Some(query_finished::Result::Ok(result)) => {
-                signed_msg_query_ok(&self.query_id, &result.data_hash, result.last_block)
+                msg_to_sign_query_ok(&self.query_id, &result.data_hash, result.last_block)
             }
             Some(query_finished::Result::Err(QueryError { err: Some(err) })) => {
-                signed_msg_query_err(&self.query_id, err)
+                msg_to_sign_query_err(&self.query_id, err)
             }
             _ => return false,
         };
@@ -146,7 +146,7 @@ impl QueryExecuted {
     }
 }
 
-fn signed_msg_query_ok(query_id: &str, data_hash: &[u8], last_block: u64) -> Option<Vec<u8>> {
+fn msg_to_sign_query_ok(query_id: &str, data_hash: &[u8], last_block: u64) -> Option<Vec<u8>> {
     if data_hash.len() != SHA3_256_SIZE {
         return None;
     }
@@ -160,7 +160,7 @@ fn signed_msg_query_ok(query_id: &str, data_hash: &[u8], last_block: u64) -> Opt
     Some(msg)
 }
 
-fn signed_msg_query_err(query_id: &str, err: &query_error::Err) -> Option<Vec<u8>> {
+fn msg_to_sign_query_err(query_id: &str, err: &query_error::Err) -> Option<Vec<u8>> {
     if query_id.len() != UUID_V4_SIZE {
         return None;
     }
