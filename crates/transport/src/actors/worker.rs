@@ -145,7 +145,7 @@ impl WorkerBehaviour {
         self.inner.base.publish_ping(ping);
     }
 
-    pub fn send_query_result(&mut self, result: QueryResult) {
+    pub fn send_query_result(&mut self, mut result: QueryResult) {
         log::debug!("Sending query result {result:?}");
         let Some(resp_chan) = self.query_response_channels.remove(&result.query_id) else {
             panic!("No response channel for query: {}", result.query_id);
@@ -154,10 +154,12 @@ impl WorkerBehaviour {
         // Check query result size limit
         let result_size = result.encoded_len() as u64;
         if result_size > MAX_QUERY_RESULT_SIZE {
-            log::error!("Query result size too large: {result_size}");
+            return log::error!("Query result size too large: {result_size}");
         }
 
-        // TODO: sign the result
+        if let Err(e) = result.sign(self.inner.base.keypair()) {
+            return log::error!("Couldn't sign query result: {e:?}");
+        }
 
         self.inner
             .query
