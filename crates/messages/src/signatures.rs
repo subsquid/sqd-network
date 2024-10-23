@@ -6,8 +6,8 @@ use libp2p::{
 };
 
 use crate::{
-    query_error, query_finished, query_result, Query, QueryError, QueryExecuted, QueryFinished,
-    QueryResult,
+    query_error, query_finished, query_result, ProstMsg, Query, QueryError, QueryExecuted,
+    QueryFinished, QueryResult,
 };
 
 const SHA3_256_SIZE: usize = 32;
@@ -17,6 +17,10 @@ pub fn sha3_256(msg: &[u8]) -> [u8; 32] {
     let mut hasher = Sha3_256::default();
     hasher.update(msg);
     hasher.finalize().into()
+}
+
+pub fn msg_hash<M: ProstMsg>(msg: &M) -> [u8; 32] {
+    sha3_256(&msg.encode_to_vec())
 }
 
 fn sign(msg: &[u8], keypair: &Keypair) -> Vec<u8> {
@@ -166,7 +170,6 @@ fn signed_msg_query_err(query_id: &str, err: &query_error::Err) -> Option<Vec<u8
         query_error::Err::ServerError(_) => 3,
         query_error::Err::TooManyRequests(_) => 4,
         query_error::Err::ServerOverloaded(_) => 5,
-        query_error::Err::Timeout(_) => 6,
     };
     let mut msg = Vec::with_capacity(UUID_V4_SIZE + 1);
     msg.extend_from_slice(query_id.as_bytes());

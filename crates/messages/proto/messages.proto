@@ -31,7 +31,7 @@ message BitString {
 }
 
 // Worker -> Scheduler, Portal, Ping collector
-message Ping {
+message Heartbeat {
   string version = 1;  // "1.0.0"
   string assignment_id = 2;  // "20241008T141245_242da92f7d6c"
   // Points to the chunks in this worker's assignment list referenced by `assignment_id`.
@@ -127,7 +127,6 @@ message QueryError {
     string server_error = 3;
     google.protobuf.Empty too_many_requests = 4;
     google.protobuf.Empty server_overloaded = 5;
-    string timeout = 6;
   }
 }
 
@@ -170,7 +169,7 @@ message QueryExecuted {
 }
 
 message QueryOkSummary {
-  uint64 uncompressed_byte_size = 1;
+  uint64 uncompressed_data_size = 1;
   bytes data_hash = 2;  // sha3_256
   uint64 last_block = 3;
 }
