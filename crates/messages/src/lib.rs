@@ -18,7 +18,6 @@ use std::{
     collections::HashMap,
     fmt::{Debug, Formatter},
     ops::{Deref, DerefMut},
-    time::Duration,
 };
 
 pub use prost::Message as ProstMsg;
@@ -67,20 +66,5 @@ impl From<query_error::Err> for query_result::Result {
 impl From<query_error::Err> for query_executed::Result {
     fn from(err: query_error::Err) -> Self {
         query_executed::Result::Err(QueryError { err: Some(err) })
-    }
-}
-
-impl QueryResult {
-    pub fn new(
-        query_id: String,
-        result: impl Into<query_result::Result>,
-        retry_after: Option<Duration>,
-    ) -> Self {
-        Self {
-            query_id,
-            result: Some(result.into()),
-            retry_after_ms: retry_after.map(|d| d.as_millis() as u32),
-            ..Default::default()
-        }
     }
 }

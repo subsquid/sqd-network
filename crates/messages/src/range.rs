@@ -3,7 +3,7 @@ use std::cmp::{max, Ordering};
 pub use crate::{Range, RangeSet};
 
 impl Range {
-    pub fn new(begin: u32, end: u32) -> Self {
+    pub fn new(begin: u64, end: u64) -> Self {
         assert!(begin <= end);
         Self { begin, end }
     }
@@ -14,15 +14,15 @@ impl RangeSet {
         Self::default()
     }
 
-    pub fn has(&self, point: u32) -> bool {
+    pub fn has(&self, point: u64) -> bool {
         self.containing_range(point).is_some()
     }
 
-    pub fn find_containing_range(&self, point: u32) -> Option<Range> {
+    pub fn find_containing_range(&self, point: u64) -> Option<Range> {
         self.containing_range(point).map(|i| self.ranges[i])
     }
 
-    fn containing_range(&self, point: u32) -> Option<usize> {
+    fn containing_range(&self, point: u64) -> Option<usize> {
         self.ranges
             .binary_search_by(|i| {
                 if point < i.begin {
