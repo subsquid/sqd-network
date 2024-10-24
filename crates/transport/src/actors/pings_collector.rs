@@ -21,9 +21,9 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Ping {
+pub struct Heartbeat {
     pub peer_id: PeerId,
-    pub ping: sqd_messages::Heartbeat,
+    pub heartbeat: sqd_messages::Heartbeat,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -47,14 +47,14 @@ pub struct PingsCollectorBehaviour {
 
 impl PingsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
-        base.subscribe_pings();
+        base.subscribe_heartbeats();
         Self { base: base.into() }.into()
     }
 }
 
 impl BehaviourWrapper for PingsCollectorBehaviour {
     type Inner = Wrapped<BaseBehaviour>;
-    type Event = Ping;
+    type Event = Heartbeat;
 
     fn inner(&mut self) -> &mut Self::Inner {
         &mut self.base
@@ -65,10 +65,10 @@ impl BehaviourWrapper for PingsCollectorBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         match ev {
-            BaseBehaviourEvent::Ping { peer_id, ping } => {
-                log::debug!("Got ping from {peer_id}");
-                log::trace!("{ping:?}");
-                Some(ToSwarm::GenerateEvent(Ping { peer_id, ping }))
+            BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
+                log::debug!("Got heartbeat from {peer_id}");
+                log::trace!("{heartbeat:?}");
+                Some(ToSwarm::GenerateEvent(Heartbeat { peer_id, heartbeat }))
             }
             _ => None,
         }
@@ -77,7 +77,7 @@ impl BehaviourWrapper for PingsCollectorBehaviour {
 
 struct PingsCollectorTransport {
     swarm: Swarm<Wrapped<PingsCollectorBehaviour>>,
-    pings_tx: Sender<Ping>,
+    heartbeats_tx: Sender<Heartbeat>,
 }
 
 impl PingsCollectorTransport {
@@ -92,11 +92,11 @@ impl PingsCollectorTransport {
         log::info!("Shutting down pings collector P2P transport");
     }
 
-    fn on_swarm_event(&mut self, ev: SwarmEvent<Ping>) {
+    fn on_swarm_event(&mut self, ev: SwarmEvent<Heartbeat>) {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
-        if let SwarmEvent::Behaviour(ping) = ev {
-            self.pings_tx.send_lossy(ping)
+        if let SwarmEvent::Behaviour(heartbeat) = ev {
+            self.heartbeats_tx.send_lossy(heartbeat)
         }
     }
 }
@@ -119,9 +119,12 @@ impl PingsCollectorTransportHandle {
 pub fn start_transport(
     swarm: Swarm<Wrapped<PingsCollectorBehaviour>>,
     config: PingsCollectorConfig,
-) -> (impl Stream<Item = Ping>, PingsCollectorTransportHandle) {
-    let (pings_tx, pings_rx) = new_queue(config.events_queue_size, "events");
-    let transport = PingsCollectorTransport { swarm, pings_tx };
+) -> (impl Stream<Item = Heartbeat>, PingsCollectorTransportHandle) {
+    let (heartbeats_tx, heartbeats_rx) = new_queue(config.events_queue_size, "events");
+    let transport = PingsCollectorTransport {
+        swarm,
+        heartbeats_tx,
+    };
     let handle = PingsCollectorTransportHandle::new(transport, config.shutdown_timeout);
-    (pings_rx, handle)
+    (heartbeats_rx, handle)
 }

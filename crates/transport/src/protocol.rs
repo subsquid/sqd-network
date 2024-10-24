@@ -5,7 +5,7 @@ use libp2p::StreamProtocol;
 use sqd_contract_client::Network;
 
 pub const OLD_PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
-pub const PING_TOPIC: &str = "/sqd/worker_pings/1.1.0";
+pub const HEARTBEAT_TOPIC: &str = "/sqd/worker_heartbeats/1.1.0";
 pub const PORTAL_LOGS_TOPIC: &str = "/sqd/portal_logs/1.1.0";
 
 pub const ID_PROTOCOL: &str = "/subsquid/1.0.0";
@@ -20,7 +20,7 @@ pub const MAX_LOGS_RESPONSE_SIZE: u64 = 10 * 1024 * 1024;
 pub const MAX_PONG_SIZE: u64 = 10 * 1024 * 1024;
 pub const MAX_PUBSUB_MSG_SIZE: usize = 65536;
 
-pub const PINGS_MIN_INTERVAL: Duration = Duration::from_secs(20);
+pub const HEARTBEATS_MIN_INTERVAL: Duration = Duration::from_secs(20);
 pub const APPROX_EPOCH_LEN: Duration = Duration::from_secs(1200);
 
 pub const fn dht_protocol(network: Network) -> StreamProtocol {

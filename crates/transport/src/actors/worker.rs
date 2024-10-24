@@ -53,7 +53,7 @@ pub struct InnerBehaviour {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerConfig {
-    pub pings_queue_size: usize,
+    pub heartbeats_queue_size: usize,
     pub query_results_queue_size: usize,
     pub logs_queue_size: usize,
     pub events_queue_size: usize,
@@ -66,7 +66,7 @@ pub struct WorkerConfig {
 impl WorkerConfig {
     pub fn new() -> Self {
         Self {
-            pings_queue_size: 100,
+            heartbeats_queue_size: 100,
             query_results_queue_size: 100,
             logs_queue_size: 1,
             events_queue_size: 100,
@@ -91,7 +91,7 @@ impl WorkerBehaviour {
         local_peer_id: PeerId,
         config: WorkerConfig,
     ) -> Wrapped<Self> {
-        base.subscribe_pings();
+        base.subscribe_heartbeats();
         for peer in config.service_nodes {
             base.allow_peer(peer);
         }
@@ -146,8 +146,8 @@ impl WorkerBehaviour {
         Some(WorkerEvent::Query { peer_id, query })
     }
 
-    pub fn send_ping(&mut self, ping: Heartbeat) {
-        self.inner.base.publish_ping(ping);
+    pub fn send_heartbeat(&mut self, heartbeat: Heartbeat) {
+        self.inner.base.publish_heartbeat(heartbeat);
     }
 
     pub fn send_query_result(&mut self, mut result: QueryResult) {
@@ -236,7 +236,7 @@ impl BehaviourWrapper for WorkerBehaviour {
 
 struct WorkerTransport {
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
-    pings_rx: Receiver<Heartbeat>,
+    heartbeats_rx: Receiver<Heartbeat>,
     query_results_rx: Receiver<QueryResult>,
     logs_rx: Receiver<QueryLogs>,
     events_tx: Sender<WorkerEvent>,
@@ -249,7 +249,7 @@ impl WorkerTransport {
             tokio::select! {
                  _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
-                Some(ping) = self.pings_rx.recv() => self.swarm.behaviour_mut().send_ping(ping),
+                Some(heartbeat) = self.heartbeats_rx.recv() => self.swarm.behaviour_mut().send_heartbeat(heartbeat),
                 Some(res) = self.query_results_rx.recv() => self.swarm.behaviour_mut().send_query_result(res),
                 Some(logs) = self.logs_rx.recv() => self.swarm.behaviour_mut().send_logs(logs),
             }
@@ -268,7 +268,7 @@ impl WorkerTransport {
 
 #[derive(Clone)]
 pub struct WorkerTransportHandle {
-    pings_tx: Sender<Heartbeat>,
+    heartbeats_tx: Sender<Heartbeat>,
     query_results_tx: Sender<QueryResult>,
     logs_tx: Sender<QueryLogs>,
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
@@ -276,7 +276,7 @@ pub struct WorkerTransportHandle {
 
 impl WorkerTransportHandle {
     fn new(
-        pings_tx: Sender<Heartbeat>,
+        heartbeats_tx: Sender<Heartbeat>,
         query_results_tx: Sender<QueryResult>,
         logs_tx: Sender<QueryLogs>,
         transport: WorkerTransport,
@@ -285,16 +285,16 @@ impl WorkerTransportHandle {
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(c));
         Self {
-            pings_tx,
+            heartbeats_tx,
             query_results_tx,
             logs_tx,
             _task_manager: Arc::new(task_manager),
         }
     }
 
-    pub fn send_ping(&self, ping: Heartbeat) -> Result<(), QueueFull> {
-        log::trace!("Queueing ping {ping:?}");
-        self.pings_tx.try_send(ping)
+    pub fn send_heartbeat(&self, heartbeat: Heartbeat) -> Result<(), QueueFull> {
+        log::trace!("Queueing heartbeat {heartbeat:?}");
+        self.heartbeats_tx.try_send(heartbeat)
     }
 
     pub fn send_query_result(&self, result: QueryResult) -> Result<(), QueueFull> {
@@ -312,20 +312,20 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
     config: WorkerConfig,
 ) -> (impl Stream<Item = WorkerEvent>, WorkerTransportHandle) {
-    let (pings_tx, pings_rx) = new_queue(config.pings_queue_size, "pings");
+    let (heartbeats_tx, heartbeats_rx) = new_queue(config.heartbeats_queue_size, "heartbeats");
     let (query_results_tx, query_results_rx) =
         new_queue(config.query_results_queue_size, "query_results");
     let (logs_tx, logs_rx) = new_queue(config.logs_queue_size, "logs");
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = WorkerTransport {
         swarm,
-        pings_rx,
+        heartbeats_rx,
         query_results_rx,
         logs_rx,
         events_tx,
     };
     let handle = WorkerTransportHandle::new(
-        pings_tx,
+        heartbeats_tx,
         query_results_tx,
         logs_tx,
         transport,

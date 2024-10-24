@@ -17,8 +17,8 @@ lazy_static! {
     pub static ref DROPPED: Family<Vec<(&'static str, &'static str)>, Counter<u64, AtomicU64>> =
         Default::default();
     pub static ref DISCARDED_MESSAGES: Counter = Default::default();
-    pub static ref PINGS_PUBLISHED: Counter = Default::default();
-    pub static ref PINGS_RECEIVED: Counter = Default::default();
+    pub static ref HEARTBEATS_PUBLISHED: Counter = Default::default();
+    pub static ref HEARTBEATS_RECEIVED: Counter = Default::default();
     pub static ref PONGS_SENT: Counter = Default::default();
 }
 
@@ -56,14 +56,14 @@ pub fn register_metrics(registry: &mut Registry) {
     );
     registry.register("dropped", "The number of dropped messages/events", DROPPED.clone());
     registry.register(
-        "pings_published",
-        "The number of published ping messages",
-        PINGS_PUBLISHED.clone(),
+        "heartbeats_published",
+        "The number of published heartbeat messages",
+        HEARTBEATS_PUBLISHED.clone(),
     );
     registry.register(
-        "pings_received",
-        "The number of received ping messages",
-        PINGS_RECEIVED.clone(),
+        "heartbeats_received",
+        "The number of received heartbeat messages",
+        HEARTBEATS_RECEIVED.clone(),
     );
     registry.register("pongs_sent", "The number of sent pong messages", PONGS_SENT.clone());
 }

@@ -38,7 +38,7 @@ use sqd_messages::{Heartbeat, OldPing};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::{
-    ACTIVE_CONNECTIONS, ONGOING_PROBES, ONGOING_QUERIES, PINGS_PUBLISHED, PINGS_RECEIVED,
+    ACTIVE_CONNECTIONS, HEARTBEATS_PUBLISHED, HEARTBEATS_RECEIVED, ONGOING_PROBES, ONGOING_QUERIES,
 };
 use crate::{
     behaviour::{
@@ -48,7 +48,9 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE, OLD_PING_TOPIC, PINGS_MIN_INTERVAL, PING_TOPIC},
+    protocol::{
+        HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE, OLD_PING_TOPIC,
+    },
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, Multiaddr, PeerId,
@@ -191,7 +193,7 @@ impl BaseBehaviour {
 
     pub fn subscribe_old_pings(&mut self) {
         let registered_workers = self.registered_workers.clone();
-        let config = MsgValidationConfig::new(PINGS_MIN_INTERVAL).max_burst(2).msg_validator(
+        let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
             move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
                 if !registered_workers.read().contains(&peer_id) {
                     return Err(ValidationError::Invalid("Worker not registered"));
@@ -202,9 +204,9 @@ impl BaseBehaviour {
         self.inner.pubsub.subscribe(OLD_PING_TOPIC, config);
     }
 
-    pub fn subscribe_pings(&mut self) {
+    pub fn subscribe_heartbeats(&mut self) {
         let registered_workers = self.registered_workers.clone();
-        let config = MsgValidationConfig::new(PINGS_MIN_INTERVAL).max_burst(2).msg_validator(
+        let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
             move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
                 if !registered_workers.read().contains(&peer_id) {
                     return Err(ValidationError::Invalid("Worker not registered"));
@@ -212,13 +214,13 @@ impl BaseBehaviour {
                 Ok(())
             },
         );
-        self.inner.pubsub.subscribe(PING_TOPIC, config);
+        self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
     }
 
-    pub fn publish_ping(&mut self, ping: Heartbeat) {
-        self.inner.pubsub.publish(PING_TOPIC, ping.encode_to_vec());
+    pub fn publish_heartbeat(&mut self, heartbeat: Heartbeat) {
+        self.inner.pubsub.publish(HEARTBEAT_TOPIC, heartbeat.encode_to_vec());
         #[cfg(feature = "metrics")]
-        PINGS_PUBLISHED.inc();
+        HEARTBEATS_PUBLISHED.inc();
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -322,8 +324,14 @@ impl BaseBehaviour {
 
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
-    OldPing { peer_id: PeerId, ping: OldPing },
-    Ping { peer_id: PeerId, ping: Heartbeat },
+    OldPing {
+        peer_id: PeerId,
+        ping: OldPing,
+    },
+    Heartbeat {
+        peer_id: PeerId,
+        heartbeat: Heartbeat,
+    },
     PeerProbed(PeerProbed),
 }
 
@@ -555,7 +563,7 @@ impl BaseBehaviour {
         let data = data.as_ref();
         let ev = match topic {
             OLD_PING_TOPIC => decode_old_ping(peer_id, data)?,
-            PING_TOPIC => decode_ping(peer_id, data)?,
+            HEARTBEAT_TOPIC => decode_heartbeat(peer_id, data)?,
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
@@ -573,15 +581,15 @@ fn decode_old_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
         .map_err(|e| log::warn!("Error decoding old ping: {e:?}"))
         .ok()?;
     #[cfg(feature = "metrics")]
-    PINGS_RECEIVED.inc();
+    HEARTBEATS_RECEIVED.inc();
     Some(BaseBehaviourEvent::OldPing { peer_id, ping })
 }
 
-fn decode_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-    let ping = Heartbeat::decode(data)
-        .map_err(|e| log::warn!("Error decoding ping: {e:?}"))
+fn decode_heartbeat(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
+    let heartbeat = Heartbeat::decode(data)
+        .map_err(|e| log::warn!("Error decoding heartbeat: {e:?}"))
         .ok()?;
     #[cfg(feature = "metrics")]
-    PINGS_RECEIVED.inc();
-    Some(BaseBehaviourEvent::Ping { peer_id, ping })
+    HEARTBEATS_RECEIVED.inc();
+    Some(BaseBehaviourEvent::Heartbeat { peer_id, heartbeat })
 }

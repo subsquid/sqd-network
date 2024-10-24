@@ -34,9 +34,9 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GatewayEvent {
-    Ping {
+    Heartbeat {
         peer_id: PeerId,
-        ping: Heartbeat,
+        heartbeat: Heartbeat,
     },
     QueryResult {
         peer_id: PeerId,
@@ -92,7 +92,7 @@ pub struct GatewayBehaviour {
 impl GatewayBehaviour {
     pub fn new(mut base: BaseBehaviour, config: GatewayConfig) -> Wrapped<Self> {
         // TODO: whitelist service nodes
-        base.subscribe_pings();
+        base.subscribe_heartbeats();
         let inner = InnerBehaviour {
             base: base.into(),
             query: ClientBehaviour::new(
@@ -111,15 +111,17 @@ impl GatewayBehaviour {
     }
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<GatewayEvent> {
         match ev {
-            BaseBehaviourEvent::Ping { peer_id, ping } => self.on_ping(peer_id, ping),
+            BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
+                self.on_heartbeat(peer_id, heartbeat)
+            }
             _ => None,
         }
     }
 
-    fn on_ping(&mut self, peer_id: PeerId, ping: Heartbeat) -> Option<GatewayEvent> {
-        log::debug!("Got ping from {peer_id}");
-        log::trace!("{ping:?}");
-        Some(GatewayEvent::Ping { peer_id, ping })
+    fn on_heartbeat(&mut self, peer_id: PeerId, heartbeat: Heartbeat) -> Option<GatewayEvent> {
+        log::debug!("Got heartbeat from {peer_id}");
+        log::trace!("{heartbeat:?}");
+        Some(GatewayEvent::Heartbeat { peer_id, heartbeat })
     }
 
     fn take_query_id(&mut self, req_id: &OutboundRequestId) -> Option<String> {

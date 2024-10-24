@@ -36,7 +36,7 @@ use crate::actors::peer_checker::{
 };
 #[cfg(feature = "pings-collector")]
 use crate::actors::pings_collector::{
-    self, Ping, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
+    self, Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
 };
 #[cfg(feature = "scheduler")]
 use crate::actors::scheduler::{
@@ -230,8 +230,7 @@ impl P2PTransportBuilder {
         self,
         config: ObserverConfig,
     ) -> Result<(impl Stream<Item = ObserverEvent>, ObserverTransportHandle), Error> {
-        let swarm =
-            self.build_swarm(|base| ObserverBehaviour::new(base))?;
+        let swarm = self.build_swarm(|base| ObserverBehaviour::new(base))?;
         Ok(observer::start_transport(swarm, config))
     }
 
@@ -239,7 +238,7 @@ impl P2PTransportBuilder {
     pub fn build_pings_collector(
         self,
         config: PingsCollectorConfig,
-    ) -> Result<(impl Stream<Item = Ping>, PingsCollectorTransportHandle), Error> {
+    ) -> Result<(impl Stream<Item = Heartbeat>, PingsCollectorTransportHandle), Error> {
         let swarm = self.build_swarm(PingsCollectorBehaviour::new)?;
         Ok(pings_collector::start_transport(swarm, config))
     }
@@ -275,7 +274,8 @@ impl P2PTransportBuilder {
             }
             break;
         }
-        let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config.clone()))?;
+        let swarm =
+            self.build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config.clone()))?;
         Ok(worker::start_transport(swarm, config))
     }
 }

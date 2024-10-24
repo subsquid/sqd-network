@@ -63,7 +63,7 @@ pub use crate::actors::peer_checker::{
 };
 #[cfg(feature = "pings-collector")]
 pub use crate::actors::pings_collector::{
-    Ping, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
+    Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
 };
 #[cfg(feature = "scheduler")]
 pub use crate::actors::scheduler::{
