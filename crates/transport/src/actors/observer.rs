@@ -27,15 +27,13 @@ pub enum ObserverEvent {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ObserverConfig {
-    pub logs_collector_id: PeerId,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
 }
 
 impl ObserverConfig {
-    pub fn new(logs_collector_id: PeerId) -> Self {
+    pub fn new() -> Self {
         Self {
-            logs_collector_id,
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         }
@@ -47,9 +45,8 @@ pub struct ObserverBehaviour {
 }
 
 impl ObserverBehaviour {
-    pub fn new(mut base: BaseBehaviour, logs_collector_id: PeerId) -> Wrapped<Self> {
+    pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.subscribe_pings();
-        base.allow_peer(logs_collector_id);
         Self { base: base.into() }.into()
     }
 

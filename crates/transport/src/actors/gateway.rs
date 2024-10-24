@@ -91,6 +91,7 @@ pub struct GatewayBehaviour {
 
 impl GatewayBehaviour {
     pub fn new(mut base: BaseBehaviour, config: GatewayConfig) -> Wrapped<Self> {
+        // TODO: whitelist service nodes
         base.subscribe_pings();
         let inner = InnerBehaviour {
             base: base.into(),
