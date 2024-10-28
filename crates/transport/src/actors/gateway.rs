@@ -40,6 +40,7 @@ pub enum GatewayEvent {
     },
     QueryResult {
         peer_id: PeerId,
+        query_id: String,
         result: Result<QueryResult, QueryFailure>,
     },
     QueryDropped {
@@ -147,7 +148,11 @@ impl GatewayBehaviour {
                 Err(QueryFailure::ValidationError(err.to_owned()))
             }
         };
-        Some(GatewayEvent::QueryResult { peer_id, result })
+        Some(GatewayEvent::QueryResult {
+            peer_id,
+            result,
+            query_id,
+        })
     }
 
     fn on_query_failure(
@@ -157,8 +162,9 @@ impl GatewayBehaviour {
         error: String,
     ) -> Option<GatewayEvent> {
         log::debug!("Query failure: {error} (peer_id={peer_id})");
-        self.take_query_id(&req_id)?;
+        let query_id = self.take_query_id(&req_id)?;
         Some(GatewayEvent::QueryResult {
+            query_id,
             peer_id,
             result: Err(QueryFailure::TransportError(error)),
         })
@@ -197,6 +203,7 @@ impl GatewayBehaviour {
         let query_id = self.take_query_id(&req_id)?;
         log::debug!("Query {query_id} timed out");
         Some(GatewayEvent::QueryResult {
+            query_id,
             peer_id,
             result: Err(QueryFailure::Timeout(timeout)),
         })
