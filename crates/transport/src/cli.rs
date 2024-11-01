@@ -4,7 +4,7 @@ use libp2p::Multiaddr;
 use sqd_contract_client::RpcArgs;
 use std::{path::PathBuf, str::FromStr};
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub struct TransportArgs {
     #[arg(short, long, env = "KEY_PATH", help = "Path to libp2p key file")]
     pub key: Option<PathBuf>,
