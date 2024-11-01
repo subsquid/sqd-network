@@ -2,7 +2,7 @@ use clap::{Args, ValueEnum};
 
 use crate::Address;
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub struct RpcArgs {
     #[arg(
         long,
@@ -55,7 +55,7 @@ impl RpcArgs {
     }
 }
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub struct ContractAddrs {
     #[arg(long, env)]
     pub gateway_registry_contract_addr: Option<Address>,
