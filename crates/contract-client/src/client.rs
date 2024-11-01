@@ -128,6 +128,9 @@ pub trait Client: Send + Sync + 'static {
     /// Get the number of compute units available for the gateway in the current epoch
     async fn compute_units_per_epoch(&self, client_id: PeerId) -> Result<u64, ClientError>;
 
+    /// Check if the gateway uses the default strategy — allocates CUs evenly among workers
+    async fn uses_default_strategy(&self, client_id: PeerId) -> Result<bool, ClientError>;
+
     /// Get the current list of all gateway clusters with their allocated CUs for this worker
     async fn gateway_clusters(&self, worker_id: U256) -> Result<Vec<GatewayCluster>, ClientError>;
 
@@ -421,6 +424,12 @@ impl Client for EthersClient {
         let id: Bytes = client_id.to_bytes().into();
         let cus = self.gateway_registry.computation_units_available(id).call().await?;
         Ok(cus.try_into().expect("Computation units should not exceed u64 range"))
+    }
+
+    async fn uses_default_strategy(&self, client_id: PeerId) -> Result<bool, ClientError> {
+        let id: Bytes = client_id.to_bytes().into();
+        let strategy_addr = self.gateway_registry.get_used_strategy(id).call().await?;
+        Ok(strategy_addr == self.default_strategy_addr)
     }
 
     async fn gateway_clusters(&self, worker_id: U256) -> Result<Vec<GatewayCluster>, ClientError> {
