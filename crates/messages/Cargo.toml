@@ -6,9 +6,11 @@ edition = "2021"
 
 [features]
 signatures = ["libp2p"]
+bitstring = ["bytemuck", "flate2"]
 
 [dependencies]
-anyhow = "1"
+bytemuck = { version = "1.19.0", optional = true, features = ["extern_crate_alloc"] }
+flate2 = { version = "1.0.30", optional = true }
 hex = { version = "0.4", features = ["serde"] }
 prost = "0.13"
 semver = { version = "1", optional = true }
