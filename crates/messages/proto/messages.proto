@@ -162,6 +162,7 @@ message QueryExecuted {
 
   uint32 exec_time_micros = 6;
   uint64 timestamp_ms = 11;
+  string worker_version = 15;
   oneof result {
     QueryOkSummary ok = 7;
     QueryError err = 14;
