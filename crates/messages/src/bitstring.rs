@@ -38,3 +38,19 @@ impl BitString {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_conversion() {
+        let original = vec![true, false, true, false, false, true, true, false];
+        let bitstring = BitString::new(&original);
+        assert_eq!(bitstring.size, 8);
+        let bytes = bitstring.to_bytes();
+        assert_eq!(bytes, [1, 0, 1, 0, 0, 1, 1, 0]);
+        let bools = bitstring.to_vec().unwrap();
+        assert_eq!(original, bools);
+    }
+}
