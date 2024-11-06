@@ -22,6 +22,8 @@ use std::{
 
 pub use prost::Message as ProstMsg;
 
+#[cfg(feature = "bitstring")]
+pub mod bitstring;
 pub mod data_chunk;
 pub mod range;
 #[cfg(feature = "signatures")]

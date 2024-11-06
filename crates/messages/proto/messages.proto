@@ -26,8 +26,8 @@ message DatasetRanges {
 }
 
 message BitString {
-  bytes data = 1;
-  uint64 size = 2;
+  bytes data = 1;  // deflate-compressed bytes with each one being 0x00 or 0x01
+  uint64 size = 2;  // number of bits in the original bitstring
 }
 
 // Worker -> Scheduler, Portal, Ping collector
