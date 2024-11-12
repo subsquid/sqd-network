@@ -7,7 +7,10 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ethers::prelude::{BlockId, Bytes, Middleware, Multicall, Provider};
+use ethers::{
+    prelude::{BlockId, Bytes, Middleware, Multicall, Provider},
+    types::BlockNumber,
+};
 use libp2p::futures::Stream;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
@@ -93,6 +96,9 @@ pub trait Client: Send + Sync + 'static {
     /// Get the time when the current epoch started
     async fn current_epoch_start(&self) -> Result<SystemTime, ClientError>;
 
+    /// Get the approximate length of the current epoch
+    async fn epoch_length(&self) -> Result<Duration, ClientError>;
+
     /// Get the on-chain ID for the worker
     async fn worker_id(&self, peer_id: PeerId) -> Result<U256, ClientError>;
 
@@ -100,7 +106,7 @@ pub trait Client: Send + Sync + 'static {
     async fn active_workers(&self) -> Result<Vec<Worker>, ClientError>;
 
     /// Check if gateway (client) is registered on chain
-    async fn is_gateway_registered(&self, peer_id: PeerId) -> Result<bool, ClientError>;
+    async fn is_gateway_registered(&self, gateway_id: PeerId) -> Result<bool, ClientError>;
 
     /// Get worker registration time (None if not registered)
     async fn worker_registration_time(
@@ -115,11 +121,18 @@ pub trait Client: Send + Sync + 'static {
     #[deprecated = "Use `gateway_clusters` instead"]
     async fn current_allocations(
         &self,
-        client_id: PeerId,
+        gateway_id: PeerId,
         worker_ids: Option<Vec<Worker>>,
     ) -> Result<Vec<Allocation>, ClientError>;
 
-    /// Get the current list of all gateway clusters with their allocated CUs
+    /// Get the number of compute units available for the portal in the current epoch
+    async fn portal_compute_units_per_epoch(&self, portal_id: PeerId)
+        -> Result<u64, ClientError>;
+
+    /// Check if the portal uses the default strategy — allocates CUs evenly among workers
+    async fn portal_uses_default_strategy(&self, portal_id: PeerId) -> Result<bool, ClientError>;
+
+    /// Get the current list of all gateway clusters with their allocated CUs for this worker
     async fn gateway_clusters(&self, worker_id: U256) -> Result<Vec<GatewayCluster>, ClientError>;
 
     /// Get a stream of peer IDs of all active network participants (workers & gateways)
@@ -258,6 +271,27 @@ impl Client for EthersClient {
         Ok(UNIX_EPOCH + Duration::from_secs(block.timestamp.as_u64()))
     }
 
+    async fn epoch_length(&self) -> Result<Duration, ClientError> {
+        let epoch_length_call = self.network_controller.worker_epoch_length();
+        let latest_block_call = self.l1_client.get_block(BlockNumber::Latest);
+        let (epoch_length_blocks_res, latest_block_res) =
+            tokio::join!(epoch_length_call.call(), latest_block_call);
+        let epoch_length_blocks = epoch_length_blocks_res?;
+
+        let latest_block = latest_block_res?.expect("Latest block should be found");
+        let hist_block = self
+            .l1_client
+            .get_block(latest_block.number.unwrap() - epoch_length_blocks as u64)
+            .await?
+            .expect("Last epoch block should be found");
+
+        Ok(Duration::from_secs(
+            (latest_block.timestamp - hist_block.timestamp)
+                .try_into()
+                .expect("Epoch length should not exceed u64 range"),
+        ))
+    }
+
     async fn worker_id(&self, peer_id: PeerId) -> Result<U256, ClientError> {
         let peer_id = peer_id.to_bytes().into();
         let id: U256 = self.worker_registration.worker_ids(peer_id).call().await?;
@@ -287,8 +321,8 @@ impl Client for EthersClient {
         Ok(workers)
     }
 
-    async fn is_gateway_registered(&self, peer_id: PeerId) -> Result<bool, ClientError> {
-        let gateway_id = peer_id.to_bytes().into();
+    async fn is_gateway_registered(&self, gateway_id: PeerId) -> Result<bool, ClientError> {
+        let gateway_id = gateway_id.to_bytes().into();
         let gateway_info: contracts::Gateway =
             self.gateway_registry.get_gateway(gateway_id).call().await?;
         Ok(gateway_info.operator != Address::zero())
@@ -338,7 +372,7 @@ impl Client for EthersClient {
 
     async fn current_allocations(
         &self,
-        client_id: PeerId,
+        gateway_id: PeerId,
         workers: Option<Vec<Worker>>,
     ) -> Result<Vec<Allocation>, ClientError> {
         let workers = match workers {
@@ -349,7 +383,7 @@ impl Client for EthersClient {
             return Ok(vec![]);
         }
 
-        let gateway_id: Bytes = client_id.to_bytes().into();
+        let gateway_id: Bytes = gateway_id.to_bytes().into();
         let strategy_addr =
             self.gateway_registry.get_used_strategy(gateway_id.clone()).call().await?;
         let strategy = Strategy::get(strategy_addr, self.l2_client.clone());
@@ -386,6 +420,21 @@ impl Client for EthersClient {
                 computation_units: cus,
             })
             .collect())
+    }
+
+    async fn portal_compute_units_per_epoch(
+        &self,
+        portal_id: PeerId,
+    ) -> Result<u64, ClientError> {
+        let id: Bytes = portal_id.to_bytes().into();
+        let cus = self.gateway_registry.computation_units_available(id).call().await?;
+        Ok(cus.try_into().expect("Computation units should not exceed u64 range"))
+    }
+
+    async fn portal_uses_default_strategy(&self, portal_id: PeerId) -> Result<bool, ClientError> {
+        let id: Bytes = portal_id.to_bytes().into();
+        let strategy_addr = self.gateway_registry.get_used_strategy(id).call().await?;
+        Ok(strategy_addr == self.default_strategy_addr)
     }
 
     async fn gateway_clusters(&self, worker_id: U256) -> Result<Vec<GatewayCluster>, ClientError> {

@@ -1,7 +1,5 @@
 use clap::Parser;
-use futures::stream::StreamExt;
 use simple_logger::SimpleLogger;
-use std::time::Duration;
 
 use sqd_contract_client::{self, RpcArgs};
 
@@ -21,22 +19,7 @@ async fn main() -> anyhow::Result<()> {
     let epoch_start = client.current_epoch_start().await?;
     let elapsed = epoch_start.elapsed()?;
     log::info!("Current epoch is {epoch_num} started {} sec ago", elapsed.as_secs());
+    log::info!("Epoch length is {:?}", client.epoch_length().await?);
 
-    client
-        .epoch_stream(Duration::from_secs(10))
-        .for_each(|res| {
-            match res {
-                Ok((epoch_num, epoch_start)) => {
-                    let elapsed = epoch_start.elapsed().unwrap();
-                    log::info!(
-                        "Current epoch is {epoch_num} started {} sec ago",
-                        elapsed.as_secs()
-                    );
-                }
-                Err(e) => log::error!("Error getting current epoch: {e:?}"),
-            }
-            async {}
-        })
-        .await;
     Ok(())
 }
