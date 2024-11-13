@@ -84,19 +84,21 @@ pub struct Assignment {
     datasets: Vec<Dataset>,
     worker_assignments: HashMap<String, WorkerAssignment>,
     #[serde(skip)]
+    chunk_map: Option<HashMap<String, u64>>,
+    #[serde(skip)]
     pub id: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct NetworkAssignment {
-    pub(crate) url: String,
-    pub(crate) id: String,
+    pub url: String,
+    pub id: String,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct NetworkState {
-    pub(crate) network: String,
-    pub(crate) assignment: NetworkAssignment,
+    pub network: String,
+    pub assignment: NetworkAssignment,
 }
 
 impl Assignment {
@@ -110,6 +112,7 @@ impl Assignment {
                 chunks: vec![chunk],
             }),
         }
+        self.chunk_map = None
     }
 
     #[cfg(feature = "assignment_reader")]
@@ -215,6 +218,22 @@ impl Assignment {
             result.insert(k.to_string(), v.as_str().unwrap().to_string());
         }
         Ok(result)
+    }
+
+    #[cfg(feature = "assignment_writer")]
+    pub fn chunk_index(&mut self, chunk_id: String) -> Option<u64> {
+        if self.chunk_map.is_none() {
+            let mut chunk_map: HashMap<String, u64> = Default::default();
+            let mut idx = 0;
+            for dataset in &self.datasets {
+                for chunk in &dataset.chunks {
+                    chunk_map.insert(chunk.id.clone(), idx);
+                    idx += 1;
+                }
+            }
+            self.chunk_map = Some(chunk_map);
+        };
+        self.chunk_map.as_ref().unwrap().get(&chunk_id).cloned()
     }
 
     #[cfg(feature = "assignment_writer")]
