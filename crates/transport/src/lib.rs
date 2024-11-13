@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 
 pub use libp2p::{
     identity::{Keypair, ParseError as IdParseError, PublicKey},
+    request_response::ResponseChannel,
     Multiaddr, PeerId,
 };
 

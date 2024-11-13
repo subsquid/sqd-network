@@ -30,14 +30,15 @@ use crate::{
     QueueFull,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum WorkerEvent {
     /// Query received from a gateway
     Query { peer_id: PeerId, query: Query },
     /// Logs requested by a collector
     LogsRequest {
-        peer_id: PeerId,
         request: LogsRequest,
+        /// If this channel is dropped, the connection will be closed
+        resp_chan: ResponseChannel<QueryLogs>,
     },
 }
 
@@ -82,7 +83,6 @@ pub struct WorkerBehaviour {
     inner: InnerBehaviour,
     local_peer_id: PeerId,
     query_response_channels: HashMap<String, ResponseChannel<QueryResult>>,
-    logs_response_channel: Option<ResponseChannel<QueryLogs>>,
 }
 
 impl WorkerBehaviour {
@@ -113,7 +113,6 @@ impl WorkerBehaviour {
             },
             local_peer_id,
             query_response_channels: Default::default(),
-            logs_response_channel: None,
         }
         .into()
     }
@@ -174,29 +173,15 @@ impl WorkerBehaviour {
 
     fn on_logs_request(
         &mut self,
-        peer_id: PeerId,
+        _peer_id: PeerId,
         request: LogsRequest,
         resp_chan: ResponseChannel<QueryLogs>,
     ) -> Option<WorkerEvent> {
-        if self.logs_response_channel.is_some() {
-            log::warn!("Concurrent logs request from {peer_id}");
-        }
-        self.logs_response_channel = Some(resp_chan);
-        Some(WorkerEvent::LogsRequest { peer_id, request })
+        Some(WorkerEvent::LogsRequest { request, resp_chan })
     }
 
-    pub fn send_logs(&mut self, logs: QueryLogs) {
-        let Some(resp_chan) = self.logs_response_channel.take() else {
-            log::warn!("No pending log requests");
-            return;
-        };
+    pub fn send_logs(&mut self, logs: QueryLogs, resp_chan: ResponseChannel<QueryLogs>) {
         log::debug!("Sending {} query logs", logs.queries_executed.len());
-
-        // Check size limit
-        let result_size = logs.encoded_len() as u64;
-        if result_size > MAX_LOGS_RESPONSE_SIZE {
-            log::error!("Logs size too large: {result_size}");
-        }
 
         self.inner
             .logs
@@ -238,7 +223,7 @@ struct WorkerTransport {
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
     heartbeats_rx: Receiver<Heartbeat>,
     query_results_rx: Receiver<QueryResult>,
-    logs_rx: Receiver<QueryLogs>,
+    logs_rx: Receiver<(QueryLogs, ResponseChannel<QueryLogs>)>,
     events_tx: Sender<WorkerEvent>,
 }
 
@@ -251,7 +236,7 @@ impl WorkerTransport {
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
                 Some(heartbeat) = self.heartbeats_rx.recv() => self.swarm.behaviour_mut().send_heartbeat(heartbeat),
                 Some(res) = self.query_results_rx.recv() => self.swarm.behaviour_mut().send_query_result(res),
-                Some(logs) = self.logs_rx.recv() => self.swarm.behaviour_mut().send_logs(logs),
+                Some((logs, resp_chan)) = self.logs_rx.recv() => self.swarm.behaviour_mut().send_logs(logs, resp_chan),
             }
         }
         log::info!("Shutting down worker P2P transport");
@@ -270,7 +255,7 @@ impl WorkerTransport {
 pub struct WorkerTransportHandle {
     heartbeats_tx: Sender<Heartbeat>,
     query_results_tx: Sender<QueryResult>,
-    logs_tx: Sender<QueryLogs>,
+    logs_tx: Sender<(QueryLogs, ResponseChannel<QueryLogs>)>,
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
 }
 
@@ -278,7 +263,7 @@ impl WorkerTransportHandle {
     fn new(
         heartbeats_tx: Sender<Heartbeat>,
         query_results_tx: Sender<QueryResult>,
-        logs_tx: Sender<QueryLogs>,
+        logs_tx: Sender<(QueryLogs, ResponseChannel<QueryLogs>)>,
         transport: WorkerTransport,
         shutdown_timeout: Duration,
     ) -> Self {
@@ -302,9 +287,13 @@ impl WorkerTransportHandle {
         self.query_results_tx.try_send(result)
     }
 
-    pub fn send_logs(&self, logs: QueryLogs) -> Result<(), QueueFull> {
+    pub fn send_logs(
+        &self,
+        logs: QueryLogs,
+        resp_chan: ResponseChannel<QueryLogs>,
+    ) -> Result<(), QueueFull> {
         log::debug!("Queueing {} query logs", logs.queries_executed.len());
-        self.logs_tx.try_send(logs)
+        self.logs_tx.try_send((logs, resp_chan))
     }
 }
 
