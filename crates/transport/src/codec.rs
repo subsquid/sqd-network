@@ -70,7 +70,7 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
         T: futures::AsyncRead + Unpin + Send,
     {
         let mut buf = Vec::new();
-        let bytes_read = io.take(self.max_res_size).read_to_end(&mut buf).await?;
+        let bytes_read = io.take(self.max_res_size + 1).read_to_end(&mut buf).await?;
         if bytes_read as u64 > self.max_res_size {
             return Err(std::io::Error::new(ErrorKind::InvalidData, "Response too large to read"));
         }
