@@ -7,6 +7,7 @@ use libp2p::{
     Swarm,
 };
 use serde::{Deserialize, Serialize};
+use sqd_messages::OldPing;
 use tokio_util::sync::CancellationToken;
 
 use sqd_contract_client::PeerId;
@@ -47,6 +48,7 @@ pub struct PingsCollectorBehaviour {
 
 impl PingsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
+        base.subscribe_old_pings();
         base.subscribe_heartbeats();
         Self { base: base.into() }.into()
     }
@@ -70,8 +72,25 @@ impl BehaviourWrapper for PingsCollectorBehaviour {
                 log::trace!("{heartbeat:?}");
                 Some(ToSwarm::GenerateEvent(Heartbeat { peer_id, heartbeat }))
             }
+            BaseBehaviourEvent::OldPing { peer_id, ping } => {
+                log::debug!("Got old ping from {peer_id}");
+                log::trace!("{ping:?}");
+                Some(ToSwarm::GenerateEvent(Heartbeat {
+                    peer_id,
+                    heartbeat: convert_old_ping(ping),
+                }))
+            }
             _ => None,
         }
+    }
+}
+
+// TODO: drop support for old pings
+fn convert_old_ping(ping: OldPing) -> sqd_messages::Heartbeat {
+    sqd_messages::Heartbeat {
+        version: ping.version.unwrap_or_default(),
+        stored_bytes: ping.stored_bytes,
+        ..Default::default()
     }
 }
 
