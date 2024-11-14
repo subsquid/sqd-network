@@ -83,6 +83,7 @@ struct WorkerAssignment {
 pub struct Assignment {
     datasets: Vec<Dataset>,
     worker_assignments: HashMap<String, WorkerAssignment>,
+    #[cfg(feature = "assignment_writer")]
     #[serde(skip)]
     chunk_map: Option<HashMap<String, u64>>,
     #[serde(skip)]
