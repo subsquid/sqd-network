@@ -221,6 +221,17 @@ impl Assignment {
         Ok(result)
     }
 
+    #[cfg(feature = "assignment_reader")]
+    pub fn worker_status(
+        &self,
+        peer_id: String,
+    ) -> Result<String, anyhow::Error> {
+        let Some(local_assignment) = self.worker_assignments.get(&peer_id) else {
+            return Err(anyhow!("Can not find assignment for {peer_id}"));
+        };
+        Ok(local_assignment.status.clone())
+    }
+
     #[cfg(feature = "assignment_writer")]
     pub fn chunk_index(&mut self, chunk_id: String) -> Option<u64> {
         if self.chunk_map.is_none() {
