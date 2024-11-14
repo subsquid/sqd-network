@@ -275,7 +275,7 @@ impl P2PTransportBuilder {
             break;
         }
         let swarm =
-            self.build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config.clone()))?;
+            self.build_swarm(|base| WorkerBehaviour::new(base, config.clone()))?;
         Ok(worker::start_transport(swarm, config))
     }
 }

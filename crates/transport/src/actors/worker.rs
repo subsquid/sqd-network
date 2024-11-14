@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use futures_core::Stream;
@@ -8,7 +8,6 @@ use libp2p::{
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -33,7 +32,12 @@ use crate::{
 #[derive(Debug)]
 pub enum WorkerEvent {
     /// Query received from a gateway
-    Query { peer_id: PeerId, query: Query },
+    Query {
+        peer_id: PeerId,
+        query: Query,
+        /// If this channel is dropped, the connection will be closed
+        resp_chan: ResponseChannel<QueryResult>,
+    },
     /// Logs requested by a collector
     LogsRequest {
         request: LogsRequest,
@@ -81,16 +85,10 @@ impl WorkerConfig {
 
 pub struct WorkerBehaviour {
     inner: InnerBehaviour,
-    local_peer_id: PeerId,
-    query_response_channels: HashMap<String, ResponseChannel<QueryResult>>,
 }
 
 impl WorkerBehaviour {
-    pub fn new(
-        mut base: BaseBehaviour,
-        local_peer_id: PeerId,
-        config: WorkerConfig,
-    ) -> Wrapped<Self> {
+    pub fn new(mut base: BaseBehaviour, config: WorkerConfig) -> Wrapped<Self> {
         base.subscribe_heartbeats();
         for peer in config.service_nodes {
             base.allow_peer(peer);
@@ -111,8 +109,6 @@ impl WorkerBehaviour {
                 )
                 .into(),
             },
-            local_peer_id,
-            query_response_channels: Default::default(),
         }
         .into()
     }
@@ -127,43 +123,23 @@ impl WorkerBehaviour {
         query: Query,
         resp_chan: ResponseChannel<QueryResult>,
     ) -> Option<WorkerEvent> {
-        // Verify query signature
-        if !query.verify_signature(peer_id, self.local_peer_id) {
-            log::warn!("Dropping query with invalid signature from {peer_id}");
-            return None;
-        }
-        // TODO: verify query timestamp
-
-        // Check if query has ID
-        let query_id = &query.query_id;
-        if query_id.is_empty() {
-            log::warn!("Dropping query without ID from {peer_id}");
-            return None;
-        };
-        log::debug!("Query {query_id} verified");
-        self.query_response_channels.insert(query_id.clone(), resp_chan);
-        Some(WorkerEvent::Query { peer_id, query })
+        Some(WorkerEvent::Query {
+            peer_id,
+            query,
+            resp_chan,
+        })
     }
 
     pub fn send_heartbeat(&mut self, heartbeat: Heartbeat) {
         self.inner.base.publish_heartbeat(heartbeat);
     }
 
-    pub fn send_query_result(&mut self, mut result: QueryResult) {
+    pub fn send_query_result(
+        &mut self,
+        result: QueryResult,
+        resp_chan: ResponseChannel<QueryResult>,
+    ) {
         log::debug!("Sending query result {result:?}");
-        let Some(resp_chan) = self.query_response_channels.remove(&result.query_id) else {
-            panic!("No response channel for query: {}", result.query_id);
-        };
-
-        // Check query result size limit
-        let result_size = result.encoded_len() as u64;
-        if result_size > MAX_QUERY_RESULT_SIZE {
-            return log::error!("Query result size too large: {result_size}");
-        }
-
-        if let Err(e) = result.sign(self.inner.base.keypair()) {
-            return log::error!("Couldn't sign query result: {e:?}");
-        }
 
         self.inner
             .query
@@ -222,7 +198,7 @@ impl BehaviourWrapper for WorkerBehaviour {
 struct WorkerTransport {
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
     heartbeats_rx: Receiver<Heartbeat>,
-    query_results_rx: Receiver<QueryResult>,
+    query_results_rx: Receiver<(QueryResult, ResponseChannel<QueryResult>)>,
     logs_rx: Receiver<(QueryLogs, ResponseChannel<QueryLogs>)>,
     events_tx: Sender<WorkerEvent>,
 }
@@ -235,7 +211,7 @@ impl WorkerTransport {
                  _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
                 Some(heartbeat) = self.heartbeats_rx.recv() => self.swarm.behaviour_mut().send_heartbeat(heartbeat),
-                Some(res) = self.query_results_rx.recv() => self.swarm.behaviour_mut().send_query_result(res),
+                Some((res, resp_chan)) = self.query_results_rx.recv() => self.swarm.behaviour_mut().send_query_result(res, resp_chan),
                 Some((logs, resp_chan)) = self.logs_rx.recv() => self.swarm.behaviour_mut().send_logs(logs, resp_chan),
             }
         }
@@ -254,7 +230,7 @@ impl WorkerTransport {
 #[derive(Clone)]
 pub struct WorkerTransportHandle {
     heartbeats_tx: Sender<Heartbeat>,
-    query_results_tx: Sender<QueryResult>,
+    query_results_tx: Sender<(QueryResult, ResponseChannel<QueryResult>)>,
     logs_tx: Sender<(QueryLogs, ResponseChannel<QueryLogs>)>,
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
 }
@@ -262,7 +238,7 @@ pub struct WorkerTransportHandle {
 impl WorkerTransportHandle {
     fn new(
         heartbeats_tx: Sender<Heartbeat>,
-        query_results_tx: Sender<QueryResult>,
+        query_results_tx: Sender<(QueryResult, ResponseChannel<QueryResult>)>,
         logs_tx: Sender<(QueryLogs, ResponseChannel<QueryLogs>)>,
         transport: WorkerTransport,
         shutdown_timeout: Duration,
@@ -282,9 +258,13 @@ impl WorkerTransportHandle {
         self.heartbeats_tx.try_send(heartbeat)
     }
 
-    pub fn send_query_result(&self, result: QueryResult) -> Result<(), QueueFull> {
+    pub fn send_query_result(
+        &self,
+        result: QueryResult,
+        resp_chan: ResponseChannel<QueryResult>,
+    ) -> Result<(), QueueFull> {
         log::debug!("Queueing query result {result:?}");
-        self.query_results_tx.try_send(result)
+        self.query_results_tx.try_send((result, resp_chan))
     }
 
     pub fn send_logs(
