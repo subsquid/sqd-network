@@ -22,6 +22,7 @@ pub const MAX_PUBSUB_MSG_SIZE: usize = 65536;
 
 pub const HEARTBEATS_MIN_INTERVAL: Duration = Duration::from_secs(20);
 pub const APPROX_EPOCH_LEN: Duration = Duration::from_secs(1200);
+pub const MAX_TIME_LAG: Duration = Duration::from_secs(60);
 
 pub const fn dht_protocol(network: Network) -> StreamProtocol {
     match network {
