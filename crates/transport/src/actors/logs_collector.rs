@@ -1,15 +1,25 @@
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 
+use futures::{FutureExt, StreamExt};
 use libp2p::{
-    swarm::{NetworkBehaviour, ToSwarm},
+    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
+use parking_lot::Mutex;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tokio::sync::oneshot;
 
 use sqd_messages::{LogsRequest, QueryLogs};
+use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
 
 use crate::{
     behaviour::{
@@ -19,15 +29,17 @@ use crate::{
     },
     codec::ProtoCodec,
     protocol::{MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, WORKER_LOGS_PROTOCOL},
-    ClientConfig, QueueFull,
+    record_event, ClientConfig, QueueFull,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum LogsCollectorEvent {}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Error)]
 pub enum FetchLogsError {
+    #[error("Timeout: {0}")]
     Timeout(Timeout),
+    #[error("Failure: {0}")]
     Failure(String),
 }
 
@@ -180,7 +192,7 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
 }
 
 pub struct LogsCollectorTransport {
-    swarm: parking_lot::Mutex<Swarm<Wrapped<LogsCollectorBehaviour>>>,
+    swarm: Mutex<Swarm<Wrapped<LogsCollectorBehaviour>>>,
 }
 
 impl LogsCollectorTransport {
@@ -199,6 +211,19 @@ impl LogsCollectorTransport {
             .await
             .map_err(|_| FetchLogsError::Failure("Logs response channel closed".to_string()))?
     }
+
+    pub fn run(&self, cancel_token: CancellationToken) -> LogsCollectorRunFuture {
+        log::info!("Starting logs collector P2P transport");
+        LogsCollectorRunFuture {
+            transport: self,
+            cancelled: Box::pin(cancel_token.cancelled_owned()),
+        }
+    }
+
+    fn on_swarm_event(&self, ev: SwarmEvent<LogsCollectorEvent>) {
+        log::trace!("Swarm event: {ev:?}");
+        record_event(&ev);
+    }
 }
 
 pub fn start_transport(
@@ -206,7 +231,30 @@ pub fn start_transport(
     _config: LogsCollectorConfig,
 ) -> LogsCollectorTransport {
     let transport = LogsCollectorTransport {
-        swarm: parking_lot::Mutex::new(swarm),
+        swarm: Mutex::new(swarm),
     };
     transport
+}
+
+pub struct LogsCollectorRunFuture<'t> {
+    transport: &'t LogsCollectorTransport,
+    cancelled: Pin<Box<WaitForCancellationFutureOwned>>,
+}
+
+impl<'t> Future for LogsCollectorRunFuture<'t> {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.cancelled.poll_unpin(cx).is_ready() {
+            log::info!("Shutting down logs collector P2P transport");
+            return Poll::Ready(());
+        }
+        loop {
+            match self.transport.swarm.lock().poll_next_unpin(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Some(ev)) => self.transport.on_swarm_event(ev),
+                Poll::Ready(None) => unreachable!("Swarm stream ended"),
+            }
+        }
+    }
 }
