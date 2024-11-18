@@ -148,6 +148,11 @@ impl Assignment {
     }
 
     #[cfg(feature = "assignment_reader")]
+    pub fn get_all_peer_ids(&self) -> Vec<String> {
+        self.worker_assignments.keys().cloned().collect()
+    }
+
+    #[cfg(feature = "assignment_reader")]
     pub fn dataset_chunks_for_peer_id(&self, peer_id: &str) -> Option<Vec<Dataset>> {
         let local_assignment = self.worker_assignments.get(peer_id)?;
         let mut result: Vec<Dataset> = Default::default();
