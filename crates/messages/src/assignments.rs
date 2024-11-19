@@ -81,7 +81,7 @@ struct WorkerAssignment {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Assignment {
-    datasets: Vec<Dataset>,
+    pub datasets: Vec<Dataset>,
     worker_assignments: HashMap<String, WorkerAssignment>,
     #[cfg(feature = "assignment_writer")]
     #[serde(skip)]
