@@ -5055,6 +5055,7 @@ dependencies = [
  "sha2",
  "sha3",
  "sqd-network-transport",
+ "tokio",
  "url",
 ]
 

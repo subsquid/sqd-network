@@ -5,7 +5,7 @@ version = "2.0.0"
 edition = "2021"
 
 [features]
-assignment_reader = ["anyhow", "crypto_box", "flate2", "reqwest", "serde_json", "serde_with", "sha2"]
+assignment_reader = ["anyhow", "crypto_box", "flate2", "reqwest", "serde_json", "serde_with", "sha2", "tokio"]
 assignment_writer = ["anyhow", "base64", "bs58", "crypto_box", "curve25519-dalek", "hmac", "log", "serde_json", "serde_with", "sha2", "url"]
 bitstring = ["bytemuck", "flate2"]
 signatures = ["libp2p"]
@@ -29,6 +29,7 @@ serde_json = { version = "1.0.111", optional = true, features = ["preserve_order
 serde_with = { version = "3.11.0", optional = true, features = ["base64"] }
 sha2 = { version = "0.10.8", optional = true }
 sha3 = "0.10"
+tokio = { version = "1.38", optional = true }
 url = { version = "2.5.0", optional = true }
 
 libp2p = { workspace = true, optional = true }

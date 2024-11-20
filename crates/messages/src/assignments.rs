@@ -24,6 +24,8 @@ use sha2::Digest;
 use sha2::Sha512;
 #[cfg(feature = "assignment_reader")]
 use sha3::digest::generic_array::GenericArray;
+#[cfg(feature = "assignment_reader")]
+use prost::bytes::Bytes;
 
 #[cfg(feature = "assignment_writer")]
 use base64::{engine::general_purpose::STANDARD as base64, Engine};
@@ -117,6 +119,18 @@ impl Assignment {
     }
 
     #[cfg(feature = "assignment_reader")]
+    async fn parse_compressed_assignment(compressed_assignment: Bytes) -> Result<Self, anyhow::Error> {
+        let task = tokio::task::spawn_blocking(move || {
+            let decoder = GzDecoder::new(&compressed_assignment[..]);
+            serde_json::from_reader(decoder)
+        });
+        match task.await {
+            Ok(result) => Ok(result?),
+            Err(err) => Err(anyhow!(err))
+        }
+    }
+
+    #[cfg(feature = "assignment_reader")]
     pub async fn try_download(
         url: String,
         previous_id: Option<String>,
@@ -129,8 +143,7 @@ impl Assignment {
         let assignment_url = network_state.assignment.url;
         let response_assignment = reqwest::get(assignment_url).await?;
         let compressed_assignment = response_assignment.bytes().await?;
-        let decoder = GzDecoder::new(&compressed_assignment[..]);
-        let mut result: Self = serde_json::from_reader(decoder)?;
+        let mut result = Self::parse_compressed_assignment(compressed_assignment).await?;
         result.id = network_state.assignment.id;
         Ok(Some(result))
     }
