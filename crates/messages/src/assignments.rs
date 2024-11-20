@@ -124,10 +124,7 @@ impl Assignment {
             let decoder = GzDecoder::new(&compressed_assignment[..]);
             serde_json::from_reader(decoder)
         });
-        match task.await {
-            Ok(result) => Ok(result?),
-            Err(err) => Err(anyhow!(err))
-        }
+        Ok(task.await??)
     }
 
     #[cfg(feature = "assignment_reader")]
