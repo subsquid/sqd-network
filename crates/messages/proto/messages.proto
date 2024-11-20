@@ -147,7 +147,6 @@ message QueryFinished {
 // Logs collector -> Worker
 message LogsRequest {
   uint64 from_timestamp_ms = 1;
-  uint64 to_timestamp_ms = 2;
   optional string last_received_query_id = 3;  // query ID of the last collected query
 }
 

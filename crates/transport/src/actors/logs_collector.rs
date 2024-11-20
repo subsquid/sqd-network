@@ -141,9 +141,8 @@ impl LogsCollectorBehaviour {
         }
 
         log::debug!(
-            "Requesting logs from {peer_id} from {} to {}, last query id: {:?}",
+            "Requesting logs from {peer_id} from {}, last query id: {:?}",
             request.from_timestamp_ms,
-            request.to_timestamp_ms,
             request.last_received_query_id
         );
 
