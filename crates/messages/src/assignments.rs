@@ -13,6 +13,8 @@ use curve25519_dalek::edwards::CompressedEdwardsY;
 use flate2::read::GzDecoder;
 #[cfg(feature = "assignment_writer")]
 use log::error;
+#[cfg(feature = "assignment_reader")]
+use prost::bytes::Bytes;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "assignment_reader")]
 use serde_json::Value;
@@ -24,8 +26,6 @@ use sha2::Digest;
 use sha2::Sha512;
 #[cfg(feature = "assignment_reader")]
 use sha3::digest::generic_array::GenericArray;
-#[cfg(feature = "assignment_reader")]
-use prost::bytes::Bytes;
 
 #[cfg(feature = "assignment_writer")]
 use base64::{engine::general_purpose::STANDARD as base64, Engine};
@@ -72,10 +72,21 @@ struct EncryptedHeaders {
     ciphertext: Vec<u8>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkerStatus {
+    #[serde(alias = "Ok")]
+    Ok,
+    Unreliable,
+    DeprecatedVersion,
+    UnsupportedVersion,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct WorkerAssignment {
-    status: String,
+    status: WorkerStatus,
+    jail_reason: Option<String>,
     chunks_deltas: Vec<u64>,
     encrypted_headers: EncryptedHeaders,
 }
@@ -119,7 +130,9 @@ impl Assignment {
     }
 
     #[cfg(feature = "assignment_reader")]
-    async fn parse_compressed_assignment(compressed_assignment: Bytes) -> Result<Self, anyhow::Error> {
+    async fn parse_compressed_assignment(
+        compressed_assignment: Bytes,
+    ) -> Result<Self, anyhow::Error> {
         let task = tokio::task::spawn_blocking(move || {
             let decoder = GzDecoder::new(&compressed_assignment[..]);
             serde_json::from_reader(decoder)
@@ -146,11 +159,21 @@ impl Assignment {
     }
 
     #[cfg(feature = "assignment_writer")]
-    pub fn insert_assignment(&mut self, peer_id: &str, status: String, chunks_deltas: Vec<u64>) {
+    pub fn insert_assignment(
+        &mut self,
+        peer_id: &str,
+        jail_reason: Option<String>,
+        chunks_deltas: Vec<u64>,
+    ) {
+        let status = match jail_reason {
+            Some(_) => WorkerStatus::Unreliable,
+            None => WorkerStatus::Ok,
+        };
         self.worker_assignments.insert(
             peer_id.to_string(),
             WorkerAssignment {
                 status,
+                jail_reason,
                 chunks_deltas,
                 encrypted_headers: Default::default(),
             },
@@ -237,14 +260,17 @@ impl Assignment {
     }
 
     #[cfg(feature = "assignment_reader")]
-    pub fn worker_status(
-        &self,
-        peer_id: String,
-    ) -> Result<String, anyhow::Error> {
+    pub fn worker_status(&self, peer_id: String) -> Option<WorkerStatus> {
+        let local_assignment = self.worker_assignments.get(&peer_id)?;
+        Some(local_assignment.status)
+    }
+
+    #[cfg(feature = "assignment_reader")]
+    pub fn worker_jail_reason(&self, peer_id: String) -> Result<Option<String>, anyhow::Error> {
         let Some(local_assignment) = self.worker_assignments.get(&peer_id) else {
             return Err(anyhow!("Can not find assignment for {peer_id}"));
         };
-        Ok(local_assignment.status.clone())
+        Ok(local_assignment.jail_reason.clone())
     }
 
     #[cfg(feature = "assignment_writer")]
@@ -283,9 +309,8 @@ impl Assignment {
 
         let shared_box = SalsaBox::new(&worker_public_key, secret_key);
         let nonce = SalsaBox::generate_nonce(&mut OsRng);
-        let ciphertext = shared_box
-            .encrypt(&nonce, plaintext)
-            .map_err(|err| anyhow!("Error {err:?}"))?;
+        let ciphertext =
+            shared_box.encrypt(&nonce, plaintext).map_err(|err| anyhow!("Error {err:?}"))?;
         Ok((ciphertext, nonce.to_vec()))
     }
 
@@ -362,7 +387,7 @@ mod tests {
         let peer_id = keypair.public().to_peer_id().to_base58();
         let private_key = keypair.try_into_ed25519().unwrap().secret();
 
-        assignment.insert_assignment(&peer_id, "Ok".to_owned(), Default::default());
+        assignment.insert_assignment(&peer_id, Some("Ok".to_owned()), Default::default());
         assignment.regenerate_headers("SUPERSECRET");
         let headers = assignment
             .headers_for_peer_id(&peer_id, &private_key.as_ref().to_vec())
