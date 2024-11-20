@@ -64,7 +64,7 @@ pub struct P2PTransportBuilder {
 impl P2PTransportBuilder {
     pub async fn from_cli(args: TransportArgs, agent_info: AgentInfo) -> anyhow::Result<Self> {
         let listen_addrs = args.listen_addrs();
-        let keypair = get_keypair(args.key).await?;
+        let keypair = get_keypair(Some(args.key)).await?;
         let contract_client = sqd_contract_client::get_client(&args.rpc).await?;
         let dht_protocol = dht_protocol(args.rpc.network);
         Ok(Self {

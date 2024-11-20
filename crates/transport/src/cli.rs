@@ -7,24 +7,21 @@ use std::{path::PathBuf, str::FromStr};
 #[derive(Args, Clone)]
 pub struct TransportArgs {
     #[arg(short, long, env = "KEY_PATH", help = "Path to libp2p key file")]
-    pub key: Option<PathBuf>,
+    pub key: PathBuf,
 
     #[arg(
         long,
         env,
         help = "Addresses on which the p2p node will listen",
         value_delimiter = ',',
-        num_args = 1..,
-        default_value = "/ip4/0.0.0.0/udp/0/quic-v1"
     )]
-    p2p_listen_addrs: Vec<Multiaddr>,
+    pub p2p_listen_addrs: Vec<Multiaddr>,
 
     #[arg(
         long,
         env,
         help = "Public address(es) on which the p2p node can be reached",
         value_delimiter = ',',
-        num_args = 1..,
     )]
     pub p2p_public_addrs: Vec<Multiaddr>,
 
