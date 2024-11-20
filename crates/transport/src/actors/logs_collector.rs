@@ -3,7 +3,6 @@ use std::{
     future::Future,
     pin::Pin,
     task::{Context, Poll},
-    time::Duration,
 };
 
 use futures::{FutureExt, StreamExt};
@@ -51,19 +50,13 @@ pub struct InnerBehaviour {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LogsCollectorConfig {
-    pub logs_config: ClientConfig,
-    pub events_queue_size: usize,
-    pub log_requests_queue_size: usize,
-    pub logs_ack_timeout: Duration,
+    pub request_config: ClientConfig,
 }
 
 impl Default for LogsCollectorConfig {
     fn default() -> Self {
         Self {
-            logs_config: Default::default(),
-            events_queue_size: 100,
-            log_requests_queue_size: 100,
-            logs_ack_timeout: Duration::from_secs(5),
+            request_config: Default::default(),
         }
     }
 }
@@ -85,7 +78,7 @@ impl LogsCollectorBehaviour {
                 logs: ClientBehaviour::new(
                     ProtoCodec::new(MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE),
                     WORKER_LOGS_PROTOCOL,
-                    config.logs_config,
+                    config.request_config,
                 )
                 .into(),
             },
