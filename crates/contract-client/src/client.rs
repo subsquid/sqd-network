@@ -7,11 +7,13 @@ use std::{
 };
 
 use async_trait::async_trait;
+use ethers::types::H160;
 use ethers::{
     prelude::{BlockId, Bytes, Middleware, Multicall, Provider},
     types::BlockNumber,
 };
 use libp2p::futures::Stream;
+use num_rational::Ratio;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
 use crate::{
@@ -133,6 +135,13 @@ pub trait Client: Send + Sync + 'static {
 
     /// Get the current list of all gateway clusters with their allocated CUs for this worker
     async fn gateway_clusters(&self, worker_id: U256) -> Result<Vec<GatewayCluster>, ClientError>;
+
+    /// Get operator address and the total amount of SQD
+    /// locked by the operator shared across all portals
+    async fn portal_sqd_locked(
+        &self,
+        portal_id: PeerId,
+    ) -> Result<Option<(String, Ratio<u128>)>, ClientError>;
 
     /// Get a stream of peer IDs of all active network participants (workers & gateways)
     /// Updated on the given interval
@@ -460,5 +469,25 @@ impl Client for EthersClient {
             }
         }
         Ok(clusters.into_values().collect())
+    }
+
+    async fn portal_sqd_locked(
+        &self,
+        portal_id: PeerId,
+    ) -> Result<Option<(String, Ratio<u128>)>, ClientError> {
+        let id: Bytes = portal_id.to_bytes().into();
+        let portal = self.gateway_registry.get_gateway(id).call().await?;
+
+        let operator: H160 = portal.operator;
+        if operator.is_zero() {
+            return Ok(None);
+        }
+
+        let stake = self.gateway_registry.get_stake(operator).call().await?;
+
+        Ok(Some((
+            operator.to_string(),
+            Ratio::new(stake.amount.as_u128(), 1_000_000_000_000_000_000),
+        )))
     }
 }
