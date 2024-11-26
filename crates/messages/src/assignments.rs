@@ -11,6 +11,7 @@ use crypto_box::{aead::Aead, PublicKey, SalsaBox, SecretKey};
 use curve25519_dalek::edwards::CompressedEdwardsY;
 #[cfg(feature = "assignment_reader")]
 use flate2::read::GzDecoder;
+use libp2p::PeerId;
 #[cfg(feature = "assignment_writer")]
 use log::error;
 #[cfg(feature = "assignment_reader")]
@@ -95,7 +96,7 @@ struct WorkerAssignment {
 #[serde(rename_all = "camelCase")]
 pub struct Assignment {
     pub datasets: Vec<Dataset>,
-    worker_assignments: HashMap<String, WorkerAssignment>,
+    worker_assignments: HashMap<PeerId, WorkerAssignment>,
     #[cfg(feature = "assignment_writer")]
     #[serde(skip)]
     chunk_map: Option<HashMap<String, u64>>,
@@ -161,7 +162,7 @@ impl Assignment {
     #[cfg(feature = "assignment_writer")]
     pub fn insert_assignment(
         &mut self,
-        peer_id: &str,
+        peer_id: PeerId,
         jail_reason: Option<String>,
         chunks_deltas: Vec<u64>,
     ) {
@@ -170,7 +171,7 @@ impl Assignment {
             None => WorkerStatus::Ok,
         };
         self.worker_assignments.insert(
-            peer_id.to_string(),
+            peer_id,
             WorkerAssignment {
                 status,
                 jail_reason,
@@ -181,12 +182,12 @@ impl Assignment {
     }
 
     #[cfg(feature = "assignment_reader")]
-    pub fn get_all_peer_ids(&self) -> Vec<String> {
-        self.worker_assignments.keys().cloned().collect()
+    pub fn get_all_peer_ids(&self) -> Vec<PeerId> {
+        self.worker_assignments.keys().copied().collect()
     }
 
     #[cfg(feature = "assignment_reader")]
-    pub fn dataset_chunks_for_peer_id(&self, peer_id: &str) -> Option<Vec<Dataset>> {
+    pub fn dataset_chunks_for_peer_id(&self, peer_id: &PeerId) -> Option<Vec<Dataset>> {
         let local_assignment = self.worker_assignments.get(peer_id)?;
         let mut result: Vec<Dataset> = Default::default();
         let mut idxs: VecDeque<u64> = Default::default();
@@ -228,7 +229,7 @@ impl Assignment {
     #[cfg(feature = "assignment_reader")]
     pub fn headers_for_peer_id(
         &self,
-        peer_id: &str,
+        peer_id: &PeerId,
         secret_key: &Vec<u8>,
     ) -> Result<BTreeMap<String, String>, anyhow::Error> {
         let Some(local_assignment) = self.worker_assignments.get(peer_id) else {
@@ -260,14 +261,14 @@ impl Assignment {
     }
 
     #[cfg(feature = "assignment_reader")]
-    pub fn worker_status(&self, peer_id: String) -> Option<WorkerStatus> {
-        let local_assignment = self.worker_assignments.get(&peer_id)?;
+    pub fn worker_status(&self, peer_id: &PeerId) -> Option<WorkerStatus> {
+        let local_assignment = self.worker_assignments.get(peer_id)?;
         Some(local_assignment.status)
     }
 
     #[cfg(feature = "assignment_reader")]
-    pub fn worker_jail_reason(&self, peer_id: String) -> Result<Option<String>, anyhow::Error> {
-        let Some(local_assignment) = self.worker_assignments.get(&peer_id) else {
+    pub fn worker_jail_reason(&self, peer_id: &PeerId) -> Result<Option<String>, anyhow::Error> {
+        let Some(local_assignment) = self.worker_assignments.get(peer_id) else {
             return Err(anyhow!("Can not find assignment for {peer_id}"));
         };
         Ok(local_assignment.jail_reason.clone())
@@ -320,7 +321,7 @@ impl Assignment {
         let temporary_public_key_bytes = *temporary_secret_key.public_key().as_bytes();
 
         for (worker_id, worker_assignment) in &mut self.worker_assignments {
-            let worker_signature = timed_hmac_now(worker_id, cloudflare_storage_secret);
+            let worker_signature = timed_hmac_now(&worker_id.to_string(), cloudflare_storage_secret);
 
             let headers = Headers {
                 worker_id: worker_id.to_string(),
@@ -328,7 +329,7 @@ impl Assignment {
             };
             let plaintext = serde_json::to_vec(&headers).unwrap();
             let (ciphertext, nonce) =
-                match Self::encrypt(worker_id, &temporary_secret_key, &plaintext) {
+                match Self::encrypt(&worker_id.to_string(), &temporary_secret_key, &plaintext) {
                     Ok(val) => val,
                     Err(err) => {
                         error!("Error while processing headers for {worker_id}: {err:?}");
