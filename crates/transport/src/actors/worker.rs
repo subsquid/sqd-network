@@ -65,7 +65,6 @@ pub struct WorkerConfig {
     pub shutdown_timeout: Duration,
     pub query_execution_timeout: Duration,
     pub send_logs_timeout: Duration,
-    pub service_nodes: Vec<PeerId>,
 }
 
 impl WorkerConfig {
@@ -78,7 +77,6 @@ impl WorkerConfig {
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
             query_execution_timeout: Duration::from_secs(20),
             send_logs_timeout: Duration::from_secs(5),
-            service_nodes: Default::default(),
         }
     }
 }
@@ -90,9 +88,6 @@ pub struct WorkerBehaviour {
 impl WorkerBehaviour {
     pub fn new(mut base: BaseBehaviour, config: WorkerConfig) -> Wrapped<Self> {
         base.subscribe_heartbeats();
-        for peer in config.service_nodes {
-            base.allow_peer(peer);
-        }
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
