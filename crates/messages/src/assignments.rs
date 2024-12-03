@@ -385,15 +385,15 @@ mod tests {
     fn it_works() {
         let mut assignment: Assignment = Default::default();
         let keypair = Keypair::generate_ed25519();
-        let peer_id = keypair.public().to_peer_id().to_base58();
+        let peer_id = keypair.public().to_peer_id();
         let private_key = keypair.try_into_ed25519().unwrap().secret();
 
-        assignment.insert_assignment(&peer_id, Some("Ok".to_owned()), Default::default());
+        assignment.insert_assignment(peer_id, Some("Ok".to_owned()), Default::default());
         assignment.regenerate_headers("SUPERSECRET");
         let headers = assignment
             .headers_for_peer_id(&peer_id, &private_key.as_ref().to_vec())
             .unwrap_or_default();
         let decrypted_id = headers.get("worker-id").unwrap();
-        assert_eq!(peer_id, decrypted_id.to_owned());
+        assert_eq!(peer_id.to_base58(), decrypted_id.to_owned());
     }
 }
