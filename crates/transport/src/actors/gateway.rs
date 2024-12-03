@@ -26,7 +26,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
-    protocol::{MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE, QUERY_PROTOCOL},
+    protocol::{MAX_QUERY_RESULT_SIZE, MAX_QUERY_MSG_SIZE, QUERY_PROTOCOL},
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
     QueueFull,
@@ -97,7 +97,7 @@ impl GatewayBehaviour {
         let inner = InnerBehaviour {
             base: base.into(),
             query: ClientBehaviour::new(
-                ProtoCodec::new(MAX_QUERY_SIZE, config.max_query_result_size),
+                ProtoCodec::new(MAX_QUERY_MSG_SIZE, config.max_query_result_size),
                 QUERY_PROTOCOL,
                 config.query_config,
             )
@@ -219,7 +219,7 @@ impl GatewayBehaviour {
 
         // Validate query size
         let query_size = query.encoded_len() as u64;
-        if query_size > MAX_QUERY_SIZE {
+        if query_size > MAX_QUERY_MSG_SIZE {
             return log::error!("Query size too large: {query_size}");
         }
 

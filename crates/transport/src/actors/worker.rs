@@ -21,7 +21,7 @@ use crate::{
     },
     codec::ProtoCodec,
     protocol::{
-        MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_SIZE,
+        MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_MSG_SIZE,
         QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL,
     },
     record_event,
@@ -92,7 +92,7 @@ impl WorkerBehaviour {
             inner: InnerBehaviour {
                 base: base.into(),
                 query: ServerBehaviour::new(
-                    ProtoCodec::new(MAX_QUERY_SIZE, MAX_QUERY_RESULT_SIZE),
+                    ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
                     QUERY_PROTOCOL,
                     config.query_execution_timeout,
                 )
