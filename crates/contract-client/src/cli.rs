@@ -18,6 +18,9 @@ pub struct RpcArgs {
     /// Network to connect to (mainnet or testnet)
     #[arg(long, env, default_value = "mainnet")]
     pub network: Network,
+
+    #[arg(env, hide(true), default_value_t = 500)]
+    pub contract_workers_per_page: usize,
 }
 
 impl RpcArgs {

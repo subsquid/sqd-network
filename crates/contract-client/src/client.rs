@@ -197,6 +197,7 @@ struct EthersClient {
     allocations_viewer: AllocationsViewer<Provider<Transport>>,
     default_strategy_addr: Address,
     multicall_contract_addr: Option<Address>,
+    active_workers_per_page: usize,
 }
 
 impl EthersClient {
@@ -229,6 +230,7 @@ impl EthersClient {
             allocations_viewer,
             default_strategy_addr,
             multicall_contract_addr: Some(rpc_args.multicall_addr()),
+            active_workers_per_page: rpc_args.contract_workers_per_page,
         }))
     }
 
@@ -301,16 +303,25 @@ impl Client for EthersClient {
     }
 
     async fn active_workers(&self) -> Result<Vec<Worker>, ClientError> {
-        let workers_call = self.worker_registration.method("getActiveWorkers", ())?;
-        let onchain_ids_call = self.worker_registration.method("getActiveWorkerIds", ())?;
-        let mut multicall = self.multicall().await?;
-        multicall
-            .add_call::<Vec<contracts::Worker>>(workers_call, false)
-            .add_call::<Vec<U256>>(onchain_ids_call, false);
-        let (workers, onchain_ids): (Vec<contracts::Worker>, Vec<U256>) = multicall.call().await?;
+        // A single getActiveWorkers call should be used instead but it lacks pagination and runs out of gas
+
+        let onchain_ids: Vec<U256> =
+            self.worker_registration.get_active_worker_ids().call().await?;
+        let calls = onchain_ids.chunks(self.active_workers_per_page).map(|ids| async move {
+            let mut multicall = self.multicall().await?;
+            for id in ids {
+                multicall.add_call::<contracts::Worker>(
+                    self.worker_registration.method("getWorker", *id)?,
+                    false,
+                );
+            }
+            let workers: Vec<contracts::Worker> = multicall.call_array().await?;
+            Result::<_, ClientError>::Ok(workers)
+        });
+
+        let workers = futures::future::try_join_all(calls).await?.into_iter().flatten();
 
         let workers = workers
-            .into_iter()
             .zip(onchain_ids)
             .filter_map(|(worker, onchain_id)| match Worker::new(&worker, onchain_id) {
                 Ok(worker) => Some(worker),
