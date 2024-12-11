@@ -1,17 +1,8 @@
-use crate::{Heartbeat, OldPing};
+use crate::Heartbeat;
 
 impl Heartbeat {
     pub fn version_matches(&self, req: &semver::VersionReq) -> bool {
         let Ok(version) = self.version.parse() else {
-            return false;
-        };
-        version_matches(&version, req)
-    }
-}
-
-impl OldPing {
-    pub fn version_matches(&self, req: &semver::VersionReq) -> bool {
-        let Some(version) = self.version.as_ref().and_then(|v| v.parse().ok()) else {
             return false;
         };
         version_matches(&version, req)

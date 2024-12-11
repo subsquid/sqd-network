@@ -14,11 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Formatter},
-    ops::{Deref, DerefMut},
-};
+use std::fmt::{Debug, Formatter};
 
 pub use prost::Message as ProstMsg;
 
@@ -34,26 +30,6 @@ pub mod signatures;
 mod versions;
 
 include!(concat!(env!("OUT_DIR"), "/messages.rs"));
-
-impl Deref for WorkerState {
-    type Target = HashMap<String, RangeSet>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.datasets
-    }
-}
-
-impl DerefMut for WorkerState {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.datasets
-    }
-}
-
-impl From<HashMap<String, RangeSet>> for WorkerState {
-    fn from(datasets: HashMap<String, RangeSet>) -> Self {
-        Self { datasets }
-    }
-}
 
 impl Debug for QueryOk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
