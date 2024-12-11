@@ -1,0 +1,32 @@
+{
+  "datasets": [
+    {
+      "id": "s3://arbitrum-one",
+      "baseUrl": "https://arbitrum-one.sqd-datasets.io",
+      "chunks": [
+        {
+          "id": "00000000/00000000-00001000-0xdeadbeef",
+          "baseUrl": "00000000/00000000-00001000-0xdeadbeef",
+          "files": {
+            "blocks.parquet": "blocks.parquet"
+          },
+          "sizeBytes": 100000
+        }
+      ]
+    }
+  ],
+  "workerAssignments": {
+    "12D3KooWBwbQFT48cNYGPbDwm8rjasbZkc1VMo6rCR6217qr165S": {
+      "status": "ok",
+      "jailReason": null,
+      "chunksDeltas": [
+        0
+      ],
+      "encryptedHeaders": {
+        "identity": "",
+        "nonce": "",
+        "ciphertext": ""
+      }
+    }
+  }
+}

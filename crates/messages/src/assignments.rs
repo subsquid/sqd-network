@@ -1,7 +1,10 @@
 use core::str;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 #[cfg(feature = "assignment_reader")]
 use std::collections::{BTreeMap, VecDeque};
+use std::ops::Deref;
+use std::str::FromStr;
 
 use anyhow::anyhow;
 #[cfg(feature = "assignment_writer")]
@@ -96,7 +99,7 @@ struct WorkerAssignment {
 #[serde(rename_all = "camelCase")]
 pub struct Assignment {
     pub datasets: Vec<Dataset>,
-    worker_assignments: HashMap<PeerId, WorkerAssignment>,
+    worker_assignments: HashMap<SerdePeerId, WorkerAssignment>,
     #[cfg(feature = "assignment_writer")]
     #[serde(skip)]
     chunk_map: Option<HashMap<String, u64>>,
@@ -171,7 +174,7 @@ impl Assignment {
             None => WorkerStatus::Ok,
         };
         self.worker_assignments.insert(
-            peer_id,
+            peer_id.into(),
             WorkerAssignment {
                 status,
                 jail_reason,
@@ -183,7 +186,7 @@ impl Assignment {
 
     #[cfg(feature = "assignment_reader")]
     pub fn get_all_peer_ids(&self) -> Vec<PeerId> {
-        self.worker_assignments.keys().copied().collect()
+        self.worker_assignments.keys().map(|peer_id| **peer_id).collect()
     }
 
     #[cfg(feature = "assignment_reader")]
@@ -321,7 +324,8 @@ impl Assignment {
         let temporary_public_key_bytes = *temporary_secret_key.public_key().as_bytes();
 
         for (worker_id, worker_assignment) in &mut self.worker_assignments {
-            let worker_signature = timed_hmac_now(&worker_id.to_string(), cloudflare_storage_secret);
+            let worker_signature =
+                timed_hmac_now(&worker_id.to_string(), cloudflare_storage_secret);
 
             let headers = Headers {
                 worker_id: worker_id.to_string(),
@@ -343,6 +347,60 @@ impl Assignment {
                 ciphertext,
             };
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct SerdePeerId {
+    peer_id: PeerId,
+}
+
+impl Deref for SerdePeerId {
+    type Target = PeerId;
+
+    fn deref(&self) -> &Self::Target {
+        &self.peer_id
+    }
+}
+
+impl From<PeerId> for SerdePeerId {
+    fn from(peer_id: PeerId) -> Self {
+        SerdePeerId { peer_id }
+    }
+}
+
+impl Borrow<PeerId> for SerdePeerId {
+    fn borrow(&self) -> &PeerId {
+        &self.peer_id
+    }
+}
+
+impl std::fmt::Display for SerdePeerId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.peer_id.to_base58())
+    }
+}
+
+impl Serialize for SerdePeerId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.peer_id.to_base58().serialize(serializer)
+    }
+}
+
+impl<'l> Deserialize<'l> for SerdePeerId {
+    fn deserialize<D>(deserializer: D) -> Result<SerdePeerId, D::Error>
+    where
+        D: serde::Deserializer<'l>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(SerdePeerId {
+            peer_id: PeerId::from_str(&s).map_err(|_| {
+                serde::de::Error::invalid_value(serde::de::Unexpected::Str(&s), &"PeerId")
+            })?,
+        })
     }
 }
 
@@ -395,5 +453,31 @@ mod tests {
             .unwrap_or_default();
         let decrypted_id = headers.get("worker-id").unwrap();
         assert_eq!(peer_id.to_base58(), decrypted_id.to_owned());
+    }
+
+    #[test]
+    fn serialization() -> anyhow::Result<()> {
+        let mut assignment: Assignment = Default::default();
+        let chunk = Chunk {
+            id: "00000000/00000000-00001000-0xdeadbeef".to_owned(),
+            base_url: "00000000/00000000-00001000-0xdeadbeef".to_owned(),
+            files: [("blocks.parquet".to_owned(), "blocks.parquet".to_owned())]
+                .into_iter()
+                .collect(),
+            size_bytes: 100_000,
+        };
+        assignment.add_chunk(
+            chunk,
+            "s3://arbitrum-one".to_owned(),
+            "https://arbitrum-one.sqd-datasets.io".to_owned(),
+        );
+        assignment.insert_assignment(
+            PeerId::from_str("12D3KooWBwbQFT48cNYGPbDwm8rjasbZkc1VMo6rCR6217qr165S").unwrap(),
+            None,
+            vec![0],
+        );
+        let serialized = serde_json::ser::to_string_pretty(&assignment)?;
+        assert_eq!(serialized, include_str!("tests/assignment.json"));
+        Ok(())
     }
 }
