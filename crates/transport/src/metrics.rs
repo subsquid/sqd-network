@@ -19,7 +19,6 @@ lazy_static! {
     pub static ref DISCARDED_MESSAGES: Counter = Default::default();
     pub static ref HEARTBEATS_PUBLISHED: Counter = Default::default();
     pub static ref HEARTBEATS_RECEIVED: Counter = Default::default();
-    pub static ref PONGS_SENT: Counter = Default::default();
 }
 
 pub static LIBP2P_METRICS: OnceCell<Metrics> = OnceCell::const_new();
@@ -65,5 +64,4 @@ pub fn register_metrics(registry: &mut Registry) {
         "The number of received heartbeat messages",
         HEARTBEATS_RECEIVED.clone(),
     );
-    registry.register("pongs_sent", "The number of sent pong messages", PONGS_SENT.clone());
 }

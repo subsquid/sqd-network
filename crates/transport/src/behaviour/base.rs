@@ -34,7 +34,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
-use sqd_messages::{Heartbeat, OldPing};
+use sqd_messages::Heartbeat;
 
 #[cfg(feature = "metrics")]
 use crate::metrics::{
@@ -48,9 +48,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{
-        HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE, OLD_PING_TOPIC,
-    },
+    protocol::{HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE},
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, Multiaddr, PeerId,
@@ -191,19 +189,6 @@ impl BaseBehaviour {
         &self.keypair
     }
 
-    pub fn subscribe_old_pings(&mut self) {
-        let registered_workers = self.registered_workers.clone();
-        let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
-            move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
-                if !registered_workers.read().contains(&peer_id) {
-                    return Err(ValidationError::Invalid("Worker not registered"));
-                }
-                Ok(())
-            },
-        );
-        self.inner.pubsub.subscribe(OLD_PING_TOPIC, config);
-    }
-
     pub fn subscribe_heartbeats(&mut self) {
         let registered_workers = self.registered_workers.clone();
         let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
@@ -324,10 +309,6 @@ impl BaseBehaviour {
 
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
-    OldPing {
-        peer_id: PeerId,
-        ping: OldPing,
-    },
     Heartbeat {
         peer_id: PeerId,
         heartbeat: Heartbeat,
@@ -562,7 +543,6 @@ impl BaseBehaviour {
         log::trace!("Pub-sub message received: peer_id={peer_id} topic={topic}");
         let data = data.as_ref();
         let ev = match topic {
-            OLD_PING_TOPIC => decode_old_ping(peer_id, data)?,
             HEARTBEAT_TOPIC => decode_heartbeat(peer_id, data)?,
             _ => return None,
         };
@@ -574,15 +554,6 @@ impl BaseBehaviour {
         *self.registered_workers.write() = nodes.workers;
         None
     }
-}
-
-fn decode_old_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-    let ping = OldPing::decode(data)
-        .map_err(|e| log::warn!("Error decoding old ping: {e:?}"))
-        .ok()?;
-    #[cfg(feature = "metrics")]
-    HEARTBEATS_RECEIVED.inc();
-    Some(BaseBehaviourEvent::OldPing { peer_id, ping })
 }
 
 fn decode_heartbeat(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
