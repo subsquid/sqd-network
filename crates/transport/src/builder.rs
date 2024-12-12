@@ -24,8 +24,7 @@ use crate::actors::gateway::{
 };
 #[cfg(feature = "logs-collector")]
 use crate::actors::logs_collector::{
-    self, LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent,
-    LogsCollectorTransportHandle,
+    self, LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorTransport,
 };
 #[cfg(feature = "observer")]
 use crate::actors::observer::{
@@ -37,7 +36,7 @@ use crate::actors::peer_checker::{
 };
 #[cfg(feature = "pings-collector")]
 use crate::actors::pings_collector::{
-    self, Ping, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
+    self, Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
 };
 #[cfg(feature = "scheduler")]
 use crate::actors::scheduler::{
@@ -65,7 +64,7 @@ pub struct P2PTransportBuilder {
 impl P2PTransportBuilder {
     pub async fn from_cli(args: TransportArgs, agent_info: AgentInfo) -> anyhow::Result<Self> {
         let listen_addrs = args.listen_addrs();
-        let keypair = get_keypair(args.key).await?;
+        let keypair = get_keypair(Some(args.key)).await?;
         let contract_client = sqd_contract_client::get_client(&args.rpc).await?;
         let dht_protocol = dht_protocol(args.rpc.network);
         Ok(Self {
@@ -210,7 +209,7 @@ impl P2PTransportBuilder {
     pub fn build_logs_collector(
         self,
         config: LogsCollectorConfig,
-    ) -> Result<(impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle), Error> {
+    ) -> Result<LogsCollectorTransport, Error> {
         let local_peer_id = self.local_peer_id();
         let swarm =
             self.build_swarm(|base| LogsCollectorBehaviour::new(base, local_peer_id, config))?;
@@ -231,8 +230,7 @@ impl P2PTransportBuilder {
         self,
         config: ObserverConfig,
     ) -> Result<(impl Stream<Item = ObserverEvent>, ObserverTransportHandle), Error> {
-        let swarm =
-            self.build_swarm(|base| ObserverBehaviour::new(base, config.logs_collector_id))?;
+        let swarm = self.build_swarm(|base| ObserverBehaviour::new(base))?;
         Ok(observer::start_transport(swarm, config))
     }
 
@@ -240,7 +238,7 @@ impl P2PTransportBuilder {
     pub fn build_pings_collector(
         self,
         config: PingsCollectorConfig,
-    ) -> Result<(impl Stream<Item = Ping>, PingsCollectorTransportHandle), Error> {
+    ) -> Result<(impl Stream<Item = Heartbeat>, PingsCollectorTransportHandle), Error> {
         let swarm = self.build_swarm(PingsCollectorBehaviour::new)?;
         Ok(pings_collector::start_transport(swarm, config))
     }
@@ -276,7 +274,8 @@ impl P2PTransportBuilder {
             }
             break;
         }
-        let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, local_peer_id, config))?;
+        let swarm =
+            self.build_swarm(|base| WorkerBehaviour::new(base, config.clone()))?;
         Ok(worker::start_transport(swarm, config))
     }
 }

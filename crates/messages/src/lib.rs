@@ -14,15 +14,14 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-use std::{
-    collections::HashMap,
-    fmt::{Debug, Formatter},
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::fmt::{Debug, Formatter};
 
 pub use prost::Message as ProstMsg;
 
+#[cfg(any(feature = "assignment_reader", feature = "assignment_writer"))]
+pub mod assignments;
+#[cfg(feature = "bitstring")]
+pub mod bitstring;
 pub mod data_chunk;
 pub mod range;
 #[cfg(feature = "signatures")]
@@ -31,26 +30,6 @@ pub mod signatures;
 mod versions;
 
 include!(concat!(env!("OUT_DIR"), "/messages.rs"));
-
-impl Deref for WorkerState {
-    type Target = HashMap<String, RangeSet>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.datasets
-    }
-}
-
-impl DerefMut for WorkerState {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.datasets
-    }
-}
-
-impl From<HashMap<String, RangeSet>> for WorkerState {
-    fn from(datasets: HashMap<String, RangeSet>) -> Self {
-        Self { datasets }
-    }
-}
 
 impl Debug for QueryOk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -64,17 +43,8 @@ impl From<query_error::Err> for query_result::Result {
     }
 }
 
-impl QueryResult {
-    pub fn new(
-        query_id: String,
-        result: impl Into<query_result::Result>,
-        retry_after: Option<Duration>,
-    ) -> Self {
-        Self {
-            query_id,
-            result: Some(result.into()),
-            retry_after_ms: retry_after.map(|d| d.as_millis() as u32),
-            ..Default::default()
-        }
+impl From<query_error::Err> for query_executed::Result {
+    fn from(err: query_error::Err) -> Self {
+        query_executed::Result::Err(QueryError { err: Some(err) })
     }
 }

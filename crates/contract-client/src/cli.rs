@@ -2,25 +2,25 @@ use clap::{Args, ValueEnum};
 
 use crate::Address;
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub struct RpcArgs {
-    #[arg(
-        long,
-        env,
-        help = "Blockchain RPC URL",
-        default_value = "http://127.0.0.1:8545/"
-    )]
+    /// Blockchain RPC URL
+    #[arg(long, env)]
     pub rpc_url: String,
-    #[arg(
-        long,
-        env,
-        help = "Layer 1 blockchain RPC URL. If not provided, rpc_url is assumed to be L1"
-    )]
-    pub l1_rpc_url: Option<String>,
+
+    /// Layer 1 blockchain RPC URL
+    #[arg(long, env)]
+    pub l1_rpc_url: String,
+
     #[command(flatten)]
     contract_addrs: ContractAddrs,
-    #[arg(long, env, help = "Network to connect to (mainnet or testnet)")]
+
+    /// Network to connect to (mainnet or testnet)
+    #[arg(long, env, default_value = "mainnet")]
     pub network: Network,
+
+    #[arg(env, hide(true), default_value_t = 500)]
+    pub contract_workers_per_page: usize,
 }
 
 impl RpcArgs {
@@ -55,7 +55,7 @@ impl RpcArgs {
     }
 }
 
-#[derive(Args)]
+#[derive(Args, Clone)]
 pub struct ContractAddrs {
     #[arg(long, env)]
     pub gateway_registry_contract_addr: Option<Address>,
@@ -111,6 +111,15 @@ impl Network {
             Self::Tethys | Self::Mainnet => {
                 "0xcA11bde05977b3631167028862bE2a173976CA11".parse().unwrap()
             }
+        }
+    }
+}
+
+impl std::fmt::Display for Network {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Tethys => write!(f, "tethys"),
+            Self::Mainnet => write!(f, "mainnet"),
         }
     }
 }

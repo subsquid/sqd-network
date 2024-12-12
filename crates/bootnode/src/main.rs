@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let cli = Cli::parse();
     let listen_addrs = cli.transport.listen_addrs();
-    let keypair = get_keypair(cli.transport.key).await?;
+    let keypair = get_keypair(Some(cli.transport.key)).await?;
     let local_peer_id = PeerId::from(keypair.public());
     log::info!("Local peer ID: {local_peer_id}");
 

@@ -246,7 +246,7 @@ impl PubsubBehaviour {
             Err(PublishError::InsufficientPeers)
                 if topic.subscribed_at.elapsed() <= SUBSCRIPTION_TIMEOUT =>
             {
-                log::info!("Waiting for peers to publish to {topic_name}")
+                log::info!("Waiting for peers to be able to publish to {topic_name}")
             }
             Err(e) => log::error!("Error publishing message to {topic_name}: {e:?}"),
             Ok(_) => log::debug!("Message published to {topic_name}"),

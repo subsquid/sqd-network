@@ -22,6 +22,7 @@ use tokio::sync::mpsc;
 
 pub use libp2p::{
     identity::{Keypair, ParseError as IdParseError, PublicKey},
+    request_response::ResponseChannel,
     Multiaddr, PeerId,
 };
 
@@ -46,11 +47,11 @@ pub mod util;
 
 #[cfg(feature = "gateway")]
 pub use crate::actors::gateway::{
-    GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle,
+    GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle, QueryFailure,
 };
 #[cfg(feature = "logs-collector")]
 pub use crate::actors::logs_collector::{
-    LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent, LogsCollectorTransportHandle,
+    LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent, LogsCollectorTransport,
 };
 #[cfg(feature = "observer")]
 pub use crate::actors::observer::{
@@ -63,7 +64,7 @@ pub use crate::actors::peer_checker::{
 };
 #[cfg(feature = "pings-collector")]
 pub use crate::actors::pings_collector::{
-    Ping, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
+    Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
 };
 #[cfg(feature = "scheduler")]
 pub use crate::actors::scheduler::{

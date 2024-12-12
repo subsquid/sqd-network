@@ -32,7 +32,7 @@ pub trait BehaviourWrapper {
         None
     }
     fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
-        Poll::<Vec<ToSwarm<Self::Event, THandlerInEvent<Self::Inner>>>>::Pending
+        Poll::<Vec<_>>::Pending
     }
 }
 

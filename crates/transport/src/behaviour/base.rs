@@ -3,7 +3,7 @@ use std::{
     num::NonZeroUsize,
     sync::Arc,
     task::{Context, Poll},
-    time::{Duration, SystemTime},
+    time::Duration,
     vec,
 };
 
@@ -34,15 +34,11 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
-use sqd_messages::{
-    signatures::SignedMessage, worker_logs_msg, LogsCollected, Ping, QueryExecuted, QueryLogs,
-    WorkerLogsMsg,
-};
+use sqd_messages::Heartbeat;
 
 #[cfg(feature = "metrics")]
 use crate::metrics::{
-    ACTIVE_CONNECTIONS, LOGS_COLLECTED_PUBLISHED, LOGS_COLLECTED_RECEIVED, ONGOING_PROBES,
-    ONGOING_QUERIES, PINGS_PUBLISHED, PINGS_RECEIVED, WORKER_LOGS_PUBLISHED, WORKER_LOGS_RECEIVED,
+    ACTIVE_CONNECTIONS, HEARTBEATS_PUBLISHED, HEARTBEATS_RECEIVED, ONGOING_PROBES, ONGOING_QUERIES,
 };
 use crate::{
     behaviour::{
@@ -52,11 +48,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{
-        APPROX_EPOCH_LEN, EPOCH_SEAL_TIMEOUT, ID_PROTOCOL, KEEP_LAST_WORKER_LOGS,
-        LOGS_COLLECTED_MIN_INTERVAL, LOGS_COLLECTED_TOPIC, LOGS_MIN_INTERVAL, MAX_PUBSUB_MSG_SIZE,
-        PINGS_MIN_INTERVAL, PING_TOPIC, WORKER_LOGS_TOPIC,
-    },
+    protocol::{HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE},
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, Multiaddr, PeerId,
@@ -129,8 +121,6 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
-    logs_collected: Arc<RwLock<HashMap<String, u64>>>, // peer_id (base58) -> highest collected seq_no
-    max_pubsub_msg_size: usize,
 }
 
 #[allow(dead_code)]
@@ -192,14 +182,16 @@ impl BaseBehaviour {
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_workers: Arc::new(RwLock::new(Default::default())),
-            logs_collected: Arc::new(RwLock::new(Default::default())),
-            max_pubsub_msg_size: config.max_pubsub_msg_size,
         }
     }
 
-    pub fn subscribe_pings(&mut self) {
+    pub fn keypair(&self) -> &Keypair {
+        &self.keypair
+    }
+
+    pub fn subscribe_heartbeats(&mut self) {
         let registered_workers = self.registered_workers.clone();
-        let config = MsgValidationConfig::new(PINGS_MIN_INTERVAL).max_burst(2).msg_validator(
+        let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
             move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
                 if !registered_workers.read().contains(&peer_id) {
                     return Err(ValidationError::Invalid("Worker not registered"));
@@ -207,88 +199,13 @@ impl BaseBehaviour {
                 Ok(())
             },
         );
-        self.inner.pubsub.subscribe(PING_TOPIC, config);
+        self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
     }
 
-    pub fn subscribe_worker_logs(&mut self, logs_collector_id: PeerId) {
-        // Unordered messages need to be allowed, because we're interested in all messages from
-        // each worker, not only the most recent one (as in the case of pings).
-        let registered_workers = self.registered_workers.clone();
-        let logs_collected = self.logs_collected.clone();
-        let config = MsgValidationConfig::new(LOGS_MIN_INTERVAL)
-            .max_burst(10)
-            .keep_last(KEEP_LAST_WORKER_LOGS)
-            .msg_validator(move |peer_id: PeerId, _seq_no: u64, msg: &[u8]| {
-                if !registered_workers.read().contains(&peer_id) {
-                    return Err(ValidationError::Invalid("Worker not registered"));
-                }
-                let Ok(WorkerLogsMsg {
-                    msg: Some(worker_logs_msg::Msg::QueryLogs(msg)),
-                }) = WorkerLogsMsg::decode(msg)
-                else {
-                    return Err(ValidationError::Invalid("Invalid worker logs"));
-                };
-                // Logs are sorted by seq_no, so we need to check the last one only
-                let (last_timestamp, last_seq_no) = match msg.queries_executed.last() {
-                    Some(query_executed) => (
-                        query_executed.timestamp_ms.unwrap_or_default(),
-                        query_executed.seq_no.unwrap_or_default(),
-                    ),
-                    None => return Err(ValidationError::Invalid("Empty worker logs")),
-                };
-                // Don't propagate logs which are old & no longer relevant
-                let last_log_time = SystemTime::UNIX_EPOCH + Duration::from_millis(last_timestamp);
-                if last_log_time + EPOCH_SEAL_TIMEOUT + APPROX_EPOCH_LEN < SystemTime::now() {
-                    return Err(ValidationError::Ignored("Old worker logs"));
-                }
-                // Don't propagate worker logs which have already been collected
-                match logs_collected.read().get(&peer_id.to_base58()) {
-                    Some(seq_no) if *seq_no >= last_seq_no => {
-                        Err(ValidationError::Ignored("Logs already collected"))
-                    }
-                    _ => Ok(()),
-                }
-            });
-        self.inner.pubsub.subscribe(WORKER_LOGS_TOPIC, config);
-
-        let config = MsgValidationConfig::new(LOGS_COLLECTED_MIN_INTERVAL).msg_validator(
-            move |peer_id: PeerId, _seq_no: u64, _msg: &[u8]| {
-                if peer_id == logs_collector_id {
-                    Ok(())
-                } else {
-                    Err(ValidationError::Invalid("Invalid logs collector ID"))
-                }
-            },
-        );
-        self.inner.pubsub.subscribe(LOGS_COLLECTED_TOPIC, config);
-    }
-
-    pub fn sign<T: SignedMessage>(&self, msg: &mut T) {
-        msg.sign(&self.keypair)
-    }
-
-    pub fn publish_ping(&mut self, mut ping: Ping) {
-        self.sign(&mut ping);
-        self.inner.pubsub.publish(PING_TOPIC, ping.encode_to_vec());
+    pub fn publish_heartbeat(&mut self, heartbeat: Heartbeat) {
+        self.inner.pubsub.publish(HEARTBEAT_TOPIC, heartbeat.encode_to_vec());
         #[cfg(feature = "metrics")]
-        PINGS_PUBLISHED.inc();
-    }
-
-    pub fn publish_worker_logs(&mut self, mut logs: Vec<QueryExecuted>) {
-        for log in &mut logs {
-            self.sign(log);
-        }
-        for msg in bundle_logs(logs, self.max_pubsub_msg_size / 2) {
-            self.inner.pubsub.publish(WORKER_LOGS_TOPIC, msg.encode_to_vec());
-            #[cfg(feature = "metrics")]
-            WORKER_LOGS_PUBLISHED.inc();
-        }
-    }
-
-    pub fn publish_logs_collected(&mut self, logs_collected: &LogsCollected) {
-        self.inner.pubsub.publish(LOGS_COLLECTED_TOPIC, logs_collected.encode_to_vec());
-        #[cfg(feature = "metrics")]
-        LOGS_COLLECTED_PUBLISHED.inc();
+        HEARTBEATS_PUBLISHED.inc();
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -392,15 +309,10 @@ impl BaseBehaviour {
 
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
-    Ping {
+    Heartbeat {
         peer_id: PeerId,
-        ping: Ping,
+        heartbeat: Heartbeat,
     },
-    WorkerQueryLogs {
-        peer_id: PeerId,
-        query_logs: QueryLogs,
-    },
-    LogsCollected(LogsCollected),
     PeerProbed(PeerProbed),
 }
 
@@ -631,22 +543,10 @@ impl BaseBehaviour {
         log::trace!("Pub-sub message received: peer_id={peer_id} topic={topic}");
         let data = data.as_ref();
         let ev = match topic {
-            PING_TOPIC => decode_ping(peer_id, data)?,
-            WORKER_LOGS_TOPIC => decode_worker_logs_msg(peer_id, data)?,
-            LOGS_COLLECTED_TOPIC => self.on_logs_collected(data)?,
+            HEARTBEAT_TOPIC => decode_heartbeat(peer_id, data)?,
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
-    }
-
-    fn on_logs_collected(&mut self, data: &[u8]) -> Option<BaseBehaviourEvent> {
-        let logs_collected = LogsCollected::decode(data)
-            .map_err(|e| log::warn!("Error decoding logs collected msg: {e:?}"))
-            .ok()?;
-        *self.logs_collected.write() = logs_collected.sequence_numbers.clone();
-        #[cfg(feature = "metrics")]
-        LOGS_COLLECTED_RECEIVED.inc();
-        Some(BaseBehaviourEvent::LogsCollected(logs_collected))
     }
 
     fn on_nodes_update(&mut self, nodes: NetworkNodes) -> Option<TToSwarm<Self>> {
@@ -656,63 +556,11 @@ impl BaseBehaviour {
     }
 }
 
-fn decode_ping(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-    let mut ping = Ping::decode(data).map_err(|e| log::warn!("Error decoding ping: {e:?}")).ok()?;
-    let worker_id = peer_id.to_base58();
-    if !ping.worker_id.as_ref().is_some_and(|id| id == &worker_id) {
-        log::warn!("Invalid worker_id in ping from {worker_id}");
-        return None;
-    }
-    if !ping.verify_signature(&peer_id) {
-        log::warn!("Invalid ping signature from {worker_id}");
-        return None;
-    }
-    #[cfg(feature = "metrics")]
-    PINGS_RECEIVED.inc();
-    Some(BaseBehaviourEvent::Ping { peer_id, ping })
-}
-
-fn decode_worker_logs_msg(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-    let msg = WorkerLogsMsg::decode(data)
-        .map_err(|e| log::warn!("Error decoding worker logs: {e:?}"))
+fn decode_heartbeat(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
+    let heartbeat = Heartbeat::decode(data)
+        .map_err(|e| log::warn!("Error decoding heartbeat: {e:?}"))
         .ok()?;
-    match msg.msg {
-        Some(worker_logs_msg::Msg::QueryLogs(query_logs)) => {
-            #[cfg(feature = "metrics")]
-            WORKER_LOGS_RECEIVED.inc();
-            Some(BaseBehaviourEvent::WorkerQueryLogs {
-                peer_id,
-                query_logs,
-            })
-        }
-        _ => None,
-    }
-}
-
-fn bundle_logs(
-    logs: impl IntoIterator<Item = QueryExecuted>,
-    size_limit: usize,
-) -> impl Iterator<Item = WorkerLogsMsg> {
-    let mut logs: VecDeque<QueryExecuted> = logs.into_iter().collect();
-
-    // Bundle into chunks of at most `size_limit` total size
-    std::iter::from_fn(move || {
-        let mut msg = WorkerLogsMsg::default();
-        while let Some(next_log) = logs.pop_front() {
-            msg.push(next_log);
-            if msg.encoded_len() > size_limit {
-                if msg.len() == 1 {
-                    // Single message is larger than the limit – drop it
-                    msg.pop();
-                    log::warn!("Query log is too large and will be dropped");
-                } else {
-                    // Put the message back in the queue to include in the next bundle
-                    let log = msg.pop().unwrap();
-                    logs.push_front(log);
-                    break;
-                }
-            }
-        }
-        (!msg.is_empty()).then_some(msg)
-    })
+    #[cfg(feature = "metrics")]
+    HEARTBEATS_RECEIVED.inc();
+    Some(BaseBehaviourEvent::Heartbeat { peer_id, heartbeat })
 }

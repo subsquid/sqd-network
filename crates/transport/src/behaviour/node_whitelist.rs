@@ -65,7 +65,7 @@ impl WhitelistBehavior {
         result: Result<NetworkNodes, ClientError>,
     ) -> Option<NetworkNodes> {
         let nodes = result
-            .map_err(|e| log::error!("Error retrieving registered nodes from chain: {e:?}"))
+            .map_err(|e| log::warn!("Error retrieving registered nodes from chain: {e:?}"))
             .ok()?;
 
         let all_nodes = nodes.clone().all();

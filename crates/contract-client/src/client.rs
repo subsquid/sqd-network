@@ -128,8 +128,7 @@ pub trait Client: Send + Sync + 'static {
     ) -> Result<Vec<Allocation>, ClientError>;
 
     /// Get the number of compute units available for the portal in the current epoch
-    async fn portal_compute_units_per_epoch(&self, portal_id: PeerId)
-        -> Result<u64, ClientError>;
+    async fn portal_compute_units_per_epoch(&self, portal_id: PeerId) -> Result<u64, ClientError>;
 
     /// Check if the portal uses the default strategy — allocates CUs evenly among workers
     async fn portal_uses_default_strategy(&self, portal_id: PeerId) -> Result<bool, ClientError>;
@@ -177,19 +176,13 @@ pub trait Client: Send + Sync + 'static {
 
 pub async fn get_client(rpc_args: &RpcArgs) -> Result<Box<dyn Client>, ClientError> {
     log::info!(
-        "Initializing contract client. network={:?} rpc_url={} l1_rpc_url={:?}",
+        "Initializing contract client. network={:?} rpc_url={} l1_rpc_url={}",
         rpc_args.network,
         rpc_args.rpc_url,
         rpc_args.l1_rpc_url
     );
     let l2_client = Transport::connect(&rpc_args.rpc_url).await?;
-    let l1_client = match &rpc_args.l1_rpc_url {
-        Some(rpc_url) => Transport::connect(rpc_url).await?,
-        None => {
-            log::warn!("Layer 1 RPC URL not provided. Assuming the main RPC URL is L1");
-            l2_client.clone()
-        }
-    };
+    let l1_client = Transport::connect(&rpc_args.l1_rpc_url).await?;
     let client: Box<dyn Client> = EthersClient::new(l1_client, l2_client, rpc_args).await?;
     Ok(client)
 }
@@ -204,6 +197,7 @@ struct EthersClient {
     allocations_viewer: AllocationsViewer<Provider<Transport>>,
     default_strategy_addr: Address,
     multicall_contract_addr: Option<Address>,
+    active_workers_per_page: usize,
 }
 
 impl EthersClient {
@@ -236,6 +230,7 @@ impl EthersClient {
             allocations_viewer,
             default_strategy_addr,
             multicall_contract_addr: Some(rpc_args.multicall_addr()),
+            active_workers_per_page: rpc_args.contract_workers_per_page,
         }))
     }
 
@@ -308,16 +303,25 @@ impl Client for EthersClient {
     }
 
     async fn active_workers(&self) -> Result<Vec<Worker>, ClientError> {
-        let workers_call = self.worker_registration.method("getActiveWorkers", ())?;
-        let onchain_ids_call = self.worker_registration.method("getActiveWorkerIds", ())?;
-        let mut multicall = self.multicall().await?;
-        multicall
-            .add_call::<Vec<contracts::Worker>>(workers_call, false)
-            .add_call::<Vec<U256>>(onchain_ids_call, false);
-        let (workers, onchain_ids): (Vec<contracts::Worker>, Vec<U256>) = multicall.call().await?;
+        // A single getActiveWorkers call should be used instead but it lacks pagination and runs out of gas
+
+        let onchain_ids: Vec<U256> =
+            self.worker_registration.get_active_worker_ids().call().await?;
+        let calls = onchain_ids.chunks(self.active_workers_per_page).map(|ids| async move {
+            let mut multicall = self.multicall().await?;
+            for id in ids {
+                multicall.add_call::<contracts::Worker>(
+                    self.worker_registration.method("getWorker", *id)?,
+                    false,
+                );
+            }
+            let workers: Vec<contracts::Worker> = multicall.call_array().await?;
+            Result::<_, ClientError>::Ok(workers)
+        });
+
+        let workers = futures::future::try_join_all(calls).await?.into_iter().flatten();
 
         let workers = workers
-            .into_iter()
             .zip(onchain_ids)
             .filter_map(|(worker, onchain_id)| match Worker::new(&worker, onchain_id) {
                 Ok(worker) => Some(worker),
@@ -431,10 +435,7 @@ impl Client for EthersClient {
             .collect())
     }
 
-    async fn portal_compute_units_per_epoch(
-        &self,
-        portal_id: PeerId,
-    ) -> Result<u64, ClientError> {
+    async fn portal_compute_units_per_epoch(&self, portal_id: PeerId) -> Result<u64, ClientError> {
         let id: Bytes = portal_id.to_bytes().into();
         let cus = self.gateway_registry.computation_units_available(id).call().await?;
         Ok(cus.try_into().expect("Computation units should not exceed u64 range"))

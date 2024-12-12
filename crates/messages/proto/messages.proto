@@ -8,26 +8,13 @@ message Range {
 }
 
 message RangeSet {
-  option deprecated = true;
-
   repeated Range ranges = 1;
 }
 
-message WorkerState {
-  option deprecated = true;
-  map<string, RangeSet> datasets = 1;
-}
-
-message DatasetRanges {
-  option deprecated = true;
-
-  string url = 1;
-  repeated Range ranges = 2;
-}
-
 message BitString {
-  bytes data = 1;
-  uint64 size = 2;
+  bytes data = 1;  // deflate-compressed bytes with each one being 0x00 or 0x01
+  uint64 size = 2;  // number of total bits in the original bitstring
+  uint64 ones = 3;  // number of ones in the original bitstring
 }
 
 // Worker -> Scheduler, Portal, Ping collector
@@ -37,59 +24,6 @@ message Heartbeat {
   // Points to the chunks in this worker's assignment list referenced by `assignment_id`.
   BitString missing_chunks = 3;
   optional uint64 stored_bytes = 4;
-}
-
-// Worker -> Scheduler, Portal, Ping collector
-message OldPing {
-  option deprecated = true;
-
-  optional string worker_id = 1;
-  optional string version = 2;
-  optional uint64 stored_bytes = 3;
-  repeated DatasetRanges stored_ranges = 4;
-  bytes signature = 5;
-}
-
-message HttpHeader {
-  option deprecated = true;
-
-  string name = 1;
-  string value = 2;
-}
-
-message AssignedChunk {
-  option deprecated = true;
-
-  string path = 1;  // "0000000000/0000808640-0000816499-b0486318"
-  repeated uint32 filenames = 2;  // index in known_filenames array
-}
-
-message DatasetChunks {
-  option deprecated = true;
-
-  string dataset_id = 1;  // "s3://moonbeam-evm-1"
-  string download_url = 3;  // "https://moonbeam-evm-1.sqd-datasets.io/"
-  repeated AssignedChunk chunks = 4;
-}
-
-message WorkerAssignment {
-  option deprecated = true;
-
-  repeated DatasetChunks dataset_chunks = 1;
-  repeated HttpHeader http_headers = 2;
-  repeated string known_filenames = 3;  // "blocks.parquet"
-}
-
-// Scheduler -> Worker
-message Pong {
-  option deprecated = true;
-
-  bytes ping_hash = 1;
-  oneof status {
-    google.protobuf.Empty unsupported_version = 3;
-    string jailed = 6;
-    WorkerAssignment active = 7;
-  }
 }
 
 // Portal -> Worker
@@ -146,7 +80,6 @@ message QueryFinished {
 // Logs collector -> Worker
 message LogsRequest {
   uint64 from_timestamp_ms = 1;
-  uint64 to_timestamp_ms = 2;
   optional string last_received_query_id = 3;  // query ID of the last collected query
 }
 
@@ -162,6 +95,7 @@ message QueryExecuted {
 
   uint32 exec_time_micros = 6;
   uint64 timestamp_ms = 11;
+  string worker_version = 15;
   oneof result {
     QueryOkSummary ok = 7;
     QueryError err = 14;

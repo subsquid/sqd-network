@@ -1,3 +1,5 @@
+use std::mem::{size_of, size_of_val};
+
 use sha3::{Digest, Sha3_256};
 
 use libp2p::{

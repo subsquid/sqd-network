@@ -1,134 +1,151 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
-use futures::StreamExt;
-use futures_core::Stream;
+use futures::{FutureExt, StreamExt};
 use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
+use parking_lot::Mutex;
+use prost::Message;
 use serde::{Deserialize, Serialize};
-use tokio_util::sync::CancellationToken;
+use thiserror::Error;
+use tokio::sync::oneshot;
 
-use sqd_messages::{
-    gateway_log_msg, signatures::SignedMessage, GatewayLogMsg, LogsCollected, QueryExecuted,
-    QueryFinished, QueryLogs, QuerySubmitted,
-};
+use sqd_messages::{LogsRequest, QueryLogs};
+use tokio_util::sync::{CancellationToken, WaitForCancellationFutureOwned};
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent},
-        request_server::{Request, ServerBehaviour},
+        base::BaseBehaviour,
+        request_client::{ClientBehaviour, ClientEvent, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    codec::{ProtoCodec, ACK_SIZE},
-    protocol::{GATEWAY_LOGS_PROTOCOL, MAX_GATEWAY_LOG_SIZE},
-    record_event,
-    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
-    QueueFull,
+    codec::ProtoCodec,
+    protocol::{MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, WORKER_LOGS_PROTOCOL},
+    record_event, ClientConfig, QueueFull,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum LogsCollectorEvent {
-    /// Worker reports executed queries (a bundle)
-    WorkerLogs {
-        peer_id: PeerId,
-        logs: Vec<QueryExecuted>,
-    },
-    /// Gateway reports a submitted query
-    QuerySubmitted(QuerySubmitted),
-    /// Gateway reports a finished query (result received or timeout)
-    QueryFinished(QueryFinished),
+pub enum LogsCollectorEvent {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Error)]
+pub enum FetchLogsError {
+    #[error("Timeout: {0}")]
+    Timeout(Timeout),
+    #[error("Failure: {0}")]
+    Failure(String),
 }
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
-    gateway_logs: Wrapped<ServerBehaviour<ProtoCodec<GatewayLogMsg, u32>>>,
+    logs: Wrapped<ClientBehaviour<ProtoCodec<LogsRequest, QueryLogs>>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LogsCollectorConfig {
-    pub max_gateway_log_size: u64,
-    pub logs_collected_queue_size: usize,
-    pub events_queue_size: usize,
-    pub shutdown_timeout: Duration,
-    pub logs_ack_timeout: Duration,
+    pub request_config: ClientConfig,
 }
 
 impl Default for LogsCollectorConfig {
     fn default() -> Self {
         Self {
-            max_gateway_log_size: MAX_GATEWAY_LOG_SIZE,
-            logs_collected_queue_size: 100,
-            events_queue_size: 100,
-            shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
-            logs_ack_timeout: Duration::from_secs(5),
+            request_config: Default::default(),
         }
     }
 }
 
 pub struct LogsCollectorBehaviour {
     inner: InnerBehaviour,
+    resp_senders: HashMap<PeerId, oneshot::Sender<Result<QueryLogs, FetchLogsError>>>,
 }
 
 impl LogsCollectorBehaviour {
     pub fn new(
-        mut base: BaseBehaviour,
-        local_peer_id: PeerId,
+        base: BaseBehaviour,
+        _local_peer_id: PeerId,
         config: LogsCollectorConfig,
     ) -> Wrapped<Self> {
-        base.subscribe_worker_logs(local_peer_id);
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
-                gateway_logs: ServerBehaviour::new(
-                    ProtoCodec::new(config.max_gateway_log_size, ACK_SIZE),
-                    GATEWAY_LOGS_PROTOCOL,
-                    config.logs_ack_timeout,
+                logs: ClientBehaviour::new(
+                    ProtoCodec::new(MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE),
+                    WORKER_LOGS_PROTOCOL,
+                    config.request_config,
                 )
                 .into(),
             },
+            resp_senders: Default::default(),
         }
         .into()
     }
 
-    fn on_worker_logs(&mut self, peer_id: PeerId, logs: QueryLogs) -> Option<LogsCollectorEvent> {
-        let mut logs = logs.queries_executed;
-        log::debug!("Got {} query logs from {peer_id}", logs.len());
-        let worker_id = peer_id.to_base58();
-        logs = logs
-            .into_iter()
-            .filter_map(|mut log| {
-                (log.worker_id == worker_id && log.verify_signature(&peer_id)).then_some(log)
-            })
-            .collect();
-        (!logs.is_empty()).then_some(LogsCollectorEvent::WorkerLogs { peer_id, logs })
-    }
-
-    fn on_gateway_log(
+    fn on_worker_logs(
         &mut self,
         peer_id: PeerId,
-        log_msg: GatewayLogMsg,
+        mut logs: QueryLogs,
     ) -> Option<LogsCollectorEvent> {
-        log::debug!("Got gateway log from {peer_id}: {log_msg:?}");
-        let gateway_id = peer_id.to_base58();
-        match log_msg.msg {
-            Some(gateway_log_msg::Msg::QueryFinished(log)) if log.client_id == gateway_id => {
-                Some(LogsCollectorEvent::QueryFinished(log))
+        log::debug!("Got {} query logs from {peer_id}", logs.queries_executed.len());
+        logs.queries_executed.retain(|log| {
+            if log.verify_client_signature(peer_id) {
+                true
+            } else {
+                log::warn!("Invalid client signature in query log: {log:?}");
+                false
             }
-            Some(gateway_log_msg::Msg::QuerySubmitted(log)) if log.client_id == gateway_id => {
-                Some(LogsCollectorEvent::QuerySubmitted(log))
+        });
+        if let Some(sender) = self.resp_senders.remove(&peer_id) {
+            if sender.send(Ok(logs)).is_err() {
+                log::warn!("Logs response channel closed for {peer_id}");
             }
-            _ => {
-                log::warn!("Invalid gateway log message: {log_msg:?}");
-                None
-            }
+        } else {
+            log::warn!("Not expecting query logs for peer {peer_id}");
         }
+        None
     }
 
-    pub fn logs_collected(&mut self, logs_collected: &LogsCollected) {
-        self.inner.base.publish_logs_collected(logs_collected)
+    fn on_failure(&mut self, peer_id: PeerId, error: FetchLogsError) -> Option<LogsCollectorEvent> {
+        log::debug!("Couldn't get query logs from {peer_id}: {error:?}");
+        if let Some(sender) = self.resp_senders.remove(&peer_id) {
+            sender.send(Err(error)).ok();
+        } else {
+            log::warn!("Not expecting query logs for peer {peer_id}");
+        }
+        None
+    }
+
+    pub fn request_logs(
+        &mut self,
+        peer_id: PeerId,
+        request: LogsRequest,
+        resp_tx: oneshot::Sender<Result<QueryLogs, FetchLogsError>>,
+    ) -> Result<(), QueueFull> {
+        let request_size = request.encoded_len() as u64;
+        if request_size > MAX_LOGS_REQUEST_SIZE {
+            log::error!("Logs request size too large: {request_size}");
+            return Ok(());
+        }
+
+        log::debug!(
+            "Requesting logs from {peer_id} from {}, last query id: {:?}",
+            request.from_timestamp_ms,
+            request.last_received_query_id
+        );
+
+        let prev = self.resp_senders.insert(peer_id, resp_tx);
+        if prev.is_some() {
+            log::warn!("Dropping ongoing logs request to {peer_id}");
+        }
+
+        self.inner.logs.try_send_request(peer_id, request)?;
+        Ok(())
     }
 }
 
@@ -145,91 +162,91 @@ impl BehaviourWrapper for LogsCollectorBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
-            InnerBehaviourEvent::Base(BaseBehaviourEvent::WorkerQueryLogs {
-                peer_id,
-                query_logs,
-            }) => self.on_worker_logs(peer_id, query_logs),
-            InnerBehaviourEvent::GatewayLogs(Request {
-                peer_id,
-                request,
-                response_channel,
-            }) => {
-                _ = self.inner.gateway_logs.try_send_response(response_channel, 1);
-                self.on_gateway_log(peer_id, request)
-            }
-            _ => None,
+            InnerBehaviourEvent::Base(_) => None,
+            InnerBehaviourEvent::Logs(client_event) => match client_event {
+                ClientEvent::Response {
+                    peer_id, response, ..
+                } => self.on_worker_logs(peer_id, response),
+                ClientEvent::Timeout {
+                    peer_id, timeout, ..
+                } => self.on_failure(peer_id, FetchLogsError::Timeout(timeout)),
+                ClientEvent::PeerUnknown { peer_id } => {
+                    self.inner.base.find_and_dial(peer_id);
+                    None
+                }
+                ClientEvent::Failure { peer_id, error, .. } => {
+                    self.on_failure(peer_id, FetchLogsError::Failure(error))
+                }
+            },
         };
         ev.map(ToSwarm::GenerateEvent)
     }
 }
 
-struct LogsCollectorTransport {
-    swarm: Swarm<Wrapped<LogsCollectorBehaviour>>,
-    logs_collected_rx: Receiver<LogsCollected>,
-    events_tx: Sender<LogsCollectorEvent>,
+pub struct LogsCollectorTransport {
+    swarm: Mutex<Swarm<Wrapped<LogsCollectorBehaviour>>>,
 }
 
 impl LogsCollectorTransport {
-    pub async fn run(mut self, cancel_token: CancellationToken) {
-        log::info!("Starting logs collector P2P transport");
-        loop {
-            tokio::select! {
-                _ = cancel_token.cancelled() => break,
-                ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
-                Some(logs_collected) = self.logs_collected_rx.recv() => self.swarm.behaviour_mut().logs_collected(&logs_collected),
-            }
-        }
-        log::info!("Shutting down logs collector P2P transport");
+    pub async fn request_logs(
+        &self,
+        peer_id: PeerId,
+        request: LogsRequest,
+    ) -> Result<QueryLogs, FetchLogsError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.swarm
+            .lock()
+            .behaviour_mut()
+            .request_logs(peer_id, request, resp_tx)
+            .map_err(|_| FetchLogsError::Failure("Logs request queue full".to_string()))?;
+        resp_rx
+            .await
+            .map_err(|_| FetchLogsError::Failure("Logs response channel closed".to_string()))?
     }
 
-    fn on_swarm_event(&mut self, ev: SwarmEvent<LogsCollectorEvent>) {
+    pub fn run(&self, cancel_token: CancellationToken) -> LogsCollectorRunFuture {
+        log::info!("Starting logs collector P2P transport");
+        LogsCollectorRunFuture {
+            transport: self,
+            cancelled: Box::pin(cancel_token.cancelled_owned()),
+        }
+    }
+
+    fn on_swarm_event(&self, ev: SwarmEvent<LogsCollectorEvent>) {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
-        if let SwarmEvent::Behaviour(ev) = ev {
-            self.events_tx.send_lossy(ev)
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct LogsCollectorTransportHandle {
-    logs_collected_tx: Sender<LogsCollected>,
-    _task_manager: Arc<TaskManager>,
-}
-
-impl LogsCollectorTransportHandle {
-    fn new(
-        logs_collected_tx: Sender<LogsCollected>,
-        transport: LogsCollectorTransport,
-        shutdown_timeout: Duration,
-    ) -> Self {
-        let mut task_manager = TaskManager::new(shutdown_timeout);
-        task_manager.spawn(|c| transport.run(c));
-        Self {
-            logs_collected_tx,
-            _task_manager: Arc::new(task_manager),
-        }
-    }
-
-    pub fn logs_collected(&self, logs_collected: LogsCollected) -> Result<(), QueueFull> {
-        log::debug!("Queueing LogsCollected message: {logs_collected:?}");
-        self.logs_collected_tx.try_send(logs_collected)
     }
 }
 
 pub fn start_transport(
     swarm: Swarm<Wrapped<LogsCollectorBehaviour>>,
-    config: LogsCollectorConfig,
-) -> (impl Stream<Item = LogsCollectorEvent>, LogsCollectorTransportHandle) {
-    let (logs_collected_tx, logs_collected_rx) =
-        new_queue(config.logs_collected_queue_size, "logs_collected");
-    let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
+    _config: LogsCollectorConfig,
+) -> LogsCollectorTransport {
     let transport = LogsCollectorTransport {
-        swarm,
-        logs_collected_rx,
-        events_tx,
+        swarm: Mutex::new(swarm),
     };
-    let handle =
-        LogsCollectorTransportHandle::new(logs_collected_tx, transport, config.shutdown_timeout);
-    (events_rx, handle)
+    transport
+}
+
+pub struct LogsCollectorRunFuture<'t> {
+    transport: &'t LogsCollectorTransport,
+    cancelled: Pin<Box<WaitForCancellationFutureOwned>>,
+}
+
+impl<'t> Future for LogsCollectorRunFuture<'t> {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.cancelled.poll_unpin(cx).is_ready() {
+            log::info!("Shutting down logs collector P2P transport");
+            return Poll::Ready(());
+        }
+        loop {
+            match self.transport.swarm.lock().poll_next_unpin(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Some(ev)) => self.transport.on_swarm_event(ev),
+                Poll::Ready(None) => unreachable!("Swarm stream ended"),
+            }
+        }
+    }
 }
