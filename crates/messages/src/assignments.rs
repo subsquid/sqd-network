@@ -49,7 +49,7 @@ pub struct Chunk {
     pub size_bytes: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Dataset {
     pub id: String,
@@ -105,12 +105,15 @@ pub struct Assignment {
     chunk_map: Option<HashMap<String, u64>>,
     #[serde(skip)]
     pub id: String,
+    #[serde(skip)]
+    pub effective_from: u64,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct NetworkAssignment {
     pub url: String,
     pub id: String,
+    pub effective_from: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -159,6 +162,7 @@ impl Assignment {
         let compressed_assignment = response_assignment.bytes().await?;
         let mut result = Self::parse_compressed_assignment(compressed_assignment).await?;
         result.id = network_state.assignment.id;
+        result.effective_from = network_state.assignment.effective_from;
         Ok(Some(result))
     }
 
