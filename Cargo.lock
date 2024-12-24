@@ -5080,6 +5080,7 @@ dependencies = [
  "bimap",
  "clap",
  "derivative",
+ "env_logger",
  "futures",
  "futures-bounded",
  "futures-core",
