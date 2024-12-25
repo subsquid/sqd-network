@@ -156,6 +156,7 @@ impl BaseBehaviour {
                 local_peer_id,
                 autonat::Config {
                     timeout: config.autonat_timeout,
+                    use_connected: false,
                     ..Default::default()
                 },
             ),
