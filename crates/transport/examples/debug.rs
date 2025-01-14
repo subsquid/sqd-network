@@ -157,7 +157,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     if let Some(behaviour) = swarm.behaviour_mut().gossipsub.as_mut() {
-        for topic_name in *KNOWN_TOPICS {
+        for topic_name in protocol::KNOWN_TOPICS {
             let topic = Sha256Topic::new(topic_name);
             behaviour.subscribe(&topic)?;
         }
@@ -235,7 +235,7 @@ fn on_gossipsub_message(message: libp2p::gossipsub::Message) {
 
     lazy_static! {
         static ref TOPIC_BY_HASH: BTreeMap<TopicHash, &'static str> =
-            BTreeMap::from_iter(KNOWN_TOPICS.iter().map(|&topic| (topic_hash(topic), topic)));
+            BTreeMap::from_iter(protocol::KNOWN_TOPICS.iter().map(|&topic| (topic_hash(topic), topic)));
     }
 
     let Some(topic) = TOPIC_BY_HASH.get(&message.topic) else {
@@ -262,18 +262,4 @@ fn on_gossipsub_message(message: libp2p::gossipsub::Message) {
 
 fn topic_hash(topic: &str) -> TopicHash {
     Sha256Topic::new(topic).hash()
-}
-
-const WORKER_LOGS_TOPIC_1_0: &str = "/subsquid/worker_query_logs/1.0.0";
-const WORKER_LOGS_TOPIC_1_1: &str = "/subsquid/worker_query_logs/1.1.0";
-const LOGS_COLLECTED_TOPIC: &str = "/subsquid/logs_collected/1.0.0";
-
-lazy_static! {
-    static ref KNOWN_TOPICS: [&'static str; 5] = [
-        protocol::HEARTBEAT_TOPIC,
-        protocol::OLD_PING_TOPIC,
-        WORKER_LOGS_TOPIC_1_0,
-        WORKER_LOGS_TOPIC_1_1,
-        LOGS_COLLECTED_TOPIC,
-    ];
 }

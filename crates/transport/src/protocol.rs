@@ -4,9 +4,22 @@ use libp2p::StreamProtocol;
 
 use sqd_contract_client::Network;
 
-pub const OLD_PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
 pub const HEARTBEAT_TOPIC: &str = "/sqd/worker_heartbeats/1.1.0";
 pub const PORTAL_LOGS_TOPIC: &str = "/sqd/portal_logs/1.1.0";
+// Legacy topics
+pub const OLD_PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
+pub const WORKER_LOGS_TOPIC_1_0: &str = "/subsquid/worker_query_logs/1.0.0";
+pub const WORKER_LOGS_TOPIC_1_1: &str = "/subsquid/worker_query_logs/1.1.0";
+pub const LOGS_COLLECTED_TOPIC: &str = "/subsquid/logs_collected/1.0.0";
+
+pub const KNOWN_TOPICS: [&'static str; 6] = [
+    HEARTBEAT_TOPIC,
+    OLD_PING_TOPIC,
+    PORTAL_LOGS_TOPIC,
+    WORKER_LOGS_TOPIC_1_0,
+    WORKER_LOGS_TOPIC_1_1,
+    LOGS_COLLECTED_TOPIC,
+];
 
 pub const ID_PROTOCOL: &str = "/subsquid/1.0.0";
 pub const QUERY_PROTOCOL: &str = "/sqd/query/1.1.0";

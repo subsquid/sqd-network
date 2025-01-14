@@ -1,10 +1,6 @@
 name: docker
 on:
   workflow_dispatch: # manually run
-    inputs:
-      tag:
-        description: image tag
-        required: true
 
 env:
   CI: true
@@ -20,6 +16,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - uses: SebRollen/toml-action@v1.2.0
+        id: bootnode_version
+        with:
+          file: 'crates/bootnode/Cargo.toml'
+          field: 'package.version'
+
+      - uses: SebRollen/toml-action@v1.2.0
+        id: keygen_version
+        with:
+          file: 'crates/keygen/Cargo.toml'
+          field: 'package.version'
+
+      - uses: SebRollen/toml-action@v1.2.0
+        id: observer_version
+        with:
+          file: 'crates/observer/Cargo.toml'
+          field: 'package.version'
+
       - name: Docker login
         uses: docker/login-action@v3
         with:
@@ -28,22 +42,38 @@ jobs:
 
       - name: Build & publish bootnode
         uses: docker/build-push-action@v5
+        env:
+          VERSION: ${{ steps.bootnode_version.outputs.value }}
         with:
           context: .
           platforms: linux/amd64,linux/arm/v7,linux/arm64/v8,linux/386
           target: bootnode
           push: true
-          tags: subsquid/bootnode:${{ inputs.tag }}
+          tags: subsquid/bootnode:${{ env.VERSION }},subsquid/bootnode:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Build & publish keygen
         uses: docker/build-push-action@v5
+        env:
+          VERSION: ${{ steps.keygen_version.outputs.value }}
         with:
           context: .
           platforms: linux/amd64,linux/arm/v7,linux/arm64/v8,linux/386
           target: keygen
           push: true
-          tags: subsquid/keygen:${{ inputs.tag }}
+          tags: subsquid/keygen:${{ env.VERSION }},subsquid/keygen:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & publish observer
+        uses: docker/build-push-action@v5
+        env:
+          VERSION: ${{ steps.observer_version.outputs.value }}
+        with:
+          context: .
+          target: observer
+          push: true
+          tags: subsquid/observer:${{ env.VERSION }},subsquid/observer:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
