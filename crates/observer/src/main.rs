@@ -56,21 +56,40 @@ async fn run_transport(mut transport: transport::Transport) -> ! {
                 metrics::peer_seen(&event.peer_id.to_string(), &address.to_string());
             }
             transport::Event::WorkerHeartbeat(event) => {
-                if let Some(missing) = event.heartbeat.missing_chunks {
-                    metrics::worker_heartbeat(
-                        &event
-                            .peer_id
-                            .map(|peer_id| peer_id.to_string())
-                            .as_deref()
-                            .unwrap_or("unknown"),
-                        missing.ones(),
-                    );
-                } else {
+                let peer_id =
+                    event.peer_id.map(|peer_id| peer_id.to_string()).unwrap_or_else(|| {
+                        log::warn!("Received heartbeat from unknown peer");
+                        "unknown".to_string()
+                    });
+
+                let missing_chunks = event
+                    .heartbeat
+                    .missing_chunks
+                    .map(|bitstring| bitstring.ones())
+                    .unwrap_or_else(|| {
+                        log::warn!("Received heartbeat without missing_chunks from {peer_id}");
+                        0
+                    });
+
+                let assignment_time = chrono::NaiveDateTime::parse_and_remainder(
+                    &event.heartbeat.assignment_id,
+                    "%Y-%m-%dT%H:%M:%S",
+                )
+                .map(|(time, _)| time.and_utc().timestamp())
+                .unwrap_or_else(|e| {
                     log::warn!(
-                        "Field missing_chunks is missing from the heartbeat from {:?}",
-                        event.peer_id
+                        "Failed to parse assignment_id '{}': {e}",
+                        &event.heartbeat.assignment_id
                     );
-                }
+                    0
+                });
+
+                metrics::worker_heartbeat(
+                    &peer_id,
+                    missing_chunks,
+                    event.heartbeat.stored_bytes.unwrap_or_default(),
+                    assignment_time,
+                );
             }
             transport::Event::Ping(event) => {
                 if let Ok(duration) = event.result {

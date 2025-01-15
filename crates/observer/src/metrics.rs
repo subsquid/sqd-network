@@ -12,6 +12,8 @@ lazy_static! {
     pub static ref GOSSIPSUB_RECEIVED: Family::<Labels, Counter> = Family::default();
     pub static ref LAST_SEEN: Family::<Labels, Gauge> = Family::default();
     pub static ref MISSING_CHUNKS: Family::<Labels, Gauge> = Family::default();
+    pub static ref STORED_BYTES: Family::<Labels, Gauge> = Family::default();
+    pub static ref ASSIGNMENT_TIMESTAMP: Family::<Labels, Gauge> = Family::default();
     pub static ref PINGS_TOTAL: Family<Labels, Counter> = Family::default();
     pub static ref LAST_PING_TIME: Family<Labels, Gauge<f64, AtomicU64>> = Family::default();
 }
@@ -28,10 +30,11 @@ pub fn peer_seen(peer_id: &str, addr: &str) {
         .set(now());
 }
 
-pub fn worker_heartbeat(peer_id: &str, missing_chunks: u64) {
-    MISSING_CHUNKS
-        .get_or_create(&vec![("peer_id", peer_id.to_owned())])
-        .set(missing_chunks as i64);
+pub fn worker_heartbeat(peer_id: &str, missing_chunks: u64, stored_bytes: u64, assignment_timestamp: i64) {
+    let labels = vec![("peer_id", peer_id.to_owned())];
+    MISSING_CHUNKS.get_or_create(&labels).set(missing_chunks as i64);
+    STORED_BYTES.get_or_create(&labels).set(stored_bytes as i64);
+    ASSIGNMENT_TIMESTAMP.get_or_create(&labels).set(assignment_timestamp);
 }
 
 pub fn ping(peer_id: &str, duration: Duration) {
@@ -59,6 +62,18 @@ pub fn register_metrics(registry: &mut Registry) {
         "worker_missing_chunks",
         "The number of chunks missing from the worker",
         MISSING_CHUNKS.clone(),
+    );
+    registry.register_with_unit(
+        "worker_storage",
+        "The amount of used storage as reported by the worker",
+        prometheus_client::registry::Unit::Bytes,
+        STORED_BYTES.clone(),
+    );
+    registry.register_with_unit(
+        "worker_assignment_timestamp",
+        "The timestamp of the assignment referenced by the last heartbeat from the worker",
+        prometheus_client::registry::Unit::Seconds,
+        ASSIGNMENT_TIMESTAMP.clone(),
     );
     registry.register("pings", "The number of pings sent to the worker", PINGS_TOTAL.clone());
     registry.register_with_unit(
