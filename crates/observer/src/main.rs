@@ -26,7 +26,10 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(http_server::Server::new(registry).run(args.port));
 
     let transport = transport::Transport::build(args).await?;
-    run_transport(transport).await;
+    tokio::spawn(run_transport(transport));
+
+    tokio::signal::ctrl_c().await?;
+    log::info!("Shutting down");
 
     Ok(())
 }
