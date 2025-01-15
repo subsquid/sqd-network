@@ -22,10 +22,11 @@ async fn main() -> anyhow::Result<()> {
 
     let mut registry = prometheus_client::registry::Registry::default();
     metrics::register_metrics(&mut registry);
+    let libp2p_metrics = libp2p::metrics::Metrics::new(&mut registry);
 
     tokio::spawn(http_server::Server::new(registry).run(args.port));
 
-    let transport = transport::Transport::build(args).await?;
+    let transport = transport::Transport::build(args, libp2p_metrics).await?;
     tokio::spawn(run_transport(transport));
 
     tokio::signal::ctrl_c().await?;

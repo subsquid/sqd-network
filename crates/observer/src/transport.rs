@@ -10,6 +10,7 @@ use lazy_static::lazy_static;
 use libp2p::{
     gossipsub::{Sha256Topic, TopicHash},
     identity::Keypair,
+    metrics::{Metrics as Libp2pMetrics, Recorder},
     swarm::SwarmEvent,
     Multiaddr, PeerId, SwarmBuilder,
 };
@@ -28,6 +29,7 @@ use crate::cli::Cli;
 pub struct Transport {
     swarm: libp2p::Swarm<Behaviour>,
     events: VecDeque<Event>,
+    libp2p_metrics: Libp2pMetrics,
 }
 
 pub enum Event {
@@ -53,7 +55,7 @@ pub struct WorkerHeartbeat {
 }
 
 impl Transport {
-    pub async fn build(args: Cli) -> Result<Self> {
+    pub async fn build(args: Cli, libp2p_metrics: Libp2pMetrics) -> Result<Self> {
         let keypair = get_keypair(Some(args.key.clone())).await?;
 
         let mut swarm = SwarmBuilder::with_existing_identity(keypair)
@@ -87,6 +89,7 @@ impl Transport {
         Ok(Self {
             swarm,
             events: Default::default(),
+            libp2p_metrics,
         })
     }
 
@@ -96,11 +99,12 @@ impl Transport {
                 SwarmEvent::NewListenAddr { address, .. } => log::info!("Listening on {address:?}"),
                 SwarmEvent::Behaviour(event) => match event {
                     BehaviourEvent::Ping(e) => self.on_ping(e),
-                    BehaviourEvent::Gossipsub(libp2p::gossipsub::Event::Message {
-                        message,
-                        ..
-                    }) => self.on_gossipsub(message),
-                    BehaviourEvent::Gossipsub(_) => {}
+                    BehaviourEvent::Gossipsub(e) => {
+                        self.libp2p_metrics.record(&e);
+                        if let libp2p::gossipsub::Event::Message { message, .. } = e {
+                            self.on_gossipsub(message)
+                        }
+                    }
                     BehaviourEvent::Identify(e) => self.on_identify(e),
                     BehaviourEvent::Kademlia(e) => self.on_kademlia(e),
                 },
@@ -112,15 +116,18 @@ impl Transport {
 
     fn on_ping(&mut self, event: libp2p::ping::Event) {
         log::trace!("Ping event: {event:?}");
+        self.libp2p_metrics.record(&event);
         self.events.push_back(Event::Ping(event));
     }
 
     fn on_identify(&mut self, event: libp2p::identify::Event) {
         log::debug!("Identify event: {event:?}");
+        self.libp2p_metrics.record(&event);
     }
 
     fn on_kademlia(&mut self, event: libp2p::kad::Event) {
         log::debug!("Kademlia event: {event:?}");
+        self.libp2p_metrics.record(&event);
         match event {
             libp2p::kad::Event::RoutingUpdated {
                 peer, addresses, ..

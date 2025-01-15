@@ -1,12 +1,10 @@
 use std::{sync::atomic::AtomicU64, time::Duration};
 
 use lazy_static::lazy_static;
-use libp2p::metrics::Metrics;
 use prometheus_client::{
     metrics::{counter::Counter, family::Family, gauge::Gauge},
     registry::Registry,
 };
-use tokio::sync::OnceCell;
 
 type Labels = Vec<(&'static str, String)>;
 
@@ -17,8 +15,6 @@ lazy_static! {
     pub static ref PINGS_TOTAL: Family<Labels, Counter> = Family::default();
     pub static ref LAST_PING_TIME: Family<Labels, Gauge<f64, AtomicU64>> = Family::default();
 }
-
-pub static LIBP2P_METRICS: OnceCell<Metrics> = OnceCell::const_new();
 
 pub fn record_message(topic: &str, peer_id: &str) {
     GOSSIPSUB_RECEIVED
@@ -49,10 +45,6 @@ pub fn ping_failed(peer_id: &str) {
 }
 
 pub fn register_metrics(registry: &mut Registry) {
-    assert!(
-        LIBP2P_METRICS.set(Metrics::new(registry)).is_ok(),
-        "Metrics already initialized"
-    );
     registry.register(
         "gossipsub_received",
         "The counter for the received gossipsub messages",
