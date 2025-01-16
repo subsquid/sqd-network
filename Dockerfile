@@ -41,9 +41,9 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
 
 
 FROM --platform=$BUILDPLATFORM base AS bootnode
-COPY --from=builder /app/target/release/sqd-bootnode /usr/local/bin/sqd-bootnode
+COPY --from=builder /app/target/release/sqd-bootnode /usr/local/bin/bootnode
 COPY --from=builder /app/target/release/sqd-keygen /usr/local/bin/keygen
-CMD ["sqd-bootnode"]
+CMD ["bootnode"]
 
 ENV P2P_LISTEN_ADDRS="/ip4/0.0.0.0/udp/12345/quic-v1"
 
