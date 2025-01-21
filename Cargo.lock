@@ -5067,7 +5067,7 @@ dependencies = [
 
 [[package]]
 name = "sqd-bootnode"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -5116,7 +5116,7 @@ dependencies = [
 
 [[package]]
 name = "sqd-messages"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
