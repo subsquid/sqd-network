@@ -71,6 +71,7 @@ where
                     request_response::Message::Request {
                         request, channel, ..
                     },
+                connection_id: _,
             } => {
                 return Some(ToSwarm::GenerateEvent(Request {
                     peer_id: peer,

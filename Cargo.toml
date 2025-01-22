@@ -3,8 +3,8 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-libp2p = "0.54"
-libp2p-connection-limits = "0.4"
+libp2p = "0.55"
+libp2p-connection-limits = "0.5"
 libp2p-swarm-derive = "0.35"
 
 [workspace.lints.rust]

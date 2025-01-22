@@ -285,6 +285,7 @@ where
                 peer,
                 request_id,
                 error,
+                connection_id: _,
             } => self.on_failure(peer, request_id, error),
             _ => None,
         }
