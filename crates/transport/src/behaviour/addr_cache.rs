@@ -29,6 +29,10 @@ impl AddressCache {
     pub fn put(&mut self, peer_id: PeerId, addrs: impl IntoIterator<Item = Multiaddr>) {
         self.cache.get_or_insert_mut(peer_id, Default::default).extend(addrs)
     }
+
+    pub fn contains(&self, peer_id: &PeerId) -> bool {
+        self.cache.contains(peer_id)
+    }
 }
 
 impl NetworkBehaviour for AddressCache {
