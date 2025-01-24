@@ -210,9 +210,7 @@ impl P2PTransportBuilder {
         self,
         config: LogsCollectorConfig,
     ) -> Result<LogsCollectorTransport, Error> {
-        let local_peer_id = self.local_peer_id();
-        let swarm =
-            self.build_swarm(|base| LogsCollectorBehaviour::new(base, local_peer_id, config))?;
+        let swarm = self.build_swarm(|base| LogsCollectorBehaviour::new(base))?;
         Ok(logs_collector::start_transport(swarm, config))
     }
 
@@ -274,8 +272,7 @@ impl P2PTransportBuilder {
             }
             break;
         }
-        let swarm =
-            self.build_swarm(|base| WorkerBehaviour::new(base, config.clone()))?;
+        let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, config.clone()))?;
         Ok(worker::start_transport(swarm, config))
     }
 }
