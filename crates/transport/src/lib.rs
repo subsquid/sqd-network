@@ -46,9 +46,7 @@ pub mod protocol;
 pub mod util;
 
 #[cfg(feature = "gateway")]
-pub use crate::actors::gateway::{
-    GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle, QueryFailure,
-};
+pub use crate::actors::gateway::{GatewayBehaviour, GatewayConfig, GatewayEvent, QueryFailure};
 #[cfg(feature = "logs-collector")]
 pub use crate::actors::logs_collector::{
     LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent, LogsCollectorTransport,

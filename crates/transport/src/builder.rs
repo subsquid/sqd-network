@@ -20,7 +20,7 @@ use crate::{
 
 #[cfg(feature = "gateway")]
 use crate::actors::gateway::{
-    self, GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle,
+    self, GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransport,
 };
 #[cfg(feature = "logs-collector")]
 use crate::actors::logs_collector::{
@@ -200,8 +200,8 @@ impl P2PTransportBuilder {
     pub fn build_gateway(
         self,
         config: GatewayConfig,
-    ) -> Result<(impl Stream<Item = GatewayEvent>, GatewayTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| GatewayBehaviour::new(base, config))?;
+    ) -> Result<(impl Stream<Item = GatewayEvent>, GatewayTransport), Error> {
+        let swarm = self.build_swarm(|base| GatewayBehaviour::new(base))?;
         Ok(gateway::start_transport(swarm, config))
     }
 
