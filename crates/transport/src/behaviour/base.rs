@@ -54,7 +54,7 @@ use crate::{
     AgentInfo, Multiaddr, PeerId,
 };
 
-use super::stream_client::{self, StreamClientBehaviour, StreamClientConfig, StreamClientHandle};
+use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle};
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
@@ -67,7 +67,7 @@ pub struct InnerBehaviour {
     whitelist: Wrapped<WhitelistBehavior>,
     pubsub: Wrapped<PubsubBehaviour>,
     address_cache: AddressCache,
-    stream: StreamClientBehaviour,
+    stream: ClientBehaviour,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -169,7 +169,7 @@ impl BaseBehaviour {
             .into(),
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
-            stream: StreamClientBehaviour::default(),
+            stream: ClientBehaviour::default(),
         };
 
         for boot_node in boot_nodes {
@@ -196,7 +196,7 @@ impl BaseBehaviour {
     pub fn request_handle(
         &self,
         protocol: &'static str,
-        config: StreamClientConfig,
+        config: ClientConfig,
     ) -> StreamClientHandle {
         self.inner.stream.new_handle(protocol, config)
     }

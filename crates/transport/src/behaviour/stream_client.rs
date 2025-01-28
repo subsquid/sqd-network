@@ -19,7 +19,7 @@ use libp2p_stream::OpenStreamError;
 use crate::util::StreamWithPayload;
 
 #[derive(Debug, Clone, Copy)]
-pub struct StreamClientConfig {
+pub struct ClientConfig {
     /// The maximum number of open substreams per peer (default: 3)
     pub max_concurrent_streams: usize,
     /// Timeout applied on dialing the remote and opening a substream (default: 10 sec)
@@ -28,7 +28,7 @@ pub struct StreamClientConfig {
     pub request_timeout: Duration,
 }
 
-impl Default for StreamClientConfig {
+impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             max_concurrent_streams: 3,
@@ -62,7 +62,7 @@ pub enum Timeout {
 
 pub struct StreamClientHandle {
     protocol: &'static str,
-    config: StreamClientConfig,
+    config: ClientConfig,
     control: libp2p_stream::Control,
     semaphores: parking_lot::Mutex<HashMap<PeerId, Arc<tokio::sync::Semaphore>>>,
 }
@@ -133,11 +133,11 @@ impl StreamClientHandle {
     }
 }
 
-pub struct StreamClientBehaviour {
+pub struct ClientBehaviour {
     inner: libp2p_stream::Behaviour,
 }
 
-impl Default for StreamClientBehaviour {
+impl Default for ClientBehaviour {
     fn default() -> Self {
         Self {
             inner: libp2p_stream::Behaviour::new(),
@@ -145,11 +145,11 @@ impl Default for StreamClientBehaviour {
     }
 }
 
-impl StreamClientBehaviour {
+impl ClientBehaviour {
     pub fn new_handle(
         &self,
         protocol: &'static str,
-        config: StreamClientConfig,
+        config: ClientConfig,
     ) -> StreamClientHandle {
         let control = self.inner.new_control();
         StreamClientHandle {
@@ -166,7 +166,7 @@ pub enum Event {
     Dial(DialOpts),
 }
 
-impl NetworkBehaviour for StreamClientBehaviour {
+impl NetworkBehaviour for ClientBehaviour {
     type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
     type ToSwarm = Event;
 

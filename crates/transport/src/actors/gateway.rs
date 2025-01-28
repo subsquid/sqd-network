@@ -14,7 +14,7 @@ use sqd_messages::{Heartbeat, Query, QueryResult};
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent},
-        stream_client::{RequestError, StreamClientConfig, StreamClientHandle, Timeout},
+        stream_client::{RequestError, ClientConfig, StreamClientHandle, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, QUERY_PROTOCOL},
@@ -40,7 +40,7 @@ pub enum QueryFailure {
 
 #[derive(Debug, Clone, Copy)]
 pub struct GatewayConfig {
-    pub query_config: StreamClientConfig,
+    pub query_config: ClientConfig,
     pub max_query_result_size: u64,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,

@@ -75,7 +75,7 @@ pub use crate::actors::worker::{
 #[cfg(feature = "actors")]
 pub use behaviour::base::BaseConfig;
 #[cfg(feature = "request-client")]
-pub use behaviour::request_client::ClientConfig;
+pub use behaviour::stream_client::ClientConfig;
 #[cfg(feature = "behaviour")]
 pub use behaviour::{
     addr_cache::AddressCache,

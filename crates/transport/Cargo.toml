@@ -44,7 +44,7 @@ logs-collector = ["actors", "request-client", "proto"]
 observer = ["actors"]
 peer-checker = ["actors"]
 pings-collector = ["actors"]
-scheduler = ["actors", "request-client", "proto"]
+scheduler = ["actors", "proto"]
 worker = ["actors", "request-server", "proto"]
 metrics = ["libp2p/metrics", "prometheus-client"]
 

@@ -12,7 +12,7 @@ use sqd_messages::{LogsRequest, QueryLogs};
 use crate::{
     behaviour::{
         base::BaseBehaviour,
-        stream_client::{RequestError, StreamClientConfig, StreamClientHandle, Timeout},
+        stream_client::{RequestError, ClientConfig, StreamClientHandle, Timeout},
         wrapped::Wrapped,
     },
     protocol::{MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, WORKER_LOGS_PROTOCOL},
@@ -37,7 +37,7 @@ pub enum FetchLogsError {
 
 #[derive(Debug, Clone, Copy)]
 pub struct LogsCollectorConfig {
-    pub request_config: StreamClientConfig,
+    pub request_config: ClientConfig,
     pub max_log_size: u64,
     pub shutdown_timeout: Duration,
 }
