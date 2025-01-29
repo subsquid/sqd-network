@@ -22,6 +22,8 @@ use crate::util::StreamWithPayload;
 pub struct ClientConfig {
     /// The maximum number of open substreams per peer (default: 3)
     pub max_concurrent_streams: usize,
+    /// The maximum length of the response message read in the [`request_response`] call (default: 1 KiB)
+    pub max_response_size: u64,
     /// Timeout applied on dialing the remote and opening a substream (default: 10 sec)
     pub connect_timeout: Duration,
     /// Timeout applied on the entire request-response cycle (default: 60 sec)
@@ -32,6 +34,7 @@ impl Default for ClientConfig {
     fn default() -> Self {
         Self {
             max_concurrent_streams: 3,
+            max_response_size: 1024,
             connect_timeout: Duration::from_secs(10),
             request_timeout: Duration::from_secs(60),
         }
@@ -72,18 +75,16 @@ impl StreamClientHandle {
         &self,
         peer: PeerId,
     ) -> Result<impl AsyncRead + AsyncWrite, RequestError> {
+        let semaphore = self
+            .semaphores
+            .lock()
+            .entry(peer)
+            .or_insert_with(|| {
+                Arc::new(tokio::sync::Semaphore::new(self.config.max_concurrent_streams))
+            })
+            .clone();
         let fut = async {
-            let permit = self
-                .semaphores
-                .lock()
-                .entry(peer)
-                .or_insert_with(|| {
-                    Arc::new(tokio::sync::Semaphore::new(self.config.max_concurrent_streams))
-                })
-                .clone()
-                .acquire_owned()
-                .await
-                .expect("Semaphone should never be closed");
+            let permit = semaphore.acquire_owned().await.expect("Semaphone should never be closed");
 
             log::debug!("Opening stream to {}", peer);
             let stream = self
@@ -108,7 +109,6 @@ impl StreamClientHandle {
         &self,
         peer: PeerId,
         request: &[u8],
-        max_response_size: u64,
     ) -> Result<Vec<u8>, RequestError> {
         let fut = async {
             let mut stream = self.get_raw_stream(peer).await?;
@@ -117,8 +117,8 @@ impl StreamClientHandle {
             log::debug!("Sent {} bytes to {peer}", request.len());
 
             let mut buf = Vec::new();
-            stream.take(max_response_size + 1).read_to_end(&mut buf).await?;
-            if buf.len() as u64 > max_response_size {
+            stream.take(self.config.max_response_size + 1).read_to_end(&mut buf).await?;
+            if buf.len() as u64 > self.config.max_response_size {
                 return Err(RequestError::ResponseTooLarge);
             }
             log::debug!("Read {} bytes from {peer}", buf.len());
@@ -146,11 +146,7 @@ impl Default for ClientBehaviour {
 }
 
 impl ClientBehaviour {
-    pub fn new_handle(
-        &self,
-        protocol: &'static str,
-        config: ClientConfig,
-    ) -> StreamClientHandle {
+    pub fn new_handle(&self, protocol: &'static str, config: ClientConfig) -> StreamClientHandle {
         let control = self.inner.new_control();
         StreamClientHandle {
             protocol,

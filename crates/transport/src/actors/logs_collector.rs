@@ -38,15 +38,16 @@ pub enum FetchLogsError {
 #[derive(Debug, Clone, Copy)]
 pub struct LogsCollectorConfig {
     pub request_config: ClientConfig,
-    pub max_log_size: u64,
     pub shutdown_timeout: Duration,
 }
 
 impl Default for LogsCollectorConfig {
     fn default() -> Self {
         Self {
-            request_config: Default::default(),
-            max_log_size: MAX_LOGS_RESPONSE_SIZE,
+            request_config: ClientConfig {
+                max_response_size: MAX_LOGS_RESPONSE_SIZE,
+                ..Default::default()
+            },
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         }
     }
@@ -55,7 +56,6 @@ impl Default for LogsCollectorConfig {
 pub struct LogsCollectorTransport {
     _task_manager: TaskManager,
     request_handle: StreamClientHandle,
-    config: LogsCollectorConfig,
 }
 
 impl LogsCollectorTransport {
@@ -74,7 +74,7 @@ impl LogsCollectorTransport {
         let buf = request.encode_to_vec();
         let resp_buf = self
             .request_handle
-            .request_response(peer_id, &buf, self.config.max_log_size)
+            .request_response(peer_id, &buf)
             .await
             .map_err(|e| FetchLogsError::from(e))?;
 
@@ -109,7 +109,6 @@ pub fn start_transport(
     LogsCollectorTransport {
         _task_manager: task_manager,
         request_handle,
-        config,
     }
 }
 

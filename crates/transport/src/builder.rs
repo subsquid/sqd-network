@@ -201,7 +201,7 @@ impl P2PTransportBuilder {
         self,
         config: GatewayConfig,
     ) -> Result<(impl Stream<Item = GatewayEvent>, GatewayTransport), Error> {
-        let swarm = self.build_swarm(|base| GatewayBehaviour::new(base))?;
+        let swarm = self.build_swarm(GatewayBehaviour::new)?;
         Ok(gateway::start_transport(swarm, config))
     }
 
@@ -210,7 +210,7 @@ impl P2PTransportBuilder {
         self,
         config: LogsCollectorConfig,
     ) -> Result<LogsCollectorTransport, Error> {
-        let swarm = self.build_swarm(|base| LogsCollectorBehaviour::new(base))?;
+        let swarm = self.build_swarm(LogsCollectorBehaviour::new)?;
         Ok(logs_collector::start_transport(swarm, config))
     }
 
@@ -228,7 +228,7 @@ impl P2PTransportBuilder {
         self,
         config: ObserverConfig,
     ) -> Result<(impl Stream<Item = ObserverEvent>, ObserverTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| ObserverBehaviour::new(base))?;
+        let swarm = self.build_swarm(ObserverBehaviour::new)?;
         Ok(observer::start_transport(swarm, config))
     }
 

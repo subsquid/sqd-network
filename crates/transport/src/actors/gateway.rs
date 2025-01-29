@@ -41,7 +41,6 @@ pub enum QueryFailure {
 #[derive(Debug, Clone, Copy)]
 pub struct GatewayConfig {
     pub query_config: ClientConfig,
-    pub max_query_result_size: u64,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
 }
@@ -49,8 +48,10 @@ pub struct GatewayConfig {
 impl Default for GatewayConfig {
     fn default() -> Self {
         Self {
-            query_config: Default::default(),
-            max_query_result_size: MAX_QUERY_RESULT_SIZE,
+            query_config: ClientConfig {
+                max_response_size: MAX_QUERY_RESULT_SIZE,
+                ..Default::default()
+            },
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
         }
@@ -60,7 +61,6 @@ impl Default for GatewayConfig {
 pub struct GatewayTransport {
     _task_manager: TaskManager,
     query_handle: StreamClientHandle,
-    config: GatewayConfig,
 }
 
 impl GatewayTransport {
@@ -81,7 +81,7 @@ impl GatewayTransport {
         let buf = query.encode_to_vec();
         let resp_buf = self
             .query_handle
-            .request_response(peer_id, &buf, self.config.max_query_result_size)
+            .request_response(peer_id, &buf)
             .await?;
 
         if resp_buf.len() == 0 {
@@ -122,7 +122,6 @@ pub fn start_transport(
     let transport = GatewayTransport {
         _task_manager: task_manager,
         query_handle,
-        config,
     };
     (events_rx, transport)
 }
