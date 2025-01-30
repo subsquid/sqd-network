@@ -401,21 +401,19 @@ impl BehaviourWrapper for BaseBehaviour {
     }
 
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
-        loop {
-            if let Some(ev) = self.pending_events.pop_front() {
-                return Poll::Ready(Some(ev));
-            }
-
-            match self.probe_timeouts.poll_unpin(cx) {
-                Poll::Ready((peer_id, Err(_))) => {
-                    return Poll::Ready(Some(self.on_probe_timeout(peer_id)));
-                }
-                Poll::Pending => {}
-                _ => unreachable!(), // future::pending() should never complete
-            }
-
-            return Poll::Pending;
+        if let Some(ev) = self.pending_events.pop_front() {
+            return Poll::Ready(Some(ev));
         }
+
+        match self.probe_timeouts.poll_unpin(cx) {
+            Poll::Ready((peer_id, Err(_))) => {
+                return Poll::Ready(Some(self.on_probe_timeout(peer_id)));
+            }
+            Poll::Pending => {}
+            _ => unreachable!(), // future::pending() should never complete
+        }
+
+        return Poll::Pending;
     }
 }
 

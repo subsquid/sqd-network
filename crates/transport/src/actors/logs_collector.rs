@@ -12,7 +12,7 @@ use sqd_messages::{LogsRequest, QueryLogs};
 use crate::{
     behaviour::{
         base::BaseBehaviour,
-        stream_client::{RequestError, ClientConfig, StreamClientHandle, Timeout},
+        stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::Wrapped,
     },
     protocol::{MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, WORKER_LOGS_PROTOCOL},
@@ -76,7 +76,7 @@ impl LogsCollectorTransport {
             .request_handle
             .request_response(peer_id, &buf)
             .await
-            .map_err(|e| FetchLogsError::from(e))?;
+            .map_err(FetchLogsError::from)?;
 
         let resp = QueryLogs::decode(resp_buf.as_slice())
             .map_err(|e| FetchLogsError::InvalidResponse(e.to_string()))?;
@@ -126,8 +126,8 @@ impl LogsCollectorBehaviour {
 impl From<RequestError> for FetchLogsError {
     fn from(e: RequestError) -> Self {
         match e {
-            RequestError::Timeout(t) => FetchLogsError::Timeout(t),
-            e => FetchLogsError::Failure(e.to_string()),
+            RequestError::Timeout(t) => Self::Timeout(t),
+            e => Self::Failure(e.to_string()),
         }
     }
 }

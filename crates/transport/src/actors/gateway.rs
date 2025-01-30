@@ -14,7 +14,7 @@ use sqd_messages::{Heartbeat, Query, QueryResult};
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent},
-        stream_client::{RequestError, ClientConfig, StreamClientHandle, Timeout},
+        stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, QUERY_PROTOCOL},
@@ -79,12 +79,9 @@ impl GatewayTransport {
         log::debug!("Sending query {query:?}");
 
         let buf = query.encode_to_vec();
-        let resp_buf = self
-            .query_handle
-            .request_response(peer_id, &buf)
-            .await?;
+        let resp_buf = self.query_handle.request_response(peer_id, &buf).await?;
 
-        if resp_buf.len() == 0 {
+        if resp_buf.is_empty() {
             // Empty response is a sign of worker error
             log::warn!("Empty response for query from peer {peer_id}");
             return Err(QueryFailure::InvalidResponse("Empty response".to_string()));
@@ -173,8 +170,8 @@ impl BehaviourWrapper for GatewayBehaviour {
 impl From<RequestError> for QueryFailure {
     fn from(e: RequestError) -> Self {
         match e {
-            RequestError::Timeout(t) => QueryFailure::Timeout(t),
-            e => QueryFailure::TransportError(e.to_string()),
+            RequestError::Timeout(t) => Self::Timeout(t),
+            e => Self::TransportError(e.to_string()),
         }
     }
 }

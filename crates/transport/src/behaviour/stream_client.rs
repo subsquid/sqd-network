@@ -83,7 +83,7 @@ impl StreamClientHandle {
             let stream = self
                 .control
                 .clone()
-                .open_stream(peer, StreamProtocol::new(&self.protocol))
+                .open_stream(peer, StreamProtocol::new(self.protocol))
                 .await?;
             log::debug!("Opened stream to {}", peer);
 
@@ -178,8 +178,8 @@ impl BehaviourWrapper for ClientBehaviour {
 impl From<OpenStreamError> for RequestError {
     fn from(e: OpenStreamError) -> Self {
         match e {
-            OpenStreamError::UnsupportedProtocol(_) => RequestError::UnsupportedProtocol,
-            OpenStreamError::Io(e) => RequestError::Io(e),
+            OpenStreamError::UnsupportedProtocol(_) => Self::UnsupportedProtocol,
+            OpenStreamError::Io(e) => Self::Io(e),
             _ => unreachable!(),
         }
     }
