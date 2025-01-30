@@ -1,22 +1,15 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dial_opts::DialOpts, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
-        THandlerInEvent, ToSwarm,
-    },
-    Multiaddr, PeerId, StreamProtocol,
+    swarm::{dial_opts::DialOpts, NetworkBehaviour, THandlerInEvent, ToSwarm},
+    PeerId, StreamProtocol,
 };
 use libp2p_stream::OpenStreamError;
 
-use crate::util::StreamWithPayload;
+use crate::{util::StreamWithPayload, BehaviourWrapper};
+
+use super::wrapped::TToSwarm;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ClientConfig {
@@ -162,63 +155,22 @@ pub enum Event {
     Dial(DialOpts),
 }
 
-impl NetworkBehaviour for ClientBehaviour {
-    type ConnectionHandler = <libp2p_stream::Behaviour as NetworkBehaviour>::ConnectionHandler;
-    type ToSwarm = Event;
+impl BehaviourWrapper for ClientBehaviour {
+    type Event = Event;
+    type Inner = libp2p_stream::Behaviour;
 
-    fn handle_established_inbound_connection(
-        &mut self,
-        connection_id: ConnectionId,
-        peer: PeerId,
-        local_addr: &libp2p::Multiaddr,
-        remote_addr: &libp2p::Multiaddr,
-    ) -> Result<Self::ConnectionHandler, ConnectionDenied> {
-        self.inner.handle_established_inbound_connection(
-            connection_id,
-            peer,
-            local_addr,
-            remote_addr,
-        )
+    fn inner(&mut self) -> &mut Self::Inner {
+        &mut self.inner
     }
 
-    fn handle_established_outbound_connection(
+    fn on_inner_command(
         &mut self,
-        connection_id: ConnectionId,
-        peer: PeerId,
-        addr: &Multiaddr,
-        role_override: Endpoint,
-        port_use: PortUse,
-    ) -> Result<Self::ConnectionHandler, ConnectionDenied> {
-        self.inner.handle_established_outbound_connection(
-            connection_id,
-            peer,
-            addr,
-            role_override,
-            port_use,
-        )
-    }
-
-    fn on_swarm_event(&mut self, event: FromSwarm) {
-        self.inner.on_swarm_event(event)
-    }
-
-    fn on_connection_handler_event(
-        &mut self,
-        peer_id: PeerId,
-        connection_id: ConnectionId,
-        event: libp2p::swarm::THandlerOutEvent<Self>,
-    ) {
-        self.inner.on_connection_handler_event(peer_id, connection_id, event);
-    }
-
-    fn poll(
-        &mut self,
-        cx: &mut Context<'_>,
-    ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        match futures::ready!(self.inner.poll(cx)) {
+        ev: ToSwarm<<Self::Inner as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self::Inner>>,
+    ) -> impl IntoIterator<Item = TToSwarm<Self>> {
+        match ev {
             // Capture an attempt to dial a peer to be handled by the BaseBehaviour
-            ToSwarm::Dial { opts } => Poll::Ready(ToSwarm::GenerateEvent(Event::Dial(opts))),
-            e => Poll::Ready(e.map_out(|_| unreachable!())),
+            ToSwarm::Dial { opts } => Some(ToSwarm::GenerateEvent(Event::Dial(opts))),
+            e => Some(e.map_out(|()| unreachable!("Stream behaviour doesn't produce events"))),
         }
     }
 }

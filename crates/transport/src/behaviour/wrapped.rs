@@ -31,6 +31,21 @@ pub trait BehaviourWrapper {
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         None
     }
+
+    // Usually all the inner commands except for `GenerateEvent` should be passed to the swarm directly.
+    // In cases when you explicitly want to intercept those commands, this method may be overridden.
+    fn on_inner_command(
+        &mut self,
+        ev: ToSwarm<<Self::Inner as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self::Inner>>,
+    ) -> impl IntoIterator<Item = TToSwarm<Self>> {
+        match ev {
+            ToSwarm::GenerateEvent(ev) => {
+                Box::new(self.on_inner_event(ev).into_iter()) as Box<dyn Iterator<Item = _>>
+            }
+            ev => Box::new(std::iter::once(ev.map_out::<Self::Event>(|_| unreachable!()))),
+        }
+    }
+
     fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
         Poll::<Vec<_>>::Pending
     }
@@ -154,25 +169,17 @@ where
             }
             match self.wrapper.poll(cx) {
                 Poll::Ready(events) => {
-                    for ev in events {
+                    self.pending_events.extend(events.into_iter().inspect(|ev| {
                         log::trace!("Wrapped inner poll event: {ev:?}");
-                        self.pending_events.push_back(ev);
-                    }
+                    }));
                     continue;
                 }
                 Poll::Pending => {}
             }
             match self.inner().poll(cx) {
-                Poll::Ready(ToSwarm::GenerateEvent(ev)) => {
-                    log::trace!("Wrapped inner behaviour event: {ev:?}");
-                    for ev in self.wrapper.on_inner_event(ev) {
-                        self.pending_events.push_back(ev)
-                    }
-                    continue;
-                }
                 Poll::Ready(ev) => {
-                    log::trace!("Wrapped inner handler event: {ev:?}");
-                    self.pending_events.push_back(ev.map_out(|_| unreachable!()));
+                    log::trace!("Wrapped inner behaviour event: {ev:?}");
+                    self.pending_events.extend(self.wrapper.on_inner_command(ev));
                     continue;
                 }
                 Poll::Pending => {}

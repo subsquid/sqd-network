@@ -67,7 +67,7 @@ pub struct InnerBehaviour {
     whitelist: Wrapped<WhitelistBehavior>,
     pubsub: Wrapped<PubsubBehaviour>,
     address_cache: AddressCache,
-    stream: ClientBehaviour,
+    stream: Wrapped<ClientBehaviour>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -169,7 +169,7 @@ impl BaseBehaviour {
             .into(),
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
-            stream: ClientBehaviour::default(),
+            stream: ClientBehaviour::default().into(),
         };
 
         for boot_node in boot_nodes {
