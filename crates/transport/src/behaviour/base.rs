@@ -54,6 +54,7 @@ use crate::{
     AgentInfo, Multiaddr, PeerId,
 };
 
+#[cfg(feature = "request-client")]
 use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle};
 
 #[derive(NetworkBehaviour)]
@@ -67,6 +68,7 @@ pub struct InnerBehaviour {
     whitelist: Wrapped<WhitelistBehavior>,
     pubsub: Wrapped<PubsubBehaviour>,
     address_cache: AddressCache,
+    #[cfg(feature = "request-client")]
     stream: Wrapped<ClientBehaviour>,
 }
 
@@ -169,6 +171,7 @@ impl BaseBehaviour {
             .into(),
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
+            #[cfg(feature = "request-client")]
             stream: ClientBehaviour::default().into(),
         };
 
@@ -193,6 +196,7 @@ impl BaseBehaviour {
         &self.keypair
     }
 
+    #[cfg(feature = "request-client")]
     pub fn request_handle(
         &self,
         protocol: &'static str,
@@ -395,6 +399,7 @@ impl BehaviourWrapper for BaseBehaviour {
                 None
             }
             InnerBehaviourEvent::Whitelist(nodes) => self.on_nodes_update(nodes),
+            #[cfg(feature = "request-client")]
             InnerBehaviourEvent::Stream(ev) => self.on_stream_event(ev),
             _ => None,
         }
@@ -572,6 +577,7 @@ impl BaseBehaviour {
     }
 
     // TODO: consider capturing all dial requests, not only from the stream behaviour
+    #[cfg(feature = "request-client")]
     fn on_stream_event(&mut self, ev: stream_client::Event) -> Option<TToSwarm<Self>> {
         // When trying to dial an unknown peer, try to find it on DHT first
         let stream_client::Event::Dial(opts) = ev;
