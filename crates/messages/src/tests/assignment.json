@@ -10,7 +10,11 @@
           "files": {
             "blocks.parquet": "blocks.parquet"
           },
-          "sizeBytes": 100000
+          "sizeBytes": 100000,
+          "summary": {
+            "lastBlockHash": "0xdeadbeef",
+            "lastBlockNumber": 1000
+          }
         }
       ]
     }

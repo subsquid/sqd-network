@@ -47,6 +47,17 @@ pub struct Chunk {
     pub base_url: String,
     pub files: HashMap<String, String>,
     pub size_bytes: u64,
+    // Is used for the portal API
+    pub summary: Option<ChunkSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkSummary {
+    pub last_block_hash: String,
+    // Only needed for Solana because it differs from the block number in the chunk ID.
+    // Remove when Solana dataset is updated to use the slot number in the chunk ID.
+    pub last_block_number: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -474,6 +485,10 @@ mod tests {
                 .into_iter()
                 .collect(),
             size_bytes: 100_000,
+            summary: Some(ChunkSummary {
+                last_block_hash: "0xdeadbeef".to_owned(),
+                last_block_number: 1000,
+            }),
         };
         assignment.add_chunk(
             chunk,
