@@ -7,9 +7,11 @@ use libp2p::{
 };
 
 mod queue;
+mod stream_with_payload;
 mod task_manager;
 
 pub use queue::{new_queue, Receiver, Sender};
+pub use stream_with_payload::StreamWithPayload;
 pub use task_manager::{CancellationToken, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT};
 
 /// Load key from file or generate and save to file.

@@ -54,6 +54,8 @@ use crate::{
     AgentInfo, Multiaddr, PeerId,
 };
 
+use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle};
+
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     identify: identify::Behaviour,
@@ -65,6 +67,7 @@ pub struct InnerBehaviour {
     whitelist: Wrapped<WhitelistBehavior>,
     pubsub: Wrapped<PubsubBehaviour>,
     address_cache: AddressCache,
+    stream: Wrapped<ClientBehaviour>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -167,6 +170,7 @@ impl BaseBehaviour {
             .into(),
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
+            stream: ClientBehaviour::default().into(),
         };
 
         for boot_node in boot_nodes {
@@ -193,6 +197,14 @@ impl BaseBehaviour {
     // Prevents removing the address from the DHT even if AutoNAT check fails
     pub fn set_server_mode(&mut self) {
         self.inner.kademlia.set_mode(Some(kad::Mode::Server));
+    }
+
+    pub fn request_handle(
+        &self,
+        protocol: &'static str,
+        config: ClientConfig,
+    ) -> StreamClientHandle {
+        self.inner.stream.new_handle(protocol, config)
     }
 
     pub fn subscribe_heartbeats(&mut self) {
@@ -228,6 +240,10 @@ impl BaseBehaviour {
 
     pub fn outbound_conn_exists(&self, peer_id: &PeerId) -> bool {
         self.outbound_conns.get(peer_id).is_some_and(|x| *x > 0)
+    }
+
+    pub fn can_be_dialed(&self, peer_id: &PeerId) -> bool {
+        self.outbound_conn_exists(peer_id) || self.inner.address_cache.contains(peer_id)
     }
 
     fn try_schedule_probe(&mut self, peer_id: PeerId) -> Result<(), TryProbeError> {
@@ -385,26 +401,25 @@ impl BehaviourWrapper for BaseBehaviour {
                 None
             }
             InnerBehaviourEvent::Whitelist(nodes) => self.on_nodes_update(nodes),
+            InnerBehaviourEvent::Stream(ev) => self.on_stream_event(ev),
             _ => None,
         }
     }
 
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
-        loop {
-            if let Some(ev) = self.pending_events.pop_front() {
-                return Poll::Ready(Some(ev));
-            }
-
-            match self.probe_timeouts.poll_unpin(cx) {
-                Poll::Ready((peer_id, Err(_))) => {
-                    return Poll::Ready(Some(self.on_probe_timeout(peer_id)));
-                }
-                Poll::Pending => {}
-                _ => unreachable!(), // future::pending() should never complete
-            }
-
-            return Poll::Pending;
+        if let Some(ev) = self.pending_events.pop_front() {
+            return Poll::Ready(Some(ev));
         }
+
+        match self.probe_timeouts.poll_unpin(cx) {
+            Poll::Ready((peer_id, Err(_))) => {
+                return Poll::Ready(Some(self.on_probe_timeout(peer_id)));
+            }
+            Poll::Pending => {}
+            _ => unreachable!(), // future::pending() should never complete
+        }
+
+        return Poll::Pending;
     }
 }
 
@@ -490,6 +505,13 @@ impl BaseBehaviour {
             ..
         } = ev
         else {
+            match ev {
+                kad::Event::RoutablePeer { peer, address }
+                | kad::Event::PendingRoutablePeer { peer, address } => {
+                    self.inner.address_cache.put(peer, Some(address));
+                }
+                _ => {}
+            }
             return None;
         };
 
@@ -553,6 +575,21 @@ impl BaseBehaviour {
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
+    }
+
+    // TODO: consider capturing all dial requests, not only from the stream behaviour
+    fn on_stream_event(&mut self, ev: stream_client::Event) -> Option<TToSwarm<Self>> {
+        // When trying to dial an unknown peer, try to find it on DHT first
+        let stream_client::Event::Dial(opts) = ev;
+        match opts.get_peer_id() {
+            Some(peer_id) if !self.can_be_dialed(&peer_id) => {
+                // The ConnectionId will not correspond to the requested one,
+                // but it's not used by the stream behaviour anyway
+                self.find_and_dial(peer_id);
+                None
+            }
+            _ => Some(ToSwarm::Dial { opts }),
+        }
     }
 
     fn on_nodes_update(&mut self, nodes: NetworkNodes) -> Option<TToSwarm<Self>> {
