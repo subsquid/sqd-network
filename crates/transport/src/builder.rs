@@ -20,7 +20,7 @@ use crate::{
 
 #[cfg(feature = "gateway")]
 use crate::actors::gateway::{
-    self, GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle,
+    self, GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransport,
 };
 #[cfg(feature = "logs-collector")]
 use crate::actors::logs_collector::{
@@ -200,8 +200,8 @@ impl P2PTransportBuilder {
     pub fn build_gateway(
         self,
         config: GatewayConfig,
-    ) -> Result<(impl Stream<Item = GatewayEvent>, GatewayTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| GatewayBehaviour::new(base, config))?;
+    ) -> Result<(impl Stream<Item = GatewayEvent>, GatewayTransport), Error> {
+        let swarm = self.build_swarm(GatewayBehaviour::new)?;
         Ok(gateway::start_transport(swarm, config))
     }
 
@@ -210,9 +210,7 @@ impl P2PTransportBuilder {
         self,
         config: LogsCollectorConfig,
     ) -> Result<LogsCollectorTransport, Error> {
-        let local_peer_id = self.local_peer_id();
-        let swarm =
-            self.build_swarm(|base| LogsCollectorBehaviour::new(base, local_peer_id, config))?;
+        let swarm = self.build_swarm(LogsCollectorBehaviour::new)?;
         Ok(logs_collector::start_transport(swarm, config))
     }
 
@@ -230,7 +228,7 @@ impl P2PTransportBuilder {
         self,
         config: ObserverConfig,
     ) -> Result<(impl Stream<Item = ObserverEvent>, ObserverTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| ObserverBehaviour::new(base))?;
+        let swarm = self.build_swarm(ObserverBehaviour::new)?;
         Ok(observer::start_transport(swarm, config))
     }
 
@@ -274,8 +272,7 @@ impl P2PTransportBuilder {
             }
             break;
         }
-        let swarm =
-            self.build_swarm(|base| WorkerBehaviour::new(base, config.clone()))?;
+        let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, config.clone()))?;
         Ok(worker::start_transport(swarm, config))
     }
 }

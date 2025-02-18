@@ -47,7 +47,7 @@ pub mod util;
 
 #[cfg(feature = "gateway")]
 pub use crate::actors::gateway::{
-    GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle, QueryFailure,
+    GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransport, QueryFailure,
 };
 #[cfg(feature = "logs-collector")]
 pub use crate::actors::logs_collector::{
@@ -77,7 +77,7 @@ pub use crate::actors::worker::{
 #[cfg(feature = "actors")]
 pub use behaviour::base::BaseConfig;
 #[cfg(feature = "request-client")]
-pub use behaviour::request_client::ClientConfig;
+pub use behaviour::stream_client::ClientConfig;
 #[cfg(feature = "behaviour")]
 pub use behaviour::{
     addr_cache::AddressCache,

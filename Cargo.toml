@@ -6,6 +6,7 @@ resolver = "2"
 libp2p = "0.55"
 libp2p-connection-limits = "0.5"
 libp2p-swarm-derive = "0.35"
+libp2p-stream = { version = "0.3.0-alpha" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

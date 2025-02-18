@@ -1,7 +1,7 @@
 [package]
 name = "sqd-network-transport"
 license = "AGPL-3.0-or-later"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2021"
 
 [dependencies]
@@ -16,10 +16,12 @@ futures-core = "0.3"
 lazy_static = { version = "1" }
 libp2p = { workspace = true, features = ["dns", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde", "autonat", "quic"] }
 libp2p-connection-limits = { workspace = true }
+libp2p-stream = { workspace = true }
 libp2p-swarm-derive = { workspace = true }
 log = "0.4"
 lru = "0.12"
 parking_lot = "0.12"
+pin-project = "1"
 prometheus-client = { version = "0.22.2", optional = true }
 prost = { version = "0.13", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
@@ -37,12 +39,12 @@ behaviour = []
 proto = []
 request-client = []
 request-server = []
-gateway = ["actors", "request-client", "proto"]
-logs-collector = ["actors", "request-client", "proto"]
+gateway = ["actors", "request-client"]
+logs-collector = ["actors", "request-client"]
 observer = ["actors"]
 peer-checker = ["actors"]
 pings-collector = ["actors"]
-scheduler = ["actors", "request-client", "proto"]
+scheduler = ["actors"]
 worker = ["actors", "request-server", "proto"]
 metrics = ["libp2p/metrics", "prometheus-client"]
 
