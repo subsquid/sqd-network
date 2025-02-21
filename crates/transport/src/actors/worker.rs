@@ -21,7 +21,7 @@ use crate::{
     },
     codec::ProtoCodec,
     protocol::{
-        MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_RESULT_SIZE, MAX_QUERY_MSG_SIZE,
+        MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE,
         QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL,
     },
     record_event,
@@ -54,6 +54,7 @@ pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
     query: QueryBehaviour,
     logs: LogsBehaviour,
+    upnp: libp2p::upnp::tokio::Behaviour,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,12 +104,26 @@ impl WorkerBehaviour {
                     config.query_execution_timeout,
                 )
                 .into(),
+                upnp: Default::default(),
             },
         }
         .into()
     }
 
     fn on_base_event(&mut self, _: BaseBehaviourEvent) -> Option<WorkerEvent> {
+        None
+    }
+
+    fn on_upnp_event(&mut self, e: libp2p::upnp::Event) -> Option<WorkerEvent> {
+        match e {
+            libp2p::upnp::Event::NewExternalAddr(addr) => {
+                log::info!("New UPnP external address: {}", addr)
+            }
+            libp2p::upnp::Event::ExpiredExternalAddr(addr) => {
+                log::warn!("Expired UPnP external address: {}", addr);
+            }
+            e => log::debug!("UPnP event: {:?}", e),
+        }
         None
     }
 
@@ -185,6 +200,7 @@ impl BehaviourWrapper for WorkerBehaviour {
                 request,
                 response_channel,
             }) => self.on_logs_request(peer_id, request, response_channel),
+            InnerBehaviourEvent::Upnp(e) => self.on_upnp_event(e),
         };
         ev.map(ToSwarm::GenerateEvent)
     }
