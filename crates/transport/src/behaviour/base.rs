@@ -190,6 +190,11 @@ impl BaseBehaviour {
         &self.keypair
     }
 
+    // Prevents removing the address from the DHT even if AutoNAT check fails
+    pub fn set_server_mode(&mut self) {
+        self.inner.kademlia.set_mode(Some(kad::Mode::Server));
+    }
+
     pub fn subscribe_heartbeats(&mut self) {
         let registered_workers = self.registered_workers.clone();
         let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
