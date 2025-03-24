@@ -151,9 +151,14 @@ impl Assignment {
     pub async fn try_download(
         url: String,
         previous_id: Option<String>,
+        timeout: std::time::Duration,
     ) -> Result<Option<Self>, anyhow::Error> {
-        let response_state = reqwest::get(url).await?;
-        let network_state: NetworkState = response_state.json().await?;
+        let response = tokio::time::timeout(timeout, async {
+            let response = reqwest::get(url).await?;
+            let bytes = response.bytes().await?;
+            anyhow::Ok(bytes)
+        }).await??;
+        let network_state: NetworkState = serde_json::from_slice(&response)?;
         if Some(network_state.assignment.id.clone()) == previous_id {
             return Ok(None);
         }
