@@ -14,7 +14,7 @@ use super::wrapped::TToSwarm;
 #[derive(Debug, Clone, Copy)]
 pub struct ClientConfig {
     /// The maximum number of open substreams per peer (default: 3)
-    pub max_concurrent_streams: usize,
+    pub max_concurrent_streams: Option<usize>,
     /// The maximum length of the response message read in the [`request_response`] call (default: 1 KiB)
     pub max_response_size: u64,
     /// Timeout applied on dialing the remote and opening a substream (default: 10 sec)
@@ -26,7 +26,7 @@ pub struct ClientConfig {
 impl Default for ClientConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_streams: 3,
+            max_concurrent_streams: Some(3),
             max_response_size: 1024,
             connect_timeout: Duration::from_secs(10),
             request_timeout: Duration::from_secs(60),
@@ -68,16 +68,20 @@ impl StreamClientHandle {
         &self,
         peer: PeerId,
     ) -> Result<impl AsyncRead + AsyncWrite, RequestError> {
-        let semaphore = self
-            .semaphores
-            .lock()
-            .entry(peer)
-            .or_insert_with(|| {
-                Arc::new(tokio::sync::Semaphore::new(self.config.max_concurrent_streams))
-            })
-            .clone();
+        let semaphore = self.config.max_concurrent_streams.map(|limit| {
+            self.semaphores
+                .lock()
+                .entry(peer)
+                .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(limit)))
+                .clone()
+        });
+
         let fut = async {
-            let permit = semaphore.acquire_owned().await.expect("Semaphone should never be closed");
+            let permit = if let Some(s) = semaphore {
+                Some(s.acquire_owned().await.expect("Semaphone should never be closed"))
+            } else {
+                None
+            };
 
             log::debug!("Opening stream to {}", peer);
             let stream = self
