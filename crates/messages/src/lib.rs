@@ -31,6 +31,8 @@ mod versions;
 
 include!(concat!(env!("OUT_DIR"), "/messages.rs"));
 
+pub type WorkerStatus = Heartbeat;
+
 impl Debug for QueryOk {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "QueryOk {{ data: <{} bytes> }}", self.data.len(),)
