@@ -130,6 +130,17 @@ impl StreamClientHandle {
     }
 }
 
+impl Clone for StreamClientHandle {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            control: self.control.clone(),
+            protocol: self.protocol,
+            semaphores: Default::default(),
+        }
+    }
+}
+
 pub struct ClientBehaviour {
     inner: libp2p_stream::Behaviour,
 }

@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     num::NonZeroUsize,
+    pin::Pin,
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
@@ -8,6 +9,7 @@ use std::{
 };
 
 use bimap::BiHashMap;
+use futures::{Stream, StreamExt};
 use futures_bounded::FuturesMap;
 use libp2p::{
     autonat,
@@ -44,17 +46,23 @@ use crate::{
     behaviour::{
         addr_cache::AddressCache,
         node_whitelist::{WhitelistBehavior, WhitelistConfig},
-        pubsub::{MsgValidationConfig, PubsubBehaviour, PubsubMsg, ValidationError},
+        pubsub::{PubsubBehaviour, PubsubMsg},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE},
+    protocol::{
+        HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_HEARTBEAT_SIZE,
+        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL,
+    },
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, Multiaddr, PeerId,
 };
 
-use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle};
+use super::{
+    pubsub::{MsgValidationConfig, ValidationError},
+    stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle},
+};
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
@@ -88,6 +96,14 @@ pub struct BaseConfig {
     pub max_pubsub_msg_size: usize,
     /// Maximum number of peers to keep in the address cache (default: 1024)
     pub addr_cache_size: NonZeroUsize,
+    /// Timeout for worker status requests (default: 15 sec).
+    pub status_request_timeout: Duration,
+    /// How often to request the status from each individual worker (default: 60 sec).
+    pub status_request_frequency: Duration,
+    /// How many concurrent status requests to send to the workers (default: 100).
+    pub concurrent_status_requests: usize,
+    /// Whether to use the gossipsub protocol for collecting worker heartbeats (default: true)
+    pub worker_status_via_gossipsub: bool,
 }
 
 impl BaseConfig {
@@ -102,6 +118,11 @@ impl BaseConfig {
         let max_pubsub_msg_size = parse_env_var("MAX_PUBSUB_MSG_SIZE", MAX_PUBSUB_MSG_SIZE);
         let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
             .expect("addr_cache_size should be > 0");
+        let status_request_timeout =
+            Duration::from_secs(parse_env_var("WORKER_STATUS_TIMEOUT_SEC", 15));
+        let status_request_frequency =
+            Duration::from_secs(parse_env_var("WORKER_STATUS_FREQUENCY_SEC", 60));
+        let concurrent_status_requests = parse_env_var("WORKER_CONCURRENT_STATUS_UPDATES", 100);
         Self {
             onchain_update_interval,
             autonat_timeout,
@@ -111,12 +132,17 @@ impl BaseConfig {
             max_concurrent_probes,
             max_pubsub_msg_size,
             addr_cache_size,
+            status_request_timeout,
+            status_request_frequency,
+            concurrent_status_requests,
+            worker_status_via_gossipsub: true,
         }
     }
 }
 
 pub struct BaseBehaviour {
     inner: InnerBehaviour,
+    config: BaseConfig,
     keypair: Keypair,
     pending_events: VecDeque<TToSwarm<Self>>,
     pending_outbound_conns: BiHashMap<PeerId, ConnectionId>,
@@ -124,6 +150,7 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
+    heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
 }
 
 #[allow(dead_code)]
@@ -187,6 +214,8 @@ impl BaseBehaviour {
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_workers: Arc::new(RwLock::new(Default::default())),
+            heartbeats_stream: None,
+            config,
         }
     }
 
@@ -208,16 +237,35 @@ impl BaseBehaviour {
     }
 
     pub fn subscribe_heartbeats(&mut self) {
+        if self.config.worker_status_via_gossipsub {
+            let registered_workers = self.registered_workers.clone();
+            let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL)
+                .max_burst(2)
+                .msg_validator(move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
+                    if !registered_workers.read().contains(&peer_id) {
+                        return Err(ValidationError::Invalid("Worker not registered"));
+                    }
+                    Ok(())
+                });
+            self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
+        }
+
         let registered_workers = self.registered_workers.clone();
-        let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
-            move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
-                if !registered_workers.read().contains(&peer_id) {
-                    return Err(ValidationError::Invalid("Worker not registered"));
-                }
-                Ok(())
+        let status_stream_handle = self.inner.stream.new_handle(
+            WORKER_STATUS_PROTOCOL,
+            ClientConfig {
+                max_concurrent_streams: None,
+                max_response_size: MAX_HEARTBEAT_SIZE,
+                request_timeout: self.config.status_request_timeout,
+                ..Default::default()
             },
         );
-        self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
+        self.heartbeats_stream = Some(Box::pin(stream_heartbeats(
+            registered_workers.clone(),
+            status_stream_handle,
+            self.config.status_request_frequency,
+            self.config.concurrent_status_requests,
+        )));
     }
 
     pub fn publish_heartbeat(&mut self, heartbeat: Heartbeat) {
@@ -329,6 +377,40 @@ impl BaseBehaviour {
     }
 }
 
+// TODO: make it only return successful responses
+fn stream_heartbeats(
+    registered_workers: Arc<RwLock<HashSet<PeerId>>>,
+    stream_handle: StreamClientHandle,
+    frequency: Duration,
+    parallelism: usize,
+) -> impl Stream<Item = Option<(Heartbeat, PeerId)>> {
+    let mut interval = tokio::time::interval(frequency);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tokio_stream::wrappers::IntervalStream::new(interval).flat_map(move |_| {
+        let workers = registered_workers.read().clone();
+        let stream_handle = stream_handle.clone();
+        futures::stream::iter(workers.into_iter())
+            .map(move |peer_id| {
+                let stream_handle = stream_handle.clone();
+                async move {
+                    let resp = stream_handle
+                        .request_response(peer_id, b"")
+                        .await
+                        .inspect_err(|e| log::debug!("Couldn't send heartbeat request: {e:?}"))
+                        .ok()?;
+                    let heartbeat = Heartbeat::decode(resp.as_ref())
+                        .inspect_err(|e| {
+                            log::debug!("Error decoding heartbeat from {peer_id}: {e:?}")
+                        })
+                        .ok()?;
+                    log::debug!("Got heartbeat from {peer_id}: {heartbeat:?}");
+                    Some((heartbeat, peer_id))
+                }
+            })
+            .buffer_unordered(parallelism)
+    })
+}
+
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
     Heartbeat {
@@ -409,6 +491,17 @@ impl BehaviourWrapper for BaseBehaviour {
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
         if let Some(ev) = self.pending_events.pop_front() {
             return Poll::Ready(Some(ev));
+        }
+
+        if let Some(stream) = self.heartbeats_stream.as_mut() {
+            if let Poll::Ready(item) = stream.poll_next_unpin(cx) {
+                let heartbeat = item.expect("Heartbeat stream should never finish");
+                if let Some((heartbeat, peer_id)) = heartbeat {
+                    return Poll::Ready(Some(ToSwarm::GenerateEvent(
+                        BaseBehaviourEvent::Heartbeat { peer_id, heartbeat },
+                    )));
+                }
+            }
         }
 
         match self.probe_timeouts.poll_unpin(cx) {
