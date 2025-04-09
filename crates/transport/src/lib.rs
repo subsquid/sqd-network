@@ -76,7 +76,7 @@ pub use crate::actors::worker::{
 };
 #[cfg(feature = "actors")]
 pub use behaviour::base::BaseConfig;
-#[cfg(feature = "request-client")]
+#[cfg(feature = "actors")]
 pub use behaviour::stream_client::{ClientConfig, Timeout as StreamClientTimeout};
 #[cfg(feature = "behaviour")]
 pub use behaviour::{

@@ -3,7 +3,7 @@ pub mod addr_cache;
 pub mod base;
 pub mod node_whitelist;
 pub mod pubsub;
-#[cfg(feature = "request-client")]
+#[cfg(feature = "actors")]
 pub mod stream_client;
 #[cfg(feature = "request-server")]
 pub mod request_server;
