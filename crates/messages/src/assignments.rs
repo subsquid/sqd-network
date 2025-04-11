@@ -227,7 +227,14 @@ impl Assignment {
             let mut filtered_chunks: Vec<Chunk> = Default::default();
             for v in &u.chunks {
                 if idxs[0] < cursor {
-                    return None; // Malformed diffs
+                    // try to recover
+                    while !idxs.is_empty() && (idxs[0] < cursor) {
+                        filtered_chunks.push(filtered_chunks.last().unwrap().clone());
+                        idxs.pop_front();
+                    }
+                    if idxs.is_empty() {
+                        break;
+                    }
                 }
                 if idxs[0] == cursor {
                     filtered_chunks.push(v.clone());
