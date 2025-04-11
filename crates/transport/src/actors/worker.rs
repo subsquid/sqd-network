@@ -192,7 +192,7 @@ impl WorkerBehaviour {
         self.inner
             .status
             .try_send_response(resp_chan, status)
-            .unwrap_or_else(|_| log::error!("Couldn't send status"));
+            .unwrap_or_else(|_| log::debug!("Couldn't send status"));
     }
 }
 

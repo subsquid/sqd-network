@@ -80,7 +80,7 @@ where
                 }))
             }
             request_response::Event::InboundFailure { peer, error, .. } => {
-                log::error!("Request from {peer} failed: {error:?}")
+                log::info!("Request from {peer} failed: {error:?}")
             }
             _ => {}
         }
