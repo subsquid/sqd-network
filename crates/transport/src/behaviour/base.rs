@@ -237,7 +237,8 @@ impl BaseBehaviour {
         self.inner.stream.new_handle(protocol, config)
     }
 
-    pub fn subscribe_heartbeats(&mut self) {
+    pub fn enable_publishing_heartbeats(&mut self) {
+        // You have to subscribe to the topic to be able to publish to it
         if self.config.worker_status_via_gossipsub {
             let registered_workers = self.registered_workers.clone();
             let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL)
@@ -250,6 +251,10 @@ impl BaseBehaviour {
                 });
             self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
         }
+    }
+
+    pub fn subscribe_heartbeats(&mut self) {
+        self.enable_publishing_heartbeats();
 
         let registered_workers = self.registered_workers.clone();
         let status_stream_handle = self.inner.stream.new_handle(

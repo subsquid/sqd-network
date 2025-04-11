@@ -96,7 +96,7 @@ pub struct WorkerBehaviour {
 
 impl WorkerBehaviour {
     pub fn new(mut base: BaseBehaviour, config: WorkerConfig) -> Wrapped<Self> {
-        base.subscribe_heartbeats();
+        base.enable_publishing_heartbeats();
         base.set_server_mode();
         Self {
             inner: InnerBehaviour {
