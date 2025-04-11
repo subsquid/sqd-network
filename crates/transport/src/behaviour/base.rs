@@ -123,6 +123,7 @@ impl BaseConfig {
         let status_request_frequency =
             Duration::from_secs(parse_env_var("WORKER_STATUS_FREQUENCY_SEC", 60));
         let concurrent_status_requests = parse_env_var("WORKER_CONCURRENT_STATUS_UPDATES", 100);
+        let worker_status_via_gossipsub = parse_env_var("GOSSIPSUB_ENABLED", false);
         Self {
             onchain_update_interval,
             autonat_timeout,
@@ -135,7 +136,7 @@ impl BaseConfig {
             status_request_timeout,
             status_request_frequency,
             concurrent_status_requests,
-            worker_status_via_gossipsub: true,
+            worker_status_via_gossipsub,
         }
     }
 }
