@@ -102,7 +102,7 @@ pub struct BaseConfig {
     pub status_request_frequency: Duration,
     /// How many concurrent status requests to send to the workers (default: 100).
     pub concurrent_status_requests: usize,
-    /// Whether to use the gossipsub protocol for collecting worker heartbeats (default: true)
+    /// Whether to use the gossipsub protocol for collecting worker heartbeats (default: false)
     pub worker_status_via_gossipsub: bool,
 }
 
