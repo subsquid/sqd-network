@@ -43,6 +43,9 @@ pub struct GatewayConfig {
     pub query_config: ClientConfig,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
+    /// Subcribe to worker status via gossipsub (default: false).
+    /// By default statuses are retrieved via direct polling.
+    pub worker_status_via_gossipsub: bool,
 }
 
 impl Default for GatewayConfig {
@@ -54,6 +57,7 @@ impl Default for GatewayConfig {
             },
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
+            worker_status_via_gossipsub: false,
         }
     }
 }
@@ -128,8 +132,11 @@ pub struct GatewayBehaviour {
 }
 
 impl GatewayBehaviour {
-    pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
-        base.subscribe_heartbeats();
+    pub fn new(mut base: BaseBehaviour, config: GatewayConfig) -> Wrapped<Self> {
+        if config.worker_status_via_gossipsub {
+            base.subscribe_heartbeats();
+        }
+        base.start_pulling_heartbeats();
 
         Self { base: base.into() }.into()
     }

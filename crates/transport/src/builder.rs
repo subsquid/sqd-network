@@ -201,7 +201,7 @@ impl P2PTransportBuilder {
         self,
         config: GatewayConfig,
     ) -> Result<(impl Stream<Item = GatewayEvent>, GatewayTransport), Error> {
-        let swarm = self.build_swarm(GatewayBehaviour::new)?;
+        let swarm = self.build_swarm(|base| GatewayBehaviour::new(base, config))?;
         Ok(gateway::start_transport(swarm, config))
     }
 
@@ -237,7 +237,7 @@ impl P2PTransportBuilder {
         self,
         config: PingsCollectorConfig,
     ) -> Result<(impl Stream<Item = Heartbeat>, PingsCollectorTransportHandle), Error> {
-        let swarm = self.build_swarm(PingsCollectorBehaviour::new)?;
+        let swarm = self.build_swarm(|base| PingsCollectorBehaviour::new(base, config))?;
         Ok(pings_collector::start_transport(swarm, config))
     }
 

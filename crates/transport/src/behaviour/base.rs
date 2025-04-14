@@ -98,12 +98,10 @@ pub struct BaseConfig {
     pub addr_cache_size: NonZeroUsize,
     /// Timeout for worker status requests (default: 15 sec).
     pub status_request_timeout: Duration,
-    /// How often to request the status from each individual worker (default: 60 sec).
+    /// How often to request the status from each individual worker (default: 55 sec).
     pub status_request_frequency: Duration,
     /// How many concurrent status requests to send to the workers (default: 100).
     pub concurrent_status_requests: usize,
-    /// Whether to use the gossipsub protocol for collecting worker heartbeats (default: false)
-    pub worker_status_via_gossipsub: bool,
 }
 
 impl BaseConfig {
@@ -121,9 +119,8 @@ impl BaseConfig {
         let status_request_timeout =
             Duration::from_secs(parse_env_var("WORKER_STATUS_TIMEOUT_SEC", 15));
         let status_request_frequency =
-            Duration::from_secs(parse_env_var("WORKER_STATUS_FREQUENCY_SEC", 60));
+            Duration::from_secs(parse_env_var("WORKER_STATUS_FREQUENCY_SEC", 55));
         let concurrent_status_requests = parse_env_var("WORKER_CONCURRENT_STATUS_UPDATES", 100);
-        let worker_status_via_gossipsub = parse_env_var("GOSSIPSUB_ENABLED", false);
         Self {
             onchain_update_interval,
             autonat_timeout,
@@ -136,7 +133,6 @@ impl BaseConfig {
             status_request_timeout,
             status_request_frequency,
             concurrent_status_requests,
-            worker_status_via_gossipsub,
         }
     }
 }
@@ -237,25 +233,20 @@ impl BaseBehaviour {
         self.inner.stream.new_handle(protocol, config)
     }
 
-    pub fn enable_publishing_heartbeats(&mut self) {
-        // You have to subscribe to the topic to be able to publish to it
-        if self.config.worker_status_via_gossipsub {
-            let registered_workers = self.registered_workers.clone();
-            let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL)
-                .max_burst(2)
-                .msg_validator(move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
-                    if !registered_workers.read().contains(&peer_id) {
-                        return Err(ValidationError::Invalid("Worker not registered"));
-                    }
-                    Ok(())
-                });
-            self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
-        }
+    pub fn subscribe_heartbeats(&mut self) {
+        let registered_workers = self.registered_workers.clone();
+        let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
+            move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
+                if !registered_workers.read().contains(&peer_id) {
+                    return Err(ValidationError::Invalid("Worker not registered"));
+                }
+                Ok(())
+            },
+        );
+        self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
     }
 
-    pub fn subscribe_heartbeats(&mut self) {
-        self.enable_publishing_heartbeats();
-
+    pub fn start_pulling_heartbeats(&mut self) {
         let registered_workers = self.registered_workers.clone();
         let status_stream_handle = self.inner.stream.new_handle(
             WORKER_STATUS_PROTOCOL,

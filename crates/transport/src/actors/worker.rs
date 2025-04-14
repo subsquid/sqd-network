@@ -73,6 +73,7 @@ pub struct WorkerConfig {
     pub shutdown_timeout: Duration,
     pub query_execution_timeout: Duration,
     pub send_logs_timeout: Duration,
+    pub enable_heartbeat_gossipsub: bool,
 }
 
 impl WorkerConfig {
@@ -86,6 +87,7 @@ impl WorkerConfig {
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
             query_execution_timeout: Duration::from_secs(20),
             send_logs_timeout: Duration::from_secs(5),
+            enable_heartbeat_gossipsub: false,
         }
     }
 }
@@ -96,7 +98,10 @@ pub struct WorkerBehaviour {
 
 impl WorkerBehaviour {
     pub fn new(mut base: BaseBehaviour, config: WorkerConfig) -> Wrapped<Self> {
-        base.enable_publishing_heartbeats();
+        if config.enable_heartbeat_gossipsub {
+            // You have to subscribe to the topic to be able to publish to it
+            base.subscribe_heartbeats();
+        }
         base.set_server_mode();
         Self {
             inner: InnerBehaviour {
