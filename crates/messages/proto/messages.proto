@@ -28,8 +28,10 @@ message Heartbeat {
 
 // Portal -> Worker
 message Query {
+  reserved 4, 5, 6;
   string query_id = 1;
   string dataset = 2;  // "s3://ethereum-mainnet"
+  string request_id = 11;  // uuid-4
   string query = 3;  // 256 KB max
   // If present, these values should be used instead of from_block and to_block in the query contents
   optional Range block_range = 7;
