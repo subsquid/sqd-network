@@ -14,7 +14,7 @@ use crypto_box::{aead::Aead, PublicKey, SalsaBox, SecretKey};
 use curve25519_dalek::edwards::CompressedEdwardsY;
 #[cfg(feature = "assignment_reader")]
 use flate2::read::GzDecoder;
-use libp2p::PeerId;
+use libp2p_identity::PeerId;
 #[cfg(feature = "assignment_writer")]
 use log::error;
 #[cfg(feature = "assignment_reader")]

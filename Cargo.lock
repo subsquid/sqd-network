@@ -5396,6 +5396,7 @@ dependencies = [
  "hex",
  "hmac",
  "libp2p",
+ "libp2p-identity",
  "log",
  "prost 0.13.1",
  "prost-build",

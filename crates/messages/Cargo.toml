@@ -5,8 +5,8 @@ version = "2.0.2"
 edition = "2021"
 
 [features]
-assignment_reader = ["anyhow", "crypto_box", "flate2", "reqwest", "serde_json", "serde_with", "sha2", "tokio"]
-assignment_writer = ["anyhow", "base64", "bs58", "crypto_box", "curve25519-dalek", "hmac", "log", "serde_json", "serde_with", "sha2", "url"]
+assignment_reader = ["anyhow", "crypto_box", "flate2", "libp2p-identity", "reqwest", "serde_json", "serde_with", "sha2", "tokio"]
+assignment_writer = ["anyhow", "base64", "bs58", "crypto_box", "curve25519-dalek", "hmac", "libp2p-identity", "log", "serde_json", "serde_with", "sha2", "url"]
 bitstring = ["bytemuck", "flate2"]
 signatures = ["libp2p"]
 
@@ -33,6 +33,7 @@ tokio = { version = "1.38", optional = true }
 url = { version = "2.5.0", optional = true }
 
 libp2p = { workspace = true, optional = true }
+libp2p-identity = { workspace = true, optional = true }
 
 [dev-dependencies]
 sqd-network-transport = { path = "../transport" }
