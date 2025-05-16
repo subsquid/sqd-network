@@ -282,12 +282,12 @@ impl Client for EthersClient {
             tokio::join!(epoch_length_call.call(), latest_block_call);
         let epoch_length_blocks = epoch_length_blocks_res?;
 
-        let latest_block = latest_block_res?.expect("Latest block should be found");
+        let latest_block = latest_block_res?.ok_or(ClientError::BlockNotFound)?;
         let hist_block = self
             .l1_client
             .get_block(latest_block.number.unwrap() - epoch_length_blocks as u64)
             .await?
-            .expect("Last epoch block should be found");
+            .ok_or(ClientError::BlockNotFound)?;
 
         Ok(Duration::from_secs(
             (latest_block.timestamp - hist_block.timestamp)
