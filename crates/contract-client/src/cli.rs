@@ -22,7 +22,7 @@ pub struct RpcArgs {
     #[arg(long, env, hide(true), default_value_t = 500)]
     pub contract_workers_per_page: usize,
 
-    #[arg(long, env, hide(true), default_value_t = 15)]
+    #[arg(long, env, hide(true), default_value_t = 5)]
     pub contract_portals_per_page: usize,
 }
 
