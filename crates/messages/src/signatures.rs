@@ -8,8 +8,7 @@ use libp2p::{
 };
 
 use crate::{
-    query_error, query_finished, query_result, ProstMsg, Query, QueryError, QueryExecuted,
-    QueryFinished, QueryResult,
+    query_error, query_finished, query_result, ProstMsg, Query, QueryError, QueryExecuted, QueryFinished, QueryOk, QueryOkSummary, QueryResult
 };
 
 const SHA3_256_SIZE: usize = 32;
@@ -133,6 +132,24 @@ impl QueryFinished {
             return false;
         };
         verify_signature(worker_id, &msg, &self.worker_signature)
+    }
+
+    pub fn new(query_result: &QueryResult, worker_id: String, total_time_micros: u32) -> Self {
+        Self {
+            worker_id,
+            query_id: query_result.query_id.clone(),
+            total_time_micros,
+            worker_signature: query_result.signature.clone(),
+            result: match &query_result.result {
+                Some(query_result::Result::Ok(QueryOk {data, last_block})) => Some(query_finished::Result::Ok(QueryOkSummary {
+                    uncompressed_data_size: data.len() as u64,
+                    data_hash: sha3_256(&data).to_vec(),
+                    last_block: *last_block,
+                })),
+                Some(query_result::Result::Err(err)) => Some(query_finished::Result::Err(err.clone())),
+                None => None,
+            }
+        }
     }
 }
 

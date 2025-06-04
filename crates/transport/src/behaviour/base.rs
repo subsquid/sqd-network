@@ -36,7 +36,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
-use sqd_messages::Heartbeat;
+use sqd_messages::{Heartbeat, QueryFinished};
 
 #[cfg(feature = "metrics")]
 use crate::metrics::{
@@ -52,7 +52,7 @@ use crate::{
     cli::BootNode,
     protocol::{
         HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_HEARTBEAT_SIZE,
-        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL,
+        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL, PORTAL_LOGS_TOPIC
     },
     record_event,
     util::{addr_is_reachable, parse_env_var},
@@ -271,6 +271,15 @@ impl BaseBehaviour {
         HEARTBEATS_PUBLISHED.inc();
     }
 
+    pub fn subscribe_portal_logs(&mut self) {
+        let config = MsgValidationConfig::new(Duration::from_secs(1)).max_burst(100);
+        self.inner.pubsub.subscribe(PORTAL_LOGS_TOPIC, config);
+    }
+
+    pub fn publish_portal_logs(&mut self, query_finished: QueryFinished) {
+        self.inner.pubsub.publish(PORTAL_LOGS_TOPIC, query_finished.encode_to_vec());
+    }
+
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
         if self.ongoing_queries.contains_left(&peer_id) {
             log::debug!("Query for peer {peer_id} already ongoing");
@@ -415,6 +424,10 @@ pub enum BaseBehaviourEvent {
         heartbeat: Heartbeat,
     },
     PeerProbed(PeerProbed),
+    PortalLogs {
+        peer_id: PeerId,
+        log: QueryFinished
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -662,6 +675,7 @@ impl BaseBehaviour {
         let data = data.as_ref();
         let ev = match topic {
             HEARTBEAT_TOPIC => decode_heartbeat(peer_id, data)?,
+            PORTAL_LOGS_TOPIC => decode_portal_logs(peer_id, data)?,
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
@@ -696,4 +710,13 @@ fn decode_heartbeat(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> 
     #[cfg(feature = "metrics")]
     HEARTBEATS_RECEIVED.inc();
     Some(BaseBehaviourEvent::Heartbeat { peer_id, heartbeat })
+}
+
+fn decode_portal_logs(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
+    let log = QueryFinished::decode(data)
+        .map_err(|e| log::warn!("Error decoding portal logs: {e:?}"))
+        .ok()?;
+    #[cfg(feature = "metrics")]
+    HEARTBEATS_RECEIVED.inc();
+    Some(BaseBehaviourEvent::PortalLogs { peer_id, log } )
 }
