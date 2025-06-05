@@ -1,10 +1,7 @@
 use core::str;
-use std::borrow::Borrow;
 use std::collections::HashMap;
 #[cfg(feature = "assignment_reader")]
 use std::collections::{BTreeMap, VecDeque};
-use std::ops::Deref;
-use std::str::FromStr;
 
 use anyhow::anyhow;
 #[cfg(feature = "assignment_writer")]
@@ -99,10 +96,10 @@ pub enum WorkerStatus {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WorkerAssignment {
-    status: WorkerStatus,
-    jail_reason: Option<String>,
-    chunks_deltas: Vec<u64>,
+pub struct WorkerAssignment {
+    pub status: WorkerStatus,
+    pub jail_reason: Option<String>,
+    pub chunks_deltas: Vec<u64>,
     encrypted_headers: EncryptedHeaders,
 }
 
@@ -110,7 +107,7 @@ struct WorkerAssignment {
 #[serde(rename_all = "camelCase")]
 pub struct Assignment {
     pub datasets: Vec<Dataset>,
-    worker_assignments: HashMap<SerdePeerId, WorkerAssignment>,
+    pub worker_assignments: HashMap<PeerId, WorkerAssignment>,
     #[cfg(feature = "assignment_writer")]
     #[serde(skip)]
     chunk_map: Option<HashMap<String, u64>>,
@@ -206,7 +203,7 @@ impl Assignment {
 
     #[cfg(feature = "assignment_reader")]
     pub fn get_all_peer_ids(&self) -> Vec<PeerId> {
-        self.worker_assignments.keys().map(|peer_id| **peer_id).collect()
+        self.worker_assignments.keys().map(|peer_id| *peer_id).collect()
     }
 
     #[cfg(feature = "assignment_reader")]
@@ -367,60 +364,6 @@ impl Assignment {
                 ciphertext,
             };
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SerdePeerId {
-    peer_id: PeerId,
-}
-
-impl Deref for SerdePeerId {
-    type Target = PeerId;
-
-    fn deref(&self) -> &Self::Target {
-        &self.peer_id
-    }
-}
-
-impl From<PeerId> for SerdePeerId {
-    fn from(peer_id: PeerId) -> Self {
-        SerdePeerId { peer_id }
-    }
-}
-
-impl Borrow<PeerId> for SerdePeerId {
-    fn borrow(&self) -> &PeerId {
-        &self.peer_id
-    }
-}
-
-impl std::fmt::Display for SerdePeerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.peer_id.to_base58())
-    }
-}
-
-impl Serialize for SerdePeerId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.peer_id.to_base58().serialize(serializer)
-    }
-}
-
-impl<'l> Deserialize<'l> for SerdePeerId {
-    fn deserialize<D>(deserializer: D) -> Result<SerdePeerId, D::Error>
-    where
-        D: serde::Deserializer<'l>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(SerdePeerId {
-            peer_id: PeerId::from_str(&s).map_err(|_| {
-                serde::de::Error::invalid_value(serde::de::Unexpected::Str(&s), &"PeerId")
-            })?,
-        })
     }
 }
 
