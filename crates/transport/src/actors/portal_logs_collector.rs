@@ -47,6 +47,7 @@ pub struct PortalLogsCollectorBehaviour {
 impl PortalLogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.subscribe_portal_logs();
+        base.claim_portal_logs_listener_role();
         Self { base: base.into() }.into()
     }
 
@@ -55,6 +56,12 @@ impl PortalLogsCollectorBehaviour {
             BaseBehaviourEvent::PortalLogs { peer_id, log }  => Some(PortalLogsCollectorEvent::Log { peer_id, log }),
             _ => None,
         }
+    }
+}
+
+impl Drop for PortalLogsCollectorBehaviour {
+    fn drop(&mut self) {
+        self.inner().relinquish_portal_logs_listener_role();
     }
 }
 
