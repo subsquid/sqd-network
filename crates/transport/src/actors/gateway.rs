@@ -191,6 +191,7 @@ impl GatewayBehaviour {
             base.start_pulling_heartbeats();
         }
         base.subscribe_portal_logs();
+        base.get_portal_logs_listeners();
 
         Self { base: base.into() }.into()
     }

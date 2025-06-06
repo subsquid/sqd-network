@@ -12,16 +12,11 @@ use bimap::BiHashMap;
 use futures::{Stream, StreamExt};
 use futures_bounded::FuturesMap;
 use libp2p::{
-    autonat,
-    autonat::NatStatus,
+    autonat::{self, NatStatus},
     core::ConnectedPoint,
     dcutr, identify,
     identity::Keypair,
-    kad,
-    kad::{
-        store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, ProgressStep, QueryId,
-        QueryResult,
-    },
+    kad::{self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, ProgressStep, QueryId, QueryResult},
     ping, relay,
     swarm::{
         behaviour::ConnectionEstablished,
@@ -148,6 +143,8 @@ pub struct BaseBehaviour {
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
+    providers_queries: BiHashMap<String, QueryId>,
+    providers_map: HashMap<String, Vec<PeerId>>,
 }
 
 #[allow(dead_code)]
@@ -213,6 +210,8 @@ impl BaseBehaviour {
             registered_workers: Arc::new(RwLock::new(Default::default())),
             heartbeats_stream: None,
             config,
+            providers_queries: Default::default(),
+            providers_map: Default::default(),
         }
     }
 
@@ -278,6 +277,24 @@ impl BaseBehaviour {
 
     pub fn publish_portal_logs(&mut self, query_finished: QueryFinished) {
         self.inner.pubsub.publish(PORTAL_LOGS_TOPIC, query_finished.encode_to_vec());
+    }
+
+    pub fn claim_portal_logs_listener_role(&mut self) {
+        let result = self.inner.kademlia.start_providing(PORTAL_LOGS_TOPIC.as_bytes().to_vec().into());
+        log::error!("CLAIM: {result:?}");
+    }
+
+    pub fn relinquish_portal_logs_listener_role(&mut self) {
+        self.inner.kademlia.stop_providing(&PORTAL_LOGS_TOPIC.as_bytes().to_vec().into());
+    }
+
+    pub fn get_portal_logs_listeners(&mut self) {
+        let key = PORTAL_LOGS_TOPIC.to_owned();
+        if self.providers_queries.contains_left(&key) {
+            return;
+        };
+        let query_id = self.inner.kademlia.get_providers(key.as_bytes().to_vec().into());
+        self.providers_queries.insert(key, query_id);
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -612,6 +629,26 @@ impl BaseBehaviour {
                 kad::Event::RoutablePeer { peer, address }
                 | kad::Event::PendingRoutablePeer { peer, address } => {
                     self.inner.address_cache.put(peer, Some(address));
+                }
+                kad::Event::OutboundQueryProgressed { id: query_id, result: QueryResult::GetProviders(result), .. } => {
+                    let topic = self.providers_queries.get_by_right(&query_id).cloned();
+                    match topic {
+                        Some(topic) => {
+                            self.providers_queries.remove_by_right(&query_id);
+                            match result {
+                                Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
+                                    self.providers_map.insert(topic.clone(), providers.iter().cloned().collect::<Vec<PeerId>>());
+                                },
+                                Ok(_) => {},
+                                Err(_) => {},
+                            }
+                            //log::error!("Got result for {topic:?}: {result:?}");
+                            let state = self.providers_map.get(&topic);
+                            log::error!("NEW STATE: {state:?}");
+                            // log::error!("Got result for unregistered topic: {result:?}");
+                        },
+                        None => {}
+                    }
                 }
                 _ => {}
             }
