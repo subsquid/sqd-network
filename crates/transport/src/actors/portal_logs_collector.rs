@@ -20,7 +20,7 @@ use crate::{
 #[derive(Debug)]
 pub enum PortalLogsCollectorEvent {
     Log { peer_id: PeerId, log: QueryFinished },
-    LogQuery { peer_id: PeerId, query: QueryFinished, resp_chan: ResponseChannel<()> },
+    LogQuery { peer_id: PeerId, query: QueryFinished},
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -81,10 +81,10 @@ impl PortalLogsCollectorBehaviour {
         query: QueryFinished,
         resp_chan: ResponseChannel<()>,
     ) -> Option<PortalLogsCollectorEvent> {
+        let _ = self.inner.collector.try_send_response(resp_chan, ());
         Some(PortalLogsCollectorEvent::LogQuery {
             peer_id,
             query,
-            resp_chan,
         })
     }
 }
