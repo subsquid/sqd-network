@@ -3,9 +3,9 @@ use std::{sync::Arc, time::Duration};
 use futures::StreamExt;
 use futures_core::Stream;
 use libp2p::{
-    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
-    PeerId, Swarm,
+    request_response::ResponseChannel, swarm::{NetworkBehaviour, SwarmEvent, ToSwarm}, PeerId, Swarm
 };
+use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -13,16 +13,14 @@ use sqd_messages::QueryFinished;
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent},
-        wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
-    },
-    record_event,
-    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+        base::{BaseBehaviour, BaseBehaviourEvent}, request_server::{Request, ServerBehaviour}, wrapped::{BehaviourWrapper, TToSwarm, Wrapped}
+    }, codec::ProtoCodec, protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_TOPIC}, record_event, util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT}
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum PortalLogsCollectorEvent {
     Log { peer_id: PeerId, log: QueryFinished },
+    LogQuery { peer_id: PeerId, query: QueryFinished, resp_chan: ResponseChannel<()> },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -40,15 +38,34 @@ impl PortalLogsCollectorConfig {
     }
 }
 
-pub struct PortalLogsCollectorBehaviour {
+type PortalLogCollectionBehaviour = Wrapped<ServerBehaviour<ProtoCodec<QueryFinished, ()>>>;
+
+#[derive(NetworkBehaviour)]
+pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
+    collector: PortalLogCollectionBehaviour,
+}
+
+pub struct PortalLogsCollectorBehaviour {
+    inner: InnerBehaviour,
 }
 
 impl PortalLogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
+        base.set_server_mode();
         base.subscribe_portal_logs();
         base.claim_portal_logs_listener_role();
-        Self { base: base.into() }.into()
+        Self {
+            inner: InnerBehaviour {
+                base: base.into(),
+                collector: ServerBehaviour::new(
+                    ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
+                    PORTAL_LOGS_TOPIC,
+                    Duration::from_secs(5),
+                )
+                .into(),
+            }
+        }.into()
     }
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
@@ -57,27 +74,48 @@ impl PortalLogsCollectorBehaviour {
             _ => None,
         }
     }
+
+    fn on_collector_request(
+        &mut self,
+        peer_id: PeerId,
+        query: QueryFinished,
+        resp_chan: ResponseChannel<()>,
+    ) -> Option<PortalLogsCollectorEvent> {
+        Some(PortalLogsCollectorEvent::LogQuery {
+            peer_id,
+            query,
+            resp_chan,
+        })
+    }
 }
 
 impl Drop for PortalLogsCollectorBehaviour {
     fn drop(&mut self) {
-        self.inner().relinquish_portal_logs_listener_role();
+        self.inner().base.relinquish_portal_logs_listener_role();
     }
 }
 
 impl BehaviourWrapper for PortalLogsCollectorBehaviour {
-    type Inner = Wrapped<BaseBehaviour>;
+    type Inner = InnerBehaviour;
     type Event = PortalLogsCollectorEvent;
 
     fn inner(&mut self) -> &mut Self::Inner {
-        &mut self.base
+        &mut self.inner
     }
 
     fn on_inner_event(
         &mut self,
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
-        self.on_base_event(ev).map(ToSwarm::GenerateEvent)
+        let ev = match ev {
+            InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
+            InnerBehaviourEvent::Collector(Request {
+                peer_id,
+                request,
+                response_channel,
+            }) => self.on_collector_request(peer_id, request, response_channel),
+        };
+        ev.map(ToSwarm::GenerateEvent)
     }
 }
 

@@ -132,6 +132,26 @@ impl BaseConfig {
     }
 }
 
+#[derive(Default)]
+pub struct ProviderList {
+    value: HashSet<PeerId>,
+    pub roll: HashSet<PeerId>,
+}
+
+impl ProviderList {
+    pub fn get(&self) -> Vec<PeerId> {
+        self.value.iter().cloned().collect::<Vec<PeerId>>()
+    }
+
+    pub fn add(&mut self, peer_id: PeerId) {
+        self.roll.insert(peer_id);
+    }
+
+    pub fn push(&mut self) {
+        self.value = self.roll.drain().collect();
+    }
+}
+
 pub struct BaseBehaviour {
     inner: InnerBehaviour,
     config: BaseConfig,
@@ -144,7 +164,7 @@ pub struct BaseBehaviour {
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
     providers_queries: BiHashMap<String, QueryId>,
-    providers_map: HashMap<String, Vec<PeerId>>,
+    providers_map: HashMap<String, ProviderList>,
 }
 
 #[allow(dead_code)]
@@ -288,13 +308,17 @@ impl BaseBehaviour {
         self.inner.kademlia.stop_providing(&PORTAL_LOGS_TOPIC.as_bytes().to_vec().into());
     }
 
-    pub fn get_portal_logs_listeners(&mut self) {
+    pub fn update_portal_logs_listeners(&mut self) {
         let key = PORTAL_LOGS_TOPIC.to_owned();
         if self.providers_queries.contains_left(&key) {
             return;
         };
         let query_id = self.inner.kademlia.get_providers(key.as_bytes().to_vec().into());
         self.providers_queries.insert(key, query_id);
+    }
+
+    pub fn get_actual_portal_logs_listeners(&self) -> Option<Vec<PeerId>> {
+        self.providers_map.get(PORTAL_LOGS_TOPIC).map(|p| p.get())
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -634,20 +658,24 @@ impl BaseBehaviour {
                     let topic = self.providers_queries.get_by_right(&query_id).cloned();
                     match topic {
                         Some(topic) => {
-                            self.providers_queries.remove_by_right(&query_id);
+                            let entry = self.providers_map.entry(topic.clone()).or_default();
                             match result {
                                 Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
-                                    self.providers_map.insert(topic.clone(), providers.iter().cloned().collect::<Vec<PeerId>>());
+                                    providers.iter().for_each(|p| entry.add(p.clone()));
                                 },
-                                Ok(_) => {},
-                                Err(_) => {},
+                                Ok(_) => {
+                                    self.providers_queries.remove_by_right(&query_id);
+                                    entry.push();
+                                },
+                                Err(_) => {
+                                    self.providers_queries.remove_by_right(&query_id);
+                                    entry.push();
+                                },
                             }
-                            //log::error!("Got result for {topic:?}: {result:?}");
-                            let state = self.providers_map.get(&topic);
-                            log::error!("NEW STATE: {state:?}");
-                            // log::error!("Got result for unregistered topic: {result:?}");
                         },
-                        None => {}
+                        None => {
+                            log::error!("Got providers for unknown topic");
+                        }
                     }
                 }
                 _ => {}

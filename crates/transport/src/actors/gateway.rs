@@ -10,6 +10,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use sqd_messages::{Heartbeat, Query, QueryFinished, QueryResult};
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -18,7 +19,7 @@ use crate::{
         stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, QUERY_PROTOCOL},
+    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_TOPIC, QUERY_PROTOCOL},
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT}, QueueFull,
 };
@@ -69,16 +70,22 @@ pub struct GatewayTransport {
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
     logs_rx: Receiver<QueryFinished>,
     events_tx: Sender<GatewayEvent>,
+    logs_handle: StreamClientHandle,
 }
 
 impl GatewayTransport {
     pub async fn run(mut self, cancel_token: CancellationToken) {
         log::info!("Starting worker P2P transport");
+        let mut interval = time::interval(time::Duration::from_millis(10000));
         loop {
             tokio::select! {
-                 _ = cancel_token.cancelled() => break,
+                _ = interval.tick() => {
+                    self.swarm.behaviour_mut().base.update_portal_logs_listeners();
+                    log::error!("listeners requested");
+                },
+                _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
-                Some(log) = self.logs_rx.recv() => self.publish_portal_logs(log),
+                Some(log) = self.logs_rx.recv() => self.publish_portal_logs(log).await,
             }
         }
         log::info!("Shutting down worker P2P transport");
@@ -92,9 +99,29 @@ impl GatewayTransport {
         }
     }
 
-    fn publish_portal_logs(&mut self, log: QueryFinished) {
-        log::trace!("Sending log: {log:?}");
-        self.swarm.behaviour_mut().base.publish_portal_logs(log);
+    async fn publish_portal_logs(&mut self, log: QueryFinished) {
+        log::error!("Sending log: {log:?}");
+        // self.swarm.behaviour_mut().base.publish_portal_logs(log);
+        let log_size = log.encoded_len() as u64;
+        if log_size > MAX_QUERY_MSG_SIZE {
+            // return Err(QueryFailure::InvalidRequest(format!(
+            //     "Log size too large: {log_size}"
+            // )));
+            log::error!("Log size too large: {log_size}");
+        }
+
+        let buf = log.encode_to_vec();
+
+        let listeners = self.swarm.behaviour().base.get_actual_portal_logs_listeners();
+        match listeners {
+            Some(listeners) => {
+                let senders = listeners.iter().map(|peer_id| self.logs_handle.request_response(*peer_id, &buf));
+                futures::future::join_all(senders).await;
+            },
+            None => {
+                log::error!("No logs collector found, dropping: {log:?}");
+            },
+        }
     }
 }
 
@@ -154,6 +181,10 @@ impl GatewayTransportHandle {
         log::trace!("Queueing logs {log:?}");
         self.logs_tx.try_send(log)
     }
+
+    // pub async fn send_logs(&self, log: QueryFinished) -> Result<(), QueueFull> {
+    //     self.logs_handle.request_response(peer, request)
+    // }
 }
 
 pub fn start_transport(
@@ -163,11 +194,13 @@ pub fn start_transport(
     let (logs_tx, logs_rx) = new_queue(100, "portal_logs");
 
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
+    let logs_handle = swarm.behaviour().base.request_handle(PORTAL_LOGS_TOPIC, config.query_config);
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = GatewayTransport {
         swarm,
         logs_rx,
         events_tx,
+        logs_handle,
     };
     let handle = GatewayTransportHandle::new(
         logs_tx,
@@ -191,7 +224,7 @@ impl GatewayBehaviour {
             base.start_pulling_heartbeats();
         }
         base.subscribe_portal_logs();
-        base.get_portal_logs_listeners();
+        base.update_portal_logs_listeners();
 
         Self { base: base.into() }.into()
     }
