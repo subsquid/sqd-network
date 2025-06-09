@@ -26,18 +26,52 @@ pub enum ClientError {
 
 impl<M: Middleware> From<ContractError<M>> for ClientError {
     fn from(err: ContractError<M>) -> Self {
-        Self::Contract(err.to_string())
+        let decoded = match err {
+            ContractError::Revert(ethers::types::Bytes(ref bs)) => {
+                decode_error(bs, err.to_string())
+            }
+            _ => err.to_string(),
+        };
+        Self::Contract(decoded)
     }
 }
 
 impl<M: Middleware> From<MulticallError<M>> for ClientError {
     fn from(err: MulticallError<M>) -> Self {
+        println!("from MulticallError: '{:?}'", err);
         Self::Contract(err.to_string())
     }
 }
 
 impl From<AbiError> for ClientError {
     fn from(err: AbiError) -> Self {
+        println!("from AbiError: '{:?}'", err);
         Self::Contract(err.to_string())
     }
+}
+
+fn decode_error(msg: &[u8], default: String) -> String {
+    if msg.len() < 64 {
+        return default;
+    }
+
+    // check function selector
+    if let Ok(funsel) = TryInto::<[u8; 4]>::try_into(&msg[..4]) {
+        if u32::from_be_bytes(funsel) != 0x08c379a0 {
+            return default;
+        }
+    } else {
+        return default;
+    }
+
+    // check offset
+    if let Ok(offset) = TryInto::<[u8; 8]>::try_into(&msg[28..36]) {
+        if u64::from_be_bytes(offset) != 32 {
+            return default;
+        }
+    } else {
+        return default;
+    }
+
+    String::from_utf8_lossy(&msg[36..]).to_string()
 }
