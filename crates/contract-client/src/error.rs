@@ -38,14 +38,12 @@ impl<M: Middleware> From<ContractError<M>> for ClientError {
 
 impl<M: Middleware> From<MulticallError<M>> for ClientError {
     fn from(err: MulticallError<M>) -> Self {
-        println!("from MulticallError: '{:?}'", err);
         Self::Contract(err.to_string())
     }
 }
 
 impl From<AbiError> for ClientError {
     fn from(err: AbiError) -> Self {
-        println!("from AbiError: '{:?}'", err);
         Self::Contract(err.to_string())
     }
 }
