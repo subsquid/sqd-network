@@ -14,13 +14,12 @@ use sqd_messages::QueryFinished;
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent}, request_server::{Request, ServerBehaviour}, wrapped::{BehaviourWrapper, TToSwarm, Wrapped}
-    }, codec::ProtoCodec, protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_TOPIC}, record_event, util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT}
+    }, codec::ProtoCodec, protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL}, record_event, util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT}
 };
 
 #[derive(Debug)]
 pub enum PortalLogsCollectorEvent {
-    Log { peer_id: PeerId, log: QueryFinished },
-    LogQuery { peer_id: PeerId, query: QueryFinished},
+    LogQuery { peer_id: PeerId, log: QueryFinished},
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -53,14 +52,13 @@ pub struct PortalLogsCollectorBehaviour {
 impl PortalLogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.set_server_mode();
-        base.subscribe_portal_logs();
-        base.claim_portal_logs_listener_role();
+        let _ = base.get_kademlia_mut_ref().start_providing(PORTAL_LOGS_PROTOCOL.as_bytes().to_vec().into());
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
                 collector: ServerBehaviour::new(
                     ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
-                    PORTAL_LOGS_TOPIC,
+                    PORTAL_LOGS_PROTOCOL,
                     Duration::from_secs(5),
                 )
                 .into(),
@@ -68,11 +66,8 @@ impl PortalLogsCollectorBehaviour {
         }.into()
     }
 
-    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
-        match ev {
-            BaseBehaviourEvent::PortalLogs { peer_id, log }  => Some(PortalLogsCollectorEvent::Log { peer_id, log }),
-            _ => None,
-        }
+    fn on_base_event(&mut self, _ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
+        None
     }
 
     fn on_collector_request(
@@ -84,14 +79,14 @@ impl PortalLogsCollectorBehaviour {
         let _ = self.inner.collector.try_send_response(resp_chan, ());
         Some(PortalLogsCollectorEvent::LogQuery {
             peer_id,
-            query,
+            log: query,
         })
     }
 }
 
 impl Drop for PortalLogsCollectorBehaviour {
     fn drop(&mut self) {
-        self.inner().base.relinquish_portal_logs_listener_role();
+        self.inner.base.get_kademlia_mut_ref().stop_providing(&PORTAL_LOGS_PROTOCOL.as_bytes().to_vec().into());
     }
 }
 

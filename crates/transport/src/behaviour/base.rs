@@ -16,7 +16,7 @@ use libp2p::{
     core::ConnectedPoint,
     dcutr, identify,
     identity::Keypair,
-    kad::{self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersOk, ProgressStep, QueryId, QueryResult},
+    kad::{self, store::{self, MemoryStore}, GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats},
     ping, relay,
     swarm::{
         behaviour::ConnectionEstablished,
@@ -31,7 +31,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
-use sqd_messages::{Heartbeat, QueryFinished};
+use sqd_messages::Heartbeat;
 
 #[cfg(feature = "metrics")]
 use crate::metrics::{
@@ -47,7 +47,7 @@ use crate::{
     cli::BootNode,
     protocol::{
         HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_HEARTBEAT_SIZE,
-        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL, PORTAL_LOGS_TOPIC
+        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL
     },
     record_event,
     util::{addr_is_reachable, parse_env_var},
@@ -132,26 +132,6 @@ impl BaseConfig {
     }
 }
 
-#[derive(Default)]
-pub struct ProviderList {
-    value: HashSet<PeerId>,
-    pub roll: HashSet<PeerId>,
-}
-
-impl ProviderList {
-    pub fn get(&self) -> Vec<PeerId> {
-        self.value.iter().cloned().collect::<Vec<PeerId>>()
-    }
-
-    pub fn add(&mut self, peer_id: PeerId) {
-        self.roll.insert(peer_id);
-    }
-
-    pub fn push(&mut self) {
-        self.value = self.roll.drain().collect();
-    }
-}
-
 pub struct BaseBehaviour {
     inner: InnerBehaviour,
     config: BaseConfig,
@@ -163,8 +143,8 @@ pub struct BaseBehaviour {
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
-    providers_queries: BiHashMap<String, QueryId>,
-    providers_map: HashMap<String, ProviderList>,
+    // providers_queries: BiHashMap<String, QueryId>,
+    // providers_map: HashMap<String, ProviderList>,
 }
 
 #[allow(dead_code)]
@@ -230,8 +210,6 @@ impl BaseBehaviour {
             registered_workers: Arc::new(RwLock::new(Default::default())),
             heartbeats_stream: None,
             config,
-            providers_queries: Default::default(),
-            providers_map: Default::default(),
         }
     }
 
@@ -290,35 +268,8 @@ impl BaseBehaviour {
         HEARTBEATS_PUBLISHED.inc();
     }
 
-    pub fn subscribe_portal_logs(&mut self) {
-        let config = MsgValidationConfig::new(Duration::from_secs(1)).max_burst(100);
-        self.inner.pubsub.subscribe(PORTAL_LOGS_TOPIC, config);
-    }
-
-    pub fn publish_portal_logs(&mut self, query_finished: QueryFinished) {
-        self.inner.pubsub.publish(PORTAL_LOGS_TOPIC, query_finished.encode_to_vec());
-    }
-
-    pub fn claim_portal_logs_listener_role(&mut self) {
-        let result = self.inner.kademlia.start_providing(PORTAL_LOGS_TOPIC.as_bytes().to_vec().into());
-        log::error!("CLAIM: {result:?}");
-    }
-
-    pub fn relinquish_portal_logs_listener_role(&mut self) {
-        self.inner.kademlia.stop_providing(&PORTAL_LOGS_TOPIC.as_bytes().to_vec().into());
-    }
-
-    pub fn update_portal_logs_listeners(&mut self) {
-        let key = PORTAL_LOGS_TOPIC.to_owned();
-        if self.providers_queries.contains_left(&key) {
-            return;
-        };
-        let query_id = self.inner.kademlia.get_providers(key.as_bytes().to_vec().into());
-        self.providers_queries.insert(key, query_id);
-    }
-
-    pub fn get_actual_portal_logs_listeners(&self) -> Option<Vec<PeerId>> {
-        self.providers_map.get(PORTAL_LOGS_TOPIC).map(|p| p.get())
+    pub fn get_kademlia_mut_ref(&mut self) -> &mut kad::Behaviour<MemoryStore> {
+        &mut self.inner.kademlia
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -465,9 +416,11 @@ pub enum BaseBehaviourEvent {
         heartbeat: Heartbeat,
     },
     PeerProbed(PeerProbed),
-    PortalLogs {
-        peer_id: PeerId,
-        log: QueryFinished
+    ProviderRecord {
+        id: QueryId,
+        result: Result<GetProvidersOk, GetProvidersError>,
+        stats: QueryStats,
+        step: ProgressStep,
     }
 }
 
@@ -654,29 +607,8 @@ impl BaseBehaviour {
                 | kad::Event::PendingRoutablePeer { peer, address } => {
                     self.inner.address_cache.put(peer, Some(address));
                 }
-                kad::Event::OutboundQueryProgressed { id: query_id, result: QueryResult::GetProviders(result), .. } => {
-                    let topic = self.providers_queries.get_by_right(&query_id).cloned();
-                    match topic {
-                        Some(topic) => {
-                            let entry = self.providers_map.entry(topic.clone()).or_default();
-                            match result {
-                                Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
-                                    providers.iter().for_each(|p| entry.add(p.clone()));
-                                },
-                                Ok(_) => {
-                                    self.providers_queries.remove_by_right(&query_id);
-                                    entry.push();
-                                },
-                                Err(_) => {
-                                    self.providers_queries.remove_by_right(&query_id);
-                                    entry.push();
-                                },
-                            }
-                        },
-                        None => {
-                            log::error!("Got providers for unknown topic");
-                        }
-                    }
+                kad::Event::OutboundQueryProgressed { id, result: QueryResult::GetProviders(result), stats, step } => {
+                    return Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::ProviderRecord { id, result, stats, step } ));
                 }
                 _ => {}
             }
@@ -740,7 +672,6 @@ impl BaseBehaviour {
         let data = data.as_ref();
         let ev = match topic {
             HEARTBEAT_TOPIC => decode_heartbeat(peer_id, data)?,
-            PORTAL_LOGS_TOPIC => decode_portal_logs(peer_id, data)?,
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
@@ -775,13 +706,4 @@ fn decode_heartbeat(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> 
     #[cfg(feature = "metrics")]
     HEARTBEATS_RECEIVED.inc();
     Some(BaseBehaviourEvent::Heartbeat { peer_id, heartbeat })
-}
-
-fn decode_portal_logs(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-    let log = QueryFinished::decode(data)
-        .map_err(|e| log::warn!("Error decoding portal logs: {e:?}"))
-        .ok()?;
-    #[cfg(feature = "metrics")]
-    HEARTBEATS_RECEIVED.inc();
-    Some(BaseBehaviourEvent::PortalLogs { peer_id, log } )
 }

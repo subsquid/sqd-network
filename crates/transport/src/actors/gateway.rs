@@ -1,10 +1,9 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use futures::StreamExt;
 use futures_core::Stream;
 use libp2p::{
-    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
-    PeerId, Swarm,
+    kad::{GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryStats}, swarm::{NetworkBehaviour, SwarmEvent, ToSwarm}, PeerId, Swarm
 };
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -19,7 +18,7 @@ use crate::{
         stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_TOPIC, QUERY_PROTOCOL},
+    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, QUERY_PROTOCOL},
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT}, QueueFull,
 };
@@ -80,7 +79,7 @@ impl GatewayTransport {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    self.swarm.behaviour_mut().base.update_portal_logs_listeners();
+                    self.swarm.behaviour_mut().update_portal_logs_listeners();
                     log::error!("listeners requested");
                 },
                 _ = cancel_token.cancelled() => break,
@@ -101,27 +100,16 @@ impl GatewayTransport {
 
     async fn publish_portal_logs(&mut self, log: QueryFinished) {
         log::error!("Sending log: {log:?}");
-        // self.swarm.behaviour_mut().base.publish_portal_logs(log);
         let log_size = log.encoded_len() as u64;
         if log_size > MAX_QUERY_MSG_SIZE {
-            // return Err(QueryFailure::InvalidRequest(format!(
-            //     "Log size too large: {log_size}"
-            // )));
             log::error!("Log size too large: {log_size}");
         }
 
         let buf = log.encode_to_vec();
 
-        let listeners = self.swarm.behaviour().base.get_actual_portal_logs_listeners();
-        match listeners {
-            Some(listeners) => {
-                let senders = listeners.iter().map(|peer_id| self.logs_handle.request_response(*peer_id, &buf));
-                futures::future::join_all(senders).await;
-            },
-            None => {
-                log::error!("No logs collector found, dropping: {log:?}");
-            },
-        }
+        let listeners = self.swarm.behaviour().get_actual_portal_logs_listeners();
+        let senders = listeners.iter().map(|peer_id| self.logs_handle.request_response(*peer_id, &buf));
+        futures::future::join_all(senders).await;
     }
 }
 
@@ -181,10 +169,6 @@ impl GatewayTransportHandle {
         log::trace!("Queueing logs {log:?}");
         self.logs_tx.try_send(log)
     }
-
-    // pub async fn send_logs(&self, log: QueryFinished) -> Result<(), QueueFull> {
-    //     self.logs_handle.request_response(peer, request)
-    // }
 }
 
 pub fn start_transport(
@@ -194,7 +178,7 @@ pub fn start_transport(
     let (logs_tx, logs_rx) = new_queue(100, "portal_logs");
 
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
-    let logs_handle = swarm.behaviour().base.request_handle(PORTAL_LOGS_TOPIC, config.query_config);
+    let logs_handle = swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = GatewayTransport {
         swarm,
@@ -211,8 +195,30 @@ pub fn start_transport(
     (events_rx, handle)
 }
 
+#[derive(Default)]
+pub struct ProviderList {
+    value: HashSet<PeerId>,
+    pub roll: HashSet<PeerId>,
+}
+
+impl ProviderList {
+    pub fn get(&self) -> Vec<PeerId> {
+        self.value.iter().cloned().collect::<Vec<PeerId>>()
+    }
+
+    pub fn add(&mut self, peer_id: PeerId) {
+        self.roll.insert(peer_id);
+    }
+
+    pub fn push(&mut self) {
+        self.value = self.roll.drain().collect();
+    }
+}
+
 pub struct GatewayBehaviour {
     base: Wrapped<BaseBehaviour>,
+    provider_query: Option<QueryId>,
+    providers: ProviderList,
 }
 
 impl GatewayBehaviour {
@@ -220,28 +226,70 @@ impl GatewayBehaviour {
         if config.worker_status_via_gossipsub {
             base.subscribe_heartbeats();
         }
-        if config.worker_status_via_polling {
-            base.start_pulling_heartbeats();
-        }
+
         base.subscribe_portal_logs();
         base.update_portal_logs_listeners();
+        base.start_pulling_heartbeats();
 
-        Self { base: base.into() }.into()
+        Self { 
+            base: base.into(),
+            provider_query: Default::default(),
+            providers: Default::default(),            
+        }.into()
     }
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<GatewayEvent> {
         match ev {
             BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
                 self.on_heartbeat(peer_id, heartbeat)
-            }
+            },
+            BaseBehaviourEvent::ProviderRecord { id, result, stats, step } => {
+                self.on_provider_record(id, result, stats, step)
+            },
             _ => None,
         }
+    }
+
+    fn on_provider_record(&mut self, id: QueryId, result: Result<GetProvidersOk, GetProvidersError>, stats: QueryStats, step: ProgressStep) -> Option<GatewayEvent> {
+        if let Some(expected_id) = self.provider_query {
+            if expected_id != id {
+                return None;
+            }
+        } else {
+            return None;
+        }
+        log::error!("Got provider record: {result:?} {stats:?} {step:?}");
+
+        match result {
+            Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
+                providers.iter().for_each(|p| self.providers.add(p.clone()));
+            },
+            _ => {}
+        }
+        if step.last {
+            self.provider_query = None;
+            self.providers.push();
+        }
+        None
     }
 
     fn on_heartbeat(&mut self, peer_id: PeerId, heartbeat: Heartbeat) -> Option<GatewayEvent> {
         log::debug!("Got heartbeat from {peer_id}");
         log::trace!("{heartbeat:?}");
         Some(GatewayEvent::Heartbeat { peer_id, heartbeat })
+    }
+
+    pub fn update_portal_logs_listeners(&mut self) {
+        let key = PORTAL_LOGS_PROTOCOL.to_owned();
+        if self.provider_query.is_some() {
+            return;
+        }
+        let query_id = self.base.get_kademlia_mut_ref().get_providers(key.as_bytes().to_vec().into());
+        self.provider_query = Some(query_id);
+    }
+
+    pub fn get_actual_portal_logs_listeners(&self) -> Vec<PeerId> {
+        self.providers.get()
     }
 }
 
