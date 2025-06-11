@@ -18,7 +18,7 @@ use libp2p::{
     identity::Keypair,
     kad::{
         self,
-        store::{self, MemoryStore},
+        store::MemoryStore,
         GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep,
         QueryId, QueryResult, QueryStats,
     },
