@@ -145,7 +145,7 @@ impl QueryFinished {
                 Some(query_result::Result::Ok(QueryOk { data, last_block })) => {
                     Some(query_finished::Result::Ok(QueryOkSummary {
                         uncompressed_data_size: data.len() as u64,
-                        data_hash: sha3_256(&data).to_vec(),
+                        data_hash: sha3_256(data).to_vec(),
                         last_block: *last_block,
                     }))
                 }
