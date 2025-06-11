@@ -3,7 +3,9 @@ use std::{sync::Arc, time::Duration};
 use futures::StreamExt;
 use futures_core::Stream;
 use libp2p::{
-    request_response::ResponseChannel, swarm::{NetworkBehaviour, SwarmEvent, ToSwarm}, PeerId, Swarm
+    request_response::ResponseChannel,
+    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
+    PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
@@ -13,13 +15,19 @@ use sqd_messages::QueryFinished;
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent}, request_server::{Request, ServerBehaviour}, wrapped::{BehaviourWrapper, TToSwarm, Wrapped}
-    }, codec::ProtoCodec, protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL}, record_event, util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT}
+        base::{BaseBehaviour, BaseBehaviourEvent},
+        request_server::{Request, ServerBehaviour},
+        wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
+    },
+    codec::ProtoCodec,
+    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL},
+    record_event,
+    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
 
 #[derive(Debug)]
 pub enum PortalLogsCollectorEvent {
-    LogQuery { peer_id: PeerId, log: QueryFinished},
+    LogQuery { peer_id: PeerId, log: QueryFinished },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -52,7 +60,9 @@ pub struct PortalLogsCollectorBehaviour {
 impl PortalLogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.set_server_mode();
-        let _ = base.get_kademlia_mut_ref().start_providing(PORTAL_LOGS_PROTOCOL.as_bytes().to_vec().into());
+        let _ = base
+            .get_kademlia_mut_ref()
+            .start_providing(PORTAL_LOGS_PROTOCOL.as_bytes().to_vec().into());
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
@@ -62,8 +72,9 @@ impl PortalLogsCollectorBehaviour {
                     Duration::from_secs(5),
                 )
                 .into(),
-            }
-        }.into()
+            },
+        }
+        .into()
     }
 
     fn on_base_event(&mut self, _ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
@@ -86,7 +97,10 @@ impl PortalLogsCollectorBehaviour {
 
 impl Drop for PortalLogsCollectorBehaviour {
     fn drop(&mut self) {
-        self.inner.base.get_kademlia_mut_ref().stop_providing(&PORTAL_LOGS_PROTOCOL.as_bytes().to_vec().into());
+        self.inner
+            .base
+            .get_kademlia_mut_ref()
+            .stop_providing(&PORTAL_LOGS_PROTOCOL.as_bytes().to_vec().into());
     }
 }
 

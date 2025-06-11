@@ -8,7 +8,8 @@ use libp2p::{
 };
 
 use crate::{
-    query_error, query_finished, query_result, ProstMsg, Query, QueryError, QueryExecuted, QueryFinished, QueryOk, QueryOkSummary, QueryResult
+    query_error, query_finished, query_result, ProstMsg, Query, QueryError, QueryExecuted,
+    QueryFinished, QueryOk, QueryOkSummary, QueryResult,
 };
 
 const SHA3_256_SIZE: usize = 32;
@@ -141,14 +142,18 @@ impl QueryFinished {
             total_time_micros,
             worker_signature: query_result.signature.clone(),
             result: match &query_result.result {
-                Some(query_result::Result::Ok(QueryOk {data, last_block})) => Some(query_finished::Result::Ok(QueryOkSummary {
-                    uncompressed_data_size: data.len() as u64,
-                    data_hash: sha3_256(&data).to_vec(),
-                    last_block: *last_block,
-                })),
-                Some(query_result::Result::Err(err)) => Some(query_finished::Result::Err(err.clone())),
+                Some(query_result::Result::Ok(QueryOk { data, last_block })) => {
+                    Some(query_finished::Result::Ok(QueryOkSummary {
+                        uncompressed_data_size: data.len() as u64,
+                        data_hash: sha3_256(&data).to_vec(),
+                        last_block: *last_block,
+                    }))
+                }
+                Some(query_result::Result::Err(err)) => {
+                    Some(query_finished::Result::Err(err.clone()))
+                }
                 None => None,
-            }
+            },
         }
     }
 }

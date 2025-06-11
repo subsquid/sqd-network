@@ -16,7 +16,12 @@ use libp2p::{
     core::ConnectedPoint,
     dcutr, identify,
     identity::Keypair,
-    kad::{self, store::{self, MemoryStore}, GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats},
+    kad::{
+        self,
+        store::{self, MemoryStore},
+        GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep,
+        QueryId, QueryResult, QueryStats,
+    },
     ping, relay,
     swarm::{
         behaviour::ConnectionEstablished,
@@ -47,7 +52,7 @@ use crate::{
     cli::BootNode,
     protocol::{
         HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_HEARTBEAT_SIZE,
-        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL
+        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL,
     },
     record_event,
     util::{addr_is_reachable, parse_env_var},
@@ -143,8 +148,6 @@ pub struct BaseBehaviour {
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
-    // providers_queries: BiHashMap<String, QueryId>,
-    // providers_map: HashMap<String, ProviderList>,
 }
 
 #[allow(dead_code)]
@@ -421,7 +424,7 @@ pub enum BaseBehaviourEvent {
         result: Result<GetProvidersOk, GetProvidersError>,
         stats: QueryStats,
         step: ProgressStep,
-    }
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -607,8 +610,18 @@ impl BaseBehaviour {
                 | kad::Event::PendingRoutablePeer { peer, address } => {
                     self.inner.address_cache.put(peer, Some(address));
                 }
-                kad::Event::OutboundQueryProgressed { id, result: QueryResult::GetProviders(result), stats, step } => {
-                    return Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::ProviderRecord { id, result, stats, step } ));
+                kad::Event::OutboundQueryProgressed {
+                    id,
+                    result: QueryResult::GetProviders(result),
+                    stats,
+                    step,
+                } => {
+                    return Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::ProviderRecord {
+                        id,
+                        result,
+                        stats,
+                        step,
+                    }));
                 }
                 _ => {}
             }

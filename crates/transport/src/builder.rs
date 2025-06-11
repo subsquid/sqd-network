@@ -26,10 +26,6 @@ use crate::actors::gateway::{
 use crate::actors::logs_collector::{
     self, LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorTransport,
 };
-#[cfg(feature = "portal-logs-collector")]
-use crate::actors::portal_logs_collector::{
-    self, PortalLogsCollectorBehaviour,PortalLogsCollectorConfig, PortalLogsCollectorTransportHandle, PortalLogsCollectorEvent,
-};
 #[cfg(feature = "observer")]
 use crate::actors::observer::{
     self, ObserverBehaviour, ObserverConfig, ObserverEvent, ObserverTransportHandle,
@@ -41,6 +37,11 @@ use crate::actors::peer_checker::{
 #[cfg(feature = "pings-collector")]
 use crate::actors::pings_collector::{
     self, Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
+};
+#[cfg(feature = "portal-logs-collector")]
+use crate::actors::portal_logs_collector::{
+    self, PortalLogsCollectorBehaviour, PortalLogsCollectorConfig, PortalLogsCollectorEvent,
+    PortalLogsCollectorTransportHandle,
 };
 #[cfg(feature = "scheduler")]
 use crate::actors::scheduler::{
@@ -222,7 +223,10 @@ impl P2PTransportBuilder {
     pub fn build_portal_logs_collector(
         self,
         config: PortalLogsCollectorConfig,
-    ) -> Result<(impl Stream<Item = PortalLogsCollectorEvent>, PortalLogsCollectorTransportHandle), Error> {
+    ) -> Result<
+        (impl Stream<Item = PortalLogsCollectorEvent>, PortalLogsCollectorTransportHandle),
+        Error,
+    > {
         let swarm = self.build_swarm(PortalLogsCollectorBehaviour::new)?;
         Ok(portal_logs_collector::start_transport(swarm, config))
     }
