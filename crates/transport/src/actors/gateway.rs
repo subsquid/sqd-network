@@ -78,6 +78,7 @@ pub struct GatewayTransport {
     logs_rx: Receiver<QueryFinished>,
     events_tx: Sender<GatewayEvent>,
     logs_handle: StreamClientHandle,
+    selector: u64,
 }
 
 impl GatewayTransport {
@@ -116,11 +117,19 @@ impl GatewayTransport {
         let buf = log.encode_to_vec();
 
         let listeners = self.swarm.behaviour().get_actual_portal_logs_listeners();
-
-        let senders = listeners
-            .iter()
-            .map(|peer_id| self.logs_handle.request_response(*peer_id, &buf));
-        futures::future::join_all(senders).await;
+        if !listeners.is_empty() {
+            let idx = (self.selector % (listeners.len() as u64)) as usize;
+            let listener = listeners[idx];
+            let ret = self.logs_handle.request_response(listener, &buf).await;
+            match ret {
+                Ok(_) => {
+                    log::trace!("Logs sent to {listener:?}");
+                },
+                Err(err) => {
+                    log::error!("Failed to send logs to {listener:?}: {err:?}");
+                },
+            }
+        }
     }
 }
 
@@ -192,11 +201,18 @@ pub fn start_transport(
     let logs_handle =
         swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
+
+    let self_peer_id = swarm.behaviour().base.keypair().public();
+    let mut hasher = DefaultHasher::new();
+    self_peer_id.hash(&mut hasher);
+    let selector = hasher.finish();
+
     let transport = GatewayTransport {
         swarm,
         logs_rx,
         events_tx,
         logs_handle,
+        selector,
     };
     let handle =
         GatewayTransportHandle::new(logs_tx, query_handle, transport, config.shutdown_timeout);
@@ -278,16 +294,10 @@ impl GatewayBehaviour {
         }
         log::error!("Got provider record: {result:?} {stats:?} {step:?}");
 
-        let self_peer_id = self.base.keypair().public();
-        let mut hasher = DefaultHasher::new();
-        self_peer_id.hash(&mut hasher);
-        println!("Hash is {:x}!", hasher.finish());
-        // self_peer_id.hash(state);
-
         match result {
             Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
                 providers.iter().for_each(|p| self.providers.add(p.clone()));
-            }
+            },
             _ => {}
         }
         if step.last {
