@@ -56,6 +56,7 @@ pub struct GatewayConfig {
     pub worker_status_via_gossipsub: bool,
     /// Subcribe to worker status via direct polling (default: true).
     pub worker_status_via_polling: bool,
+    pub portal_logs_collector_lookup_time: Duration,
 }
 
 impl Default for GatewayConfig {
@@ -69,6 +70,7 @@ impl Default for GatewayConfig {
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
             worker_status_via_gossipsub: false,
             worker_status_via_polling: true,
+            portal_logs_collector_lookup_time: Duration::from_secs(60),
         }
     }
 }
@@ -82,9 +84,9 @@ pub struct GatewayTransport {
 }
 
 impl GatewayTransport {
-    pub async fn run(mut self, cancel_token: CancellationToken) {
+    pub async fn run(mut self, portal_logs_collector_lookup_time: Duration, cancel_token: CancellationToken) {
         log::info!("Starting worker P2P transport");
-        let mut interval = time::interval(time::Duration::from_millis(10000));
+        let mut interval = time::interval(portal_logs_collector_lookup_time);
         loop {
             tokio::select! {
                 _ = interval.tick() => {
@@ -146,9 +148,10 @@ impl GatewayTransportHandle {
         query_handle: StreamClientHandle,
         transport: GatewayTransport,
         shutdown_timeout: Duration,
+        portal_logs_collector_lookup_time: Duration,
     ) -> Self {
         let mut task_manager = TaskManager::new(shutdown_timeout);
-        task_manager.spawn(|c| transport.run(c));
+        task_manager.spawn(|c| transport.run(portal_logs_collector_lookup_time, c));
         Self {
             _task_manager: Arc::new(task_manager),
             query_handle,
@@ -195,7 +198,7 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
     config: GatewayConfig,
 ) -> (impl Stream<Item = GatewayEvent>, GatewayTransportHandle) {
-    let (logs_tx, logs_rx) = new_queue(100, "portal_logs");
+    let (logs_tx, logs_rx) = new_queue(config.events_queue_size, "portal_logs");
 
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
     let logs_handle =
@@ -215,7 +218,7 @@ pub fn start_transport(
         selector,
     };
     let handle =
-        GatewayTransportHandle::new(logs_tx, query_handle, transport, config.shutdown_timeout);
+        GatewayTransportHandle::new(logs_tx, query_handle, transport, config.shutdown_timeout, config.portal_logs_collector_lookup_time);
     (events_rx, handle)
 }
 
@@ -292,7 +295,7 @@ impl GatewayBehaviour {
         } else {
             return None;
         }
-        log::error!("Got provider record: {result:?} {stats:?} {step:?}");
+        log::debug!("Got provider record: {result:?} {stats:?} {step:?}");
 
         match result {
             Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
