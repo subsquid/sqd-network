@@ -121,6 +121,7 @@ impl GatewayTransport {
         let listeners = self.swarm.behaviour().get_actual_portal_logs_listeners();
         if !listeners.is_empty() {
             let idx = (self.selector % (listeners.len() as u64)) as usize;
+            self.selector += 1;
             let listener = listeners[idx];
             let ret = self.logs_handle.request_response(listener, &buf).await;
             match ret {
