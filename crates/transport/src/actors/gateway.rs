@@ -1,11 +1,9 @@
 use std::{
-    collections::HashSet,
-    hash::{DefaultHasher, Hash, Hasher},
-    sync::Arc,
-    time::Duration,
+    collections::HashSet, marker::PhantomData, sync::Arc, time::{Duration, Instant}
 };
 
-use futures::StreamExt;
+use anyhow::Error;
+use futures::{AsyncWriteExt, StreamExt};
 use futures_core::Stream;
 use libp2p::{
     kad::{GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryStats},
@@ -80,7 +78,6 @@ pub struct GatewayTransport {
     logs_rx: Receiver<QueryFinished>,
     events_tx: Sender<GatewayEvent>,
     logs_handle: StreamClientHandle,
-    selector: u64,
 }
 
 impl GatewayTransport {
@@ -109,22 +106,21 @@ impl GatewayTransport {
         }
     }
 
+    async fn send_logs_to_listener(&mut self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error>{
+        let mut stream = self.logs_handle.get_raw_stream(listener).await?;
+        stream.write_all(&buf).await?;
+        stream.close().await?;
+        Ok(())
+    }
+
     async fn publish_portal_logs(&mut self, log: QueryFinished) {
         log::debug!("Sending log: {log:?}");
-        let log_size = log.encoded_len() as u64;
-        if log_size > MAX_QUERY_MSG_SIZE {
-            log::error!("Log size too large: {log_size}");
-        }
 
         let buf = log.encode_to_vec();
-
         let listeners = self.swarm.behaviour().get_actual_portal_logs_listeners();
-        if !listeners.is_empty() {
-            let idx = (self.selector % (listeners.len() as u64)) as usize;
-            self.selector += 1;
-            let listener = listeners[idx];
-            let ret = self.logs_handle.request_response(listener, &buf).await;
-            match ret {
+        let start = Instant::now();
+        for listener in listeners {
+            match self.send_logs_to_listener(listener, &buf).await {
                 Ok(_) => {
                     log::trace!("Logs sent to {listener:?}");
                 },
@@ -133,6 +129,7 @@ impl GatewayTransport {
                 },
             }
         }
+        log::error!("Time to send: {:?}", start.elapsed());
     }
 }
 
@@ -206,17 +203,11 @@ pub fn start_transport(
         swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
 
-    let self_peer_id = swarm.behaviour().base.keypair().public();
-    let mut hasher = DefaultHasher::new();
-    self_peer_id.hash(&mut hasher);
-    let selector = hasher.finish();
-
     let transport = GatewayTransport {
         swarm,
         logs_rx,
         events_tx,
         logs_handle,
-        selector,
     };
     let handle =
         GatewayTransportHandle::new(logs_tx, query_handle, transport, config.shutdown_timeout, config.portal_logs_collector_lookup_time);
