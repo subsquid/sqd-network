@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet, marker::PhantomData, sync::Arc, time::{Duration, Instant}
+    collections::HashSet, sync::Arc, time::{Duration, Instant}
 };
 
 use anyhow::Error;
@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sqd_messages::{Heartbeat, Query, QueryFinished, QueryResult};
 use tokio::time;
 use tokio_util::sync::CancellationToken;
+use tokio::sync::mpsc::error::SendError;
 
 use crate::{
     behaviour::{
@@ -26,7 +27,6 @@ use crate::{
     protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, QUERY_PROTOCOL},
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
-    QueueFull,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,9 +186,9 @@ impl GatewayTransportHandle {
         Ok(result)
     }
 
-    pub fn send_logs(&self, log: QueryFinished) -> Result<(), QueueFull> {
+    pub async fn send_logs(&self, log: QueryFinished) -> Result<(), SendError<QueryFinished>> {
         log::trace!("Queueing logs {log:?}");
-        self.logs_tx.try_send(log)
+        self.logs_tx.send(log).await
     }
 }
 

@@ -4,6 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
+use tokio::sync::mpsc::error::SendError;
 use futures_core::Stream;
 use tokio::sync::mpsc;
 
@@ -48,6 +49,11 @@ impl<T> Sender<T> {
         #[cfg(feature = "metrics")]
         QUEUE_SIZE.get_or_create(&vec![(QUEUE_NAME, self.name)]).inc();
         Ok(())
+    }
+
+    /// Send message with backpressure. Awaits for available send capacity.
+    pub async fn send(&self, msg: T) -> Result<(), SendError<T>> {
+        self.inner.send(msg).await
     }
 }
 
