@@ -14,7 +14,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use sqd_messages::{Heartbeat, Query, QueryFinished, QueryResult};
-use tokio::time;
+use tokio::{sync::Mutex, time};
 use tokio_util::sync::CancellationToken;
 use tokio::sync::mpsc::error::SendError;
 
@@ -34,6 +34,24 @@ pub enum GatewayEvent {
     Heartbeat {
         peer_id: PeerId,
         heartbeat: Heartbeat,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+enum LogListenersEvent {
+    LogListeners {
+        listeners: Vec<PeerId>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InternalGatewayEvent {
+    Heartbeat {
+        peer_id: PeerId,
+        heartbeat: Heartbeat,
+    },
+    LogListeners{
+        listeners: Vec<PeerId>,
     },
 }
 
@@ -75,61 +93,63 @@ impl Default for GatewayConfig {
 
 pub struct GatewayTransport {
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
-    logs_rx: Receiver<QueryFinished>,
     events_tx: Sender<GatewayEvent>,
-    logs_handle: StreamClientHandle,
+    listeners_tx: Sender<LogListenersEvent>,
 }
 
 impl GatewayTransport {
     pub async fn run(mut self, portal_logs_collector_lookup_time: Duration, cancel_token: CancellationToken) {
-        log::info!("Starting worker P2P transport");
+        log::info!("Starting gateway P2P transport");
         let mut interval = time::interval(portal_logs_collector_lookup_time);
         loop {
             tokio::select! {
+                _ = cancel_token.cancelled() => break,
                 _ = interval.tick() => {
                     self.swarm.behaviour_mut().update_portal_logs_listeners();
                     log::debug!("listeners requested");
                 },
-                _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
-                Some(log) = self.logs_rx.recv() => self.publish_portal_logs(log).await,
             }
         }
-        log::info!("Shutting down worker P2P transport");
+        log::info!("Shutting down gateway P2P transport");
     }
 
-    fn on_swarm_event(&mut self, ev: SwarmEvent<GatewayEvent>) {
+    fn on_swarm_event(&mut self, ev: SwarmEvent<InternalGatewayEvent>) {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
-            self.events_tx.send_lossy(ev)
-        }
-    }
-
-    async fn send_logs_to_listener(&mut self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error>{
-        let mut stream = self.logs_handle.get_raw_stream(listener).await?;
-        stream.write_all(&buf).await?;
-        stream.close().await?;
-        Ok(())
-    }
-
-    async fn publish_portal_logs(&mut self, log: QueryFinished) {
-        log::debug!("Sending log: {log:?}");
-
-        let buf = log.encode_to_vec();
-        let listeners = self.swarm.behaviour().get_actual_portal_logs_listeners();
-        let start = Instant::now();
-        for listener in listeners {
-            match self.send_logs_to_listener(listener, &buf).await {
-                Ok(_) => {
-                    log::trace!("Logs sent to {listener:?}");
-                },
-                Err(err) => {
-                    log::error!("Failed to send logs to {listener:?}: {err:?}");
-                },
+            match ev {
+                InternalGatewayEvent::Heartbeat { peer_id, heartbeat } => self.events_tx.send_lossy(GatewayEvent::Heartbeat { peer_id, heartbeat }),
+                InternalGatewayEvent::LogListeners { listeners } => self.listeners_tx.send_lossy(LogListenersEvent::LogListeners { listeners }),
             }
         }
-        log::error!("Time to send: {:?}", start.elapsed());
+    }
+}
+
+struct ListenersHolder {
+    // listeners_tx: Receiver<GatewayEvent>,
+    listeners: Arc<Mutex<Vec<PeerId>>>
+}
+
+impl ListenersHolder {
+    pub async fn run(&self, mut listeners_rx: Receiver<LogListenersEvent>, cancel_token: CancellationToken) {
+        loop {
+            tokio::select! {
+                _ = cancel_token.cancelled() => break,
+                Some(ev) = listeners_rx.next() => {
+                    match ev {
+                        LogListenersEvent::LogListeners { listeners } => {
+                            let mut local_listeners = self.listeners.lock().await;
+                            *local_listeners = listeners;
+                        },
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn get_listeners(&self) -> Vec<PeerId>{
+        self.listeners.lock().await.clone()
     }
 }
 
@@ -137,23 +157,39 @@ impl GatewayTransport {
 pub struct GatewayTransportHandle {
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
     query_handle: StreamClientHandle,
-    logs_tx: Sender<QueryFinished>,
+    logs_handle: StreamClientHandle,
+    // listeners: Vec<PeerId>,
+    // listeners_tx: Receiver<GatewayEvent>,
+    listeners_holder: Arc<ListenersHolder>,
 }
 
 impl GatewayTransportHandle {
     fn new(
-        logs_tx: Sender<QueryFinished>,
+        listeners_rx: Receiver<LogListenersEvent>,
+        logs_handle: StreamClientHandle,
         query_handle: StreamClientHandle,
         transport: GatewayTransport,
         shutdown_timeout: Duration,
         portal_logs_collector_lookup_time: Duration,
     ) -> Self {
+        // let arc_transport = Arc::new(transport);
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(portal_logs_collector_lookup_time, c));
+
+        let listeners_holder = Arc::new(ListenersHolder {
+            listeners: Default::default(),
+        });
+        
+        let listeners_arc = listeners_holder.clone();
+        task_manager.spawn(|c| async move {
+            let local_holder = listeners_holder.clone();
+            local_holder.run(listeners_rx, c).await;
+        });
         Self {
             _task_manager: Arc::new(task_manager),
             query_handle,
-            logs_tx,
+            logs_handle,
+            listeners_holder: listeners_arc,
         }
     }
 
@@ -186,9 +222,32 @@ impl GatewayTransportHandle {
         Ok(result)
     }
 
-    pub async fn send_logs(&self, log: QueryFinished) -> Result<(), SendError<QueryFinished>> {
-        log::trace!("Queueing logs {log:?}");
-        self.logs_tx.send(log).await
+    async fn send_logs_to_listener(&self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error>{
+        let mut stream = self.logs_handle.get_raw_stream(listener).await?;
+        stream.write_all(&buf).await?;
+        stream.close().await?;
+        Ok(())
+    }
+
+    async fn publish_portal_logs(&self, log: QueryFinished, listeners: Vec<PeerId>) {
+        log::debug!("Sending log: {log:?}");
+        let buf = log.encode_to_vec();
+        for listener in listeners {
+            match self.send_logs_to_listener(listener, &buf).await {
+                Ok(_) => {
+                    log::trace!("Logs sent to {listener:?}");
+                },
+                Err(err) => {
+                    log::error!("Failed to send logs to {listener:?}: {err:?}");
+                },
+            }
+        }
+    }
+
+    pub async fn send_logs(&self, log: QueryFinished) {
+        let listeners = self.listeners_holder.get_listeners().await;
+        log::debug!("Sending logs to: {listeners:?}");
+        self.publish_portal_logs(log, listeners).await;
     }
 }
 
@@ -196,28 +255,32 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
     config: GatewayConfig,
 ) -> (impl Stream<Item = GatewayEvent>, GatewayTransportHandle) {
-    let (logs_tx, logs_rx) = new_queue(config.events_queue_size, "portal_logs");
-
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
     let logs_handle =
         swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
+    let (listeners_tx, listeners_rx) = new_queue(config.events_queue_size, "listeners");
 
     let transport = GatewayTransport {
         swarm,
-        logs_rx,
         events_tx,
-        logs_handle,
+        listeners_tx,
     };
-    let handle =
-        GatewayTransportHandle::new(logs_tx, query_handle, transport, config.shutdown_timeout, config.portal_logs_collector_lookup_time);
+    let handle = GatewayTransportHandle::new(
+        listeners_rx,
+        logs_handle,
+        query_handle,
+        transport,
+        config.shutdown_timeout,
+        config.portal_logs_collector_lookup_time
+    );
     (events_rx, handle)
 }
 
 #[derive(Default)]
 pub struct ProviderList {
     value: HashSet<PeerId>,
-    pub roll: HashSet<PeerId>,
+    roll: HashSet<PeerId>,
 }
 
 impl ProviderList {
@@ -258,11 +321,9 @@ impl GatewayBehaviour {
         .into()
     }
 
-    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<GatewayEvent> {
+    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<InternalGatewayEvent> {
         match ev {
-            BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
-                self.on_heartbeat(peer_id, heartbeat)
-            }
+            BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => Some(InternalGatewayEvent::Heartbeat { peer_id, heartbeat }),
             BaseBehaviourEvent::ProviderRecord {
                 id,
                 result,
@@ -279,7 +340,7 @@ impl GatewayBehaviour {
         result: Result<GetProvidersOk, GetProvidersError>,
         stats: QueryStats,
         step: ProgressStep,
-    ) -> Option<GatewayEvent> {
+    ) -> Option<InternalGatewayEvent> {
         if let Some(expected_id) = self.provider_query {
             if expected_id != id {
                 return None;
@@ -298,14 +359,9 @@ impl GatewayBehaviour {
         if step.last {
             self.provider_query = None;
             self.providers.push();
+            return Some(InternalGatewayEvent::LogListeners { listeners: self.providers.get() });
         }
         None
-    }
-
-    fn on_heartbeat(&mut self, peer_id: PeerId, heartbeat: Heartbeat) -> Option<GatewayEvent> {
-        log::debug!("Got heartbeat from {peer_id}");
-        log::trace!("{heartbeat:?}");
-        Some(GatewayEvent::Heartbeat { peer_id, heartbeat })
     }
 
     pub fn update_portal_logs_listeners(&mut self) {
@@ -317,15 +373,11 @@ impl GatewayBehaviour {
             self.base.get_kademlia_mut_ref().get_providers(key.as_bytes().to_vec().into());
         self.provider_query = Some(query_id);
     }
-
-    pub fn get_actual_portal_logs_listeners(&self) -> Vec<PeerId> {
-        self.providers.get()
-    }
 }
 
 impl BehaviourWrapper for GatewayBehaviour {
     type Inner = Wrapped<BaseBehaviour>;
-    type Event = GatewayEvent;
+    type Event = InternalGatewayEvent;
 
     fn inner(&mut self) -> &mut Self::Inner {
         &mut self.base
