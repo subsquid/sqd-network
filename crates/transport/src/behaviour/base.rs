@@ -17,10 +17,8 @@ use libp2p::{
     dcutr, identify,
     identity::Keypair,
     kad::{
-        self,
-        store::MemoryStore,
-        GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep,
-        QueryId, QueryResult, QueryStats,
+        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersError,
+        GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats,
     },
     ping, relay,
     swarm::{

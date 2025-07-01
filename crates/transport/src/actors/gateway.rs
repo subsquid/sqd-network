@@ -1,5 +1,7 @@
 use std::{
-    collections::HashSet, sync::Arc, time::{Duration, Instant}
+    collections::HashSet,
+    sync::Arc,
+    time::Duration,
 };
 
 use anyhow::Error;
@@ -16,7 +18,6 @@ use serde::{Deserialize, Serialize};
 use sqd_messages::{Heartbeat, Query, QueryFinished, QueryResult};
 use tokio::{sync::Mutex, time};
 use tokio_util::sync::CancellationToken;
-use tokio::sync::mpsc::error::SendError;
 
 use crate::{
     behaviour::{
@@ -39,9 +40,7 @@ pub enum GatewayEvent {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum LogListenersEvent {
-    LogListeners {
-        listeners: Vec<PeerId>,
-    },
+    LogListeners { listeners: Vec<PeerId> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,7 +49,7 @@ pub enum InternalGatewayEvent {
         peer_id: PeerId,
         heartbeat: Heartbeat,
     },
-    LogListeners{
+    LogListeners {
         listeners: Vec<PeerId>,
     },
 }
@@ -98,7 +97,11 @@ pub struct GatewayTransport {
 }
 
 impl GatewayTransport {
-    pub async fn run(mut self, portal_logs_collector_lookup_time: Duration, cancel_token: CancellationToken) {
+    pub async fn run(
+        mut self,
+        portal_logs_collector_lookup_time: Duration,
+        cancel_token: CancellationToken,
+    ) {
         log::info!("Starting gateway P2P transport");
         let mut interval = time::interval(portal_logs_collector_lookup_time);
         loop {
@@ -119,8 +122,12 @@ impl GatewayTransport {
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             match ev {
-                InternalGatewayEvent::Heartbeat { peer_id, heartbeat } => self.events_tx.send_lossy(GatewayEvent::Heartbeat { peer_id, heartbeat }),
-                InternalGatewayEvent::LogListeners { listeners } => self.listeners_tx.send_lossy(LogListenersEvent::LogListeners { listeners }),
+                InternalGatewayEvent::Heartbeat { peer_id, heartbeat } => {
+                    self.events_tx.send_lossy(GatewayEvent::Heartbeat { peer_id, heartbeat })
+                }
+                InternalGatewayEvent::LogListeners { listeners } => {
+                    self.listeners_tx.send_lossy(LogListenersEvent::LogListeners { listeners })
+                }
             }
         }
     }
@@ -131,7 +138,7 @@ pub struct GatewayTransportHandle {
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
     query_handle: StreamClientHandle,
     logs_handle: StreamClientHandle,
-    listeners: Arc<Mutex<Vec<PeerId>>>
+    listeners: Arc<Mutex<Vec<PeerId>>>,
 }
 
 impl GatewayTransportHandle {
@@ -196,7 +203,7 @@ impl GatewayTransportHandle {
         Ok(result)
     }
 
-    async fn send_logs_to_listener(&self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error>{
+    async fn send_logs_to_listener(&self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error> {
         let mut stream = self.logs_handle.get_raw_stream(listener).await?;
         stream.write_all(&buf).await?;
         stream.close().await?;
@@ -210,10 +217,10 @@ impl GatewayTransportHandle {
             match self.send_logs_to_listener(listener, &buf).await {
                 Ok(_) => {
                     log::trace!("Logs sent to {listener:?}");
-                },
+                }
                 Err(err) => {
                     log::error!("Failed to send logs to {listener:?}: {err:?}");
-                },
+                }
             }
         }
     }
@@ -246,7 +253,7 @@ pub fn start_transport(
         query_handle,
         transport,
         config.shutdown_timeout,
-        config.portal_logs_collector_lookup_time
+        config.portal_logs_collector_lookup_time,
     );
     (events_rx, handle)
 }
@@ -297,7 +304,9 @@ impl GatewayBehaviour {
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<InternalGatewayEvent> {
         match ev {
-            BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => Some(InternalGatewayEvent::Heartbeat { peer_id, heartbeat }),
+            BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
+                Some(InternalGatewayEvent::Heartbeat { peer_id, heartbeat })
+            }
             BaseBehaviourEvent::ProviderRecord {
                 id,
                 result,
@@ -327,13 +336,15 @@ impl GatewayBehaviour {
         match result {
             Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
                 providers.iter().for_each(|p| self.providers.add(p.clone()));
-            },
+            }
             _ => {}
         }
         if step.last {
             self.provider_query = None;
             self.providers.push();
-            return Some(InternalGatewayEvent::LogListeners { listeners: self.providers.get() });
+            return Some(InternalGatewayEvent::LogListeners {
+                listeners: self.providers.get(),
+            });
         }
         None
     }
