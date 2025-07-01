@@ -126,70 +126,44 @@ impl GatewayTransport {
     }
 }
 
-struct ListenersHolder {
-    // listeners_tx: Receiver<GatewayEvent>,
-    listeners: Arc<Mutex<Vec<PeerId>>>
-}
-
-impl ListenersHolder {
-    pub async fn run(&self, mut listeners_rx: Receiver<LogListenersEvent>, cancel_token: CancellationToken) {
-        loop {
-            tokio::select! {
-                _ = cancel_token.cancelled() => break,
-                Some(ev) = listeners_rx.next() => {
-                    match ev {
-                        LogListenersEvent::LogListeners { listeners } => {
-                            let mut local_listeners = self.listeners.lock().await;
-                            *local_listeners = listeners;
-                        },
-                    }
-                }
-            }
-        }
-    }
-
-    pub async fn get_listeners(&self) -> Vec<PeerId>{
-        self.listeners.lock().await.clone()
-    }
-}
-
 #[derive(Clone)]
 pub struct GatewayTransportHandle {
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
     query_handle: StreamClientHandle,
     logs_handle: StreamClientHandle,
-    // listeners: Vec<PeerId>,
-    // listeners_tx: Receiver<GatewayEvent>,
-    listeners_holder: Arc<ListenersHolder>,
+    listeners: Arc<Mutex<Vec<PeerId>>>
 }
 
 impl GatewayTransportHandle {
     fn new(
-        listeners_rx: Receiver<LogListenersEvent>,
+        mut listeners_rx: Receiver<LogListenersEvent>,
         logs_handle: StreamClientHandle,
         query_handle: StreamClientHandle,
         transport: GatewayTransport,
         shutdown_timeout: Duration,
         portal_logs_collector_lookup_time: Duration,
     ) -> Self {
-        // let arc_transport = Arc::new(transport);
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(portal_logs_collector_lookup_time, c));
 
-        let listeners_holder = Arc::new(ListenersHolder {
-            listeners: Default::default(),
-        });
-        
-        let listeners_arc = listeners_holder.clone();
-        task_manager.spawn(|c| async move {
-            let local_holder = listeners_holder.clone();
-            local_holder.run(listeners_rx, c).await;
+        let listeners: Arc<Mutex<Vec<PeerId>>> = Default::default();
+        let local_listeners = listeners.clone();
+
+        task_manager.spawn(|cancel_token| async move {
+            loop {
+                tokio::select! {
+                    _ = cancel_token.cancelled() => break,
+                    Some(LogListenersEvent::LogListeners { listeners }) = listeners_rx.next() => {
+                        *local_listeners.lock().await = listeners;
+                    }
+                }
+            }
         });
         Self {
             _task_manager: Arc::new(task_manager),
             query_handle,
             logs_handle,
-            listeners_holder: listeners_arc,
+            listeners,
         }
     }
 
@@ -245,7 +219,7 @@ impl GatewayTransportHandle {
     }
 
     pub async fn send_logs(&self, log: QueryFinished) {
-        let listeners = self.listeners_holder.get_listeners().await;
+        let listeners = self.listeners.lock().await.clone();
         log::debug!("Sending logs to: {listeners:?}");
         self.publish_portal_logs(log, listeners).await;
     }
