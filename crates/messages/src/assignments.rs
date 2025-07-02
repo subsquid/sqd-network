@@ -398,6 +398,7 @@ fn test_hmac_sign() {
 #[cfg(all(feature = "assignment_writer", feature = "assignment_reader"))]
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
     use sqd_network_transport::Keypair;
 
     use super::*;

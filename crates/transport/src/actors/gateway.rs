@@ -268,8 +268,6 @@ impl GatewayBehaviour {
             base.subscribe_heartbeats();
         }
 
-        base.subscribe_portal_logs();
-        base.update_portal_logs_listeners();
         base.start_pulling_heartbeats();
 
         Self {
