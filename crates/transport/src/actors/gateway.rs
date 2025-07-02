@@ -1,8 +1,4 @@
-use std::{
-    collections::HashSet,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Error;
 use futures::{future::join_all, AsyncWriteExt, StreamExt};
@@ -230,9 +226,7 @@ impl GatewayTransportHandle {
     pub async fn send_logs(&self, log: QueryFinished) {
         let listeners = self.listeners.lock().await.clone();
         log::debug!("Sending logs to: {listeners:?}");
-        let start = Instant::now();
         self.publish_portal_logs(log, listeners).await;
-        log::error!("Time to send: {:?}", start.elapsed());
     }
 }
 
@@ -262,30 +256,10 @@ pub fn start_transport(
     (events_rx, handle)
 }
 
-#[derive(Default)]
-pub struct ProviderList {
-    value: HashSet<PeerId>,
-    roll: HashSet<PeerId>,
-}
-
-impl ProviderList {
-    pub fn get(&self) -> Vec<PeerId> {
-        self.value.iter().cloned().collect::<Vec<PeerId>>()
-    }
-
-    pub fn add(&mut self, peer_id: PeerId) {
-        self.roll.insert(peer_id);
-    }
-
-    pub fn push(&mut self) {
-        self.value = self.roll.drain().collect();
-    }
-}
-
 pub struct GatewayBehaviour {
     base: Wrapped<BaseBehaviour>,
     provider_query: Option<QueryId>,
-    providers: ProviderList,
+    providers_list: Vec<PeerId>,
 }
 
 impl GatewayBehaviour {
@@ -301,7 +275,7 @@ impl GatewayBehaviour {
         Self {
             base: base.into(),
             provider_query: Default::default(),
-            providers: Default::default(),
+            providers_list: Default::default(),
         }
         .into()
     }
@@ -339,15 +313,14 @@ impl GatewayBehaviour {
 
         match result {
             Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
-                providers.iter().for_each(|p| self.providers.add(p.clone()));
+                self.providers_list.append(&mut providers.into_iter().collect());
             }
             _ => {}
         }
         if step.last {
             self.provider_query = None;
-            self.providers.push();
             return Some(InternalGatewayEvent::LogListeners {
-                listeners: self.providers.get(),
+                listeners: self.providers_list.drain(..).collect()
             });
         }
         None
