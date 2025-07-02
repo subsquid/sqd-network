@@ -67,7 +67,7 @@ pub struct GatewayConfig {
     pub worker_status_via_gossipsub: bool,
     /// Subcribe to worker status via direct polling (default: true).
     pub worker_status_via_polling: bool,
-    pub portal_logs_collector_lookup_time: Duration,
+    pub portal_logs_collector_lookup_interval: Duration,
 }
 
 impl Default for GatewayConfig {
@@ -81,7 +81,7 @@ impl Default for GatewayConfig {
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
             worker_status_via_gossipsub: false,
             worker_status_via_polling: true,
-            portal_logs_collector_lookup_time: Duration::from_secs(60),
+            portal_logs_collector_lookup_interval: Duration::from_secs(60),
         }
     }
 }
@@ -95,11 +95,11 @@ pub struct GatewayTransport {
 impl GatewayTransport {
     pub async fn run(
         mut self,
-        portal_logs_collector_lookup_time: Duration,
+        portal_logs_collector_lookup_interval: Duration,
         cancel_token: CancellationToken,
     ) {
         log::info!("Starting gateway P2P transport");
-        let mut interval = time::interval(portal_logs_collector_lookup_time);
+        let mut interval = time::interval(portal_logs_collector_lookup_interval);
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => break,
@@ -144,10 +144,10 @@ impl GatewayTransportHandle {
         query_handle: StreamClientHandle,
         transport: GatewayTransport,
         shutdown_timeout: Duration,
-        portal_logs_collector_lookup_time: Duration,
+        portal_logs_collector_lookup_interval: Duration,
     ) -> Self {
         let mut task_manager = TaskManager::new(shutdown_timeout);
-        task_manager.spawn(|c| transport.run(portal_logs_collector_lookup_time, c));
+        task_manager.spawn(|c| transport.run(portal_logs_collector_lookup_interval, c));
 
         let listeners: Arc<Mutex<Vec<PeerId>>> = Default::default();
         let local_listeners = listeners.clone();
@@ -251,7 +251,7 @@ pub fn start_transport(
         query_handle,
         transport,
         config.shutdown_timeout,
-        config.portal_logs_collector_lookup_time,
+        config.portal_logs_collector_lookup_interval,
     );
     (events_rx, handle)
 }
