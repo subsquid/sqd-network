@@ -1,11 +1,11 @@
 use std::{
     collections::HashSet,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::Error;
-use futures::{AsyncWriteExt, StreamExt};
+use futures::{future::join_all, AsyncWriteExt, StreamExt};
 use futures_core::Stream;
 use libp2p::{
     kad::{GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryStats},
@@ -213,8 +213,10 @@ impl GatewayTransportHandle {
     async fn publish_portal_logs(&self, log: QueryFinished, listeners: Vec<PeerId>) {
         log::debug!("Sending log: {log:?}");
         let buf = log.encode_to_vec();
-        for listener in listeners {
-            match self.send_logs_to_listener(listener, &buf).await {
+        let results = join_all(listeners.iter().map(|listener| self.send_logs_to_listener(listener.clone(), &buf))).await;
+        for (idx, result) in results.iter().enumerate() {
+            let listener = listeners[idx];
+            match result {
                 Ok(_) => {
                     log::trace!("Logs sent to {listener:?}");
                 }
@@ -228,7 +230,9 @@ impl GatewayTransportHandle {
     pub async fn send_logs(&self, log: QueryFinished) {
         let listeners = self.listeners.lock().await.clone();
         log::debug!("Sending logs to: {listeners:?}");
+        let start = Instant::now();
         self.publish_portal_logs(log, listeners).await;
+        log::error!("Time to send: {:?}", start.elapsed());
     }
 }
 
