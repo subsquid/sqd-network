@@ -5,15 +5,16 @@ use libp2p::StreamProtocol;
 use sqd_contract_client::Network;
 
 pub const HEARTBEAT_TOPIC: &str = "/sqd/worker_heartbeats/1.1.0";
-pub const PORTAL_LOGS_PROTOCOL: &str = "/sqd/portal_logs/1.1.0";
+pub const PORTAL_LOGS_TOPIC: &str = "/sqd/portal_logs/1.1.0";
 // Legacy topics
 pub const OLD_PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
 pub const WORKER_LOGS_TOPIC_1_0: &str = "/subsquid/worker_query_logs/1.0.0";
 pub const WORKER_LOGS_TOPIC_1_1: &str = "/subsquid/worker_query_logs/1.1.0";
 pub const LOGS_COLLECTED_TOPIC: &str = "/subsquid/logs_collected/1.0.0";
 
-pub const KNOWN_TOPICS: [&'static str; 5] = [
+pub const KNOWN_TOPICS: [&'static str; 6] = [
     HEARTBEAT_TOPIC,
+    PORTAL_LOGS_TOPIC,
     OLD_PING_TOPIC,
     WORKER_LOGS_TOPIC_1_0,
     WORKER_LOGS_TOPIC_1_1,
@@ -24,6 +25,9 @@ pub const ID_PROTOCOL: &str = "/subsquid/1.0.0";
 pub const QUERY_PROTOCOL: &str = "/sqd/query/1.1.0";
 pub const WORKER_LOGS_PROTOCOL: &str = "/sqd/worker_logs/1.1.0";
 pub const WORKER_STATUS_PROTOCOL: &str = "/sqd/worker_status/1.0.0";
+pub const PORTAL_LOGS_PROTOCOL: &str = "/sqd/portal_logs/1.0.0";
+
+pub const PORTAL_LOGS_PROVIDER_KEY: &[u8; 22] = b"/sqd/portal_logs/1.0.0";
 
 pub const MAX_RAW_QUERY_SIZE: u64 = 256 * 1024;
 pub const MAX_QUERY_MSG_SIZE: u64 = 257 * 1024;

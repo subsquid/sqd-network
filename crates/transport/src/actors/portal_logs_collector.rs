@@ -20,7 +20,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
-    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL},
+    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY},
     record_event,
     util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
@@ -62,7 +62,7 @@ impl PortalLogsCollectorBehaviour {
         base.set_server_mode();
         let _ = base
             .get_kademlia_mut_ref()
-            .start_providing(PORTAL_LOGS_PROTOCOL.as_bytes().to_vec().into());
+            .start_providing(PORTAL_LOGS_PROVIDER_KEY.to_vec().into());
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
@@ -100,7 +100,7 @@ impl Drop for PortalLogsCollectorBehaviour {
         self.inner
             .base
             .get_kademlia_mut_ref()
-            .stop_providing(&PORTAL_LOGS_PROTOCOL.as_bytes().to_vec().into());
+            .stop_providing(&PORTAL_LOGS_PROVIDER_KEY.to_vec().into());
     }
 }
 

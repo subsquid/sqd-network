@@ -21,7 +21,7 @@ use crate::{
         stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, QUERY_PROTOCOL},
+    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY, QUERY_PROTOCOL},
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
@@ -327,12 +327,12 @@ impl GatewayBehaviour {
     }
 
     pub fn update_portal_logs_listeners(&mut self) {
-        let key = PORTAL_LOGS_PROTOCOL.to_owned();
+        let key = PORTAL_LOGS_PROVIDER_KEY;
         if self.provider_query.is_some() {
             return;
         }
         let query_id =
-            self.base.get_kademlia_mut_ref().get_providers(key.as_bytes().to_vec().into());
+            self.base.get_kademlia_mut_ref().get_providers(key.to_vec().into());
         self.provider_query = Some(query_id);
     }
 }
