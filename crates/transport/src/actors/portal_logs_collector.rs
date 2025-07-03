@@ -63,6 +63,7 @@ impl PortalLogsCollectorBehaviour {
         let _ = base
             .get_kademlia_mut_ref()
             .start_providing(PORTAL_LOGS_PROVIDER_KEY.to_vec().into());
+        log::error!("Start providing: {:?}", PORTAL_LOGS_PROVIDER_KEY);
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
