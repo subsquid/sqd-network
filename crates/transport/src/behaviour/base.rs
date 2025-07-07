@@ -271,7 +271,7 @@ impl BaseBehaviour {
         HEARTBEATS_PUBLISHED.inc();
     }
 
-    pub fn get_kademlia_mut_ref(&mut self) -> &mut kad::Behaviour<MemoryStore> {
+    pub fn get_kademlia_mut(&mut self) -> &mut kad::Behaviour<MemoryStore> {
         &mut self.inner.kademlia
     }
 

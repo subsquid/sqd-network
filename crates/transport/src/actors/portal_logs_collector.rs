@@ -3,9 +3,7 @@ use std::{sync::Arc, time::Duration};
 use futures::StreamExt;
 use futures_core::Stream;
 use libp2p::{
-    request_response::ResponseChannel,
-    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
-    PeerId, Swarm,
+    kad::RecordKey, request_response::ResponseChannel, swarm::{NetworkBehaviour, SwarmEvent, ToSwarm}, PeerId, Swarm
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
@@ -63,8 +61,8 @@ impl PortalLogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.set_server_mode();
         let _ = base
-            .get_kademlia_mut_ref()
-            .start_providing(PORTAL_LOGS_PROVIDER_KEY.to_vec().into());
+            .get_kademlia_mut()
+            .start_providing(RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
         log::error!("Start providing: {:?}", PORTAL_LOGS_PROVIDER_KEY);
         Self {
             inner: InnerBehaviour {
@@ -102,8 +100,8 @@ impl Drop for PortalLogsCollectorBehaviour {
     fn drop(&mut self) {
         self.inner
             .base
-            .get_kademlia_mut_ref()
-            .stop_providing(&PORTAL_LOGS_PROVIDER_KEY.to_vec().into());
+            .get_kademlia_mut()
+            .stop_providing(&RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
     }
 }
 

@@ -4,7 +4,7 @@ use anyhow::Error;
 use futures::{future::join_all, AsyncWriteExt, StreamExt};
 use futures_core::Stream;
 use libp2p::{
-    kad::{GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryStats},
+    kad::{GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryStats, RecordKey},
     swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
     PeerId, Swarm,
 };
@@ -339,11 +339,11 @@ impl GatewayBehaviour {
     }
 
     pub fn update_portal_logs_listeners(&mut self) {
-        let key = PORTAL_LOGS_PROVIDER_KEY;
+        let key = RecordKey::new(PORTAL_LOGS_PROVIDER_KEY);
         if self.provider_query.is_some() {
             return;
         }
-        let query_id = self.base.get_kademlia_mut_ref().get_providers(key.to_vec().into());
+        let query_id = self.base.get_kademlia_mut().get_providers(key);
         self.provider_query = Some(query_id);
     }
 }
