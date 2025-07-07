@@ -139,6 +139,7 @@ pub struct GatewayTransportHandle {
     query_handle: StreamClientHandle,
     logs_handle: StreamClientHandle,
     log_listeners: Arc<Mutex<Vec<PeerId>>>,
+    log_sending_timeout: Duration,
 }
 
 impl GatewayTransportHandle {
@@ -171,6 +172,7 @@ impl GatewayTransportHandle {
             query_handle,
             logs_handle,
             log_listeners,
+            log_sending_timeout: Duration::from_secs(10),
         }
     }
 
@@ -204,10 +206,18 @@ impl GatewayTransportHandle {
     }
 
     async fn send_log_to_listener(&self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error> {
-        let mut stream = self.logs_handle.get_raw_stream(listener).await?;
-        stream.write_all(&buf).await?;
-        stream.close().await?;
-        Ok(())
+        let fut = async {
+            let mut stream = self.logs_handle.get_raw_stream(listener).await?;
+            stream.write_all(&buf).await?;
+            stream.close().await?;
+            Ok(())
+        };
+        tokio::time::timeout(self.log_sending_timeout, fut)
+        .await
+        .unwrap_or_else(|_| {
+            log::debug!("Log sending to {listener} timed out");
+            Err(RequestError::Timeout(Timeout::Connect))?
+        })
     }
 
     async fn publish_portal_log(&self, log: &QueryFinished, listeners: &Vec<PeerId>) {
