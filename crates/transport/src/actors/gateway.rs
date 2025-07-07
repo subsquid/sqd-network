@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use futures::{future::join_all, AsyncWriteExt, StreamExt};
@@ -225,7 +225,6 @@ impl GatewayTransportHandle {
 
     pub async fn send_logs(&self, log: QueryFinished) {
         let listeners = self.listeners.lock().await.clone();
-        log::debug!("Sending logs to: {listeners:?}");
         self.publish_portal_logs(log, listeners).await;
     }
 }
@@ -259,7 +258,7 @@ pub fn start_transport(
 pub struct GatewayBehaviour {
     base: Wrapped<BaseBehaviour>,
     provider_query: Option<QueryId>,
-    providers_list: Vec<PeerId>,
+    providers_list: HashSet<PeerId>,
 }
 
 impl GatewayBehaviour {
@@ -268,7 +267,9 @@ impl GatewayBehaviour {
             base.subscribe_heartbeats();
         }
 
-        base.start_pulling_heartbeats();
+        if config.worker_status_via_polling {
+            base.start_pulling_heartbeats();
+        }
 
         Self {
             base: base.into(),
@@ -311,14 +312,16 @@ impl GatewayBehaviour {
 
         match result {
             Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
-                self.providers_list.append(&mut providers.into_iter().collect());
+                providers.iter().for_each(|p| {
+                    self.providers_list.insert(*p);
+                });
             }
             _ => {}
         }
         if step.last {
             self.provider_query = None;
             return Some(InternalGatewayEvent::LogListeners {
-                listeners: self.providers_list.drain(..).collect()
+                listeners: self.providers_list.drain().collect()
             });
         }
         None
