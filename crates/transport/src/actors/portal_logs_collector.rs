@@ -20,7 +20,9 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     codec::ProtoCodec,
-    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY},
+    protocol::{
+        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY,
+    },
     record_event,
     util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };

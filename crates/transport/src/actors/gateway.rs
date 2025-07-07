@@ -11,8 +11,9 @@ use libp2p::{
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
+use parking_lot::Mutex;
 use sqd_messages::{Heartbeat, Query, QueryFinished, QueryResult};
-use tokio::{sync::Mutex, time};
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -21,7 +22,10 @@ use crate::{
         stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY, QUERY_PROTOCOL},
+    protocol::{
+        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY,
+        QUERY_PROTOCOL,
+    },
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
@@ -157,7 +161,7 @@ impl GatewayTransportHandle {
                 tokio::select! {
                     _ = cancel_token.cancelled() => break,
                     Some(LogListenersEvent::LogListeners { listeners }) = listeners_rx.next() => {
-                        *local_listeners.lock().await = listeners;
+                        *local_listeners.lock() = listeners;
                     }
                 }
             }
@@ -206,10 +210,15 @@ impl GatewayTransportHandle {
         Ok(())
     }
 
-    async fn publish_portal_logs(&self, log: QueryFinished, listeners: Vec<PeerId>) {
+    async fn publish_portal_logs(&self, log: &QueryFinished, listeners: &Vec<PeerId>) {
         log::debug!("Sending log: {log:?}");
         let buf = log.encode_to_vec();
-        let results = join_all(listeners.iter().map(|listener| self.send_logs_to_listener(listener.clone(), &buf))).await;
+        let results = join_all(
+            listeners
+                .iter()
+                .map(|listener| self.send_logs_to_listener(listener.clone(), &buf)),
+        )
+        .await;
         for (idx, result) in results.iter().enumerate() {
             let listener = listeners[idx];
             match result {
@@ -223,9 +232,9 @@ impl GatewayTransportHandle {
         }
     }
 
-    pub async fn send_logs(&self, log: QueryFinished) {
-        let listeners = self.listeners.lock().await.clone();
-        self.publish_portal_logs(log, listeners).await;
+    pub async fn send_logs(&self, log: &QueryFinished) {
+        let listeners = self.listeners.lock().clone();
+        self.publish_portal_logs(log, &listeners).await;
     }
 }
 
@@ -321,7 +330,7 @@ impl GatewayBehaviour {
         if step.last {
             self.provider_query = None;
             return Some(InternalGatewayEvent::LogListeners {
-                listeners: self.providers_list.drain().collect()
+                listeners: self.providers_list.drain().collect(),
             });
         }
         None
@@ -332,8 +341,7 @@ impl GatewayBehaviour {
         if self.provider_query.is_some() {
             return;
         }
-        let query_id =
-            self.base.get_kademlia_mut_ref().get_providers(key.to_vec().into());
+        let query_id = self.base.get_kademlia_mut_ref().get_providers(key.to_vec().into());
         self.provider_query = Some(query_id);
     }
 }
