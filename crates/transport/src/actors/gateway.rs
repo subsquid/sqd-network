@@ -203,20 +203,20 @@ impl GatewayTransportHandle {
         Ok(result)
     }
 
-    async fn send_logs_to_listener(&self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error> {
+    async fn send_log_to_listener(&self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error> {
         let mut stream = self.logs_handle.get_raw_stream(listener).await?;
         stream.write_all(&buf).await?;
         stream.close().await?;
         Ok(())
     }
 
-    async fn publish_portal_logs(&self, log: &QueryFinished, listeners: &Vec<PeerId>) {
+    async fn publish_portal_log(&self, log: &QueryFinished, listeners: &Vec<PeerId>) {
         log::debug!("Sending log: {log:?}");
         let buf = log.encode_to_vec();
         let results = join_all(
             listeners
                 .iter()
-                .map(|listener| self.send_logs_to_listener(listener.clone(), &buf)),
+                .map(|listener| self.send_log_to_listener(listener.clone(), &buf)),
         )
         .await;
         for (idx, result) in results.iter().enumerate() {
@@ -232,9 +232,9 @@ impl GatewayTransportHandle {
         }
     }
 
-    pub async fn send_logs(&self, log: &QueryFinished) {
+    pub async fn send_log(&self, log: &QueryFinished) {
         let listeners = self.log_listeners.lock().clone();
-        self.publish_portal_logs(log, &listeners).await;
+        self.publish_portal_log(log, &listeners).await;
     }
 }
 
