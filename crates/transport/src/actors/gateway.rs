@@ -291,6 +291,8 @@ impl GatewayBehaviour {
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<InternalGatewayEvent> {
         match ev {
             BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
+                log::debug!("Got heartbeat from {peer_id}");
+                log::trace!("{heartbeat:?}");
                 Some(InternalGatewayEvent::Heartbeat { peer_id, heartbeat })
             }
             BaseBehaviourEvent::ProviderRecord {
