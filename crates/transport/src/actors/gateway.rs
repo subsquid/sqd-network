@@ -93,7 +93,7 @@ impl Default for GatewayConfig {
 pub struct GatewayTransport {
     swarm: Swarm<Wrapped<GatewayBehaviour>>,
     events_tx: Sender<GatewayEvent>,
-    listeners_tx: Sender<LogListenersEvent>,
+    log_listeners_tx: Sender<LogListenersEvent>,
 }
 
 impl GatewayTransport {
@@ -126,7 +126,7 @@ impl GatewayTransport {
                     self.events_tx.send_lossy(GatewayEvent::Heartbeat { peer_id, heartbeat })
                 }
                 InternalGatewayEvent::LogListeners { listeners } => {
-                    self.listeners_tx.send_lossy(LogListenersEvent::LogListeners { listeners })
+                    self.log_listeners_tx.send_lossy(LogListenersEvent::LogListeners { listeners })
                 }
             }
         }
@@ -138,12 +138,12 @@ pub struct GatewayTransportHandle {
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
     query_handle: StreamClientHandle,
     logs_handle: StreamClientHandle,
-    listeners: Arc<Mutex<Vec<PeerId>>>,
+    log_listeners: Arc<Mutex<Vec<PeerId>>>,
 }
 
 impl GatewayTransportHandle {
     fn new(
-        mut listeners_rx: Receiver<LogListenersEvent>,
+        mut log_listeners_rx: Receiver<LogListenersEvent>,
         logs_handle: StreamClientHandle,
         query_handle: StreamClientHandle,
         transport: GatewayTransport,
@@ -153,14 +153,14 @@ impl GatewayTransportHandle {
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(portal_logs_collector_lookup_interval, c));
 
-        let listeners: Arc<Mutex<Vec<PeerId>>> = Default::default();
-        let local_listeners = listeners.clone();
+        let log_listeners: Arc<Mutex<Vec<PeerId>>> = Default::default();
+        let local_listeners = log_listeners.clone();
 
         task_manager.spawn(|cancel_token| async move {
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => break,
-                    Some(LogListenersEvent::LogListeners { listeners }) = listeners_rx.next() => {
+                    Some(LogListenersEvent::LogListeners { listeners }) = log_listeners_rx.next() => {
                         *local_listeners.lock() = listeners;
                     }
                 }
@@ -170,7 +170,7 @@ impl GatewayTransportHandle {
             _task_manager: Arc::new(task_manager),
             query_handle,
             logs_handle,
-            listeners,
+            log_listeners,
         }
     }
 
@@ -233,7 +233,7 @@ impl GatewayTransportHandle {
     }
 
     pub async fn send_logs(&self, log: &QueryFinished) {
-        let listeners = self.listeners.lock().clone();
+        let listeners = self.log_listeners.lock().clone();
         self.publish_portal_logs(log, &listeners).await;
     }
 }
@@ -246,15 +246,15 @@ pub fn start_transport(
     let logs_handle =
         swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
-    let (listeners_tx, listeners_rx) = new_queue(config.events_queue_size, "listeners");
+    let (log_listeners_tx, log_listeners_rx) = new_queue(config.events_queue_size, "listeners");
 
     let transport = GatewayTransport {
         swarm,
         events_tx,
-        listeners_tx,
+        log_listeners_tx,
     };
     let handle = GatewayTransportHandle::new(
-        listeners_rx,
+        log_listeners_rx,
         logs_handle,
         query_handle,
         transport,
