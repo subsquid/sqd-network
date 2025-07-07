@@ -226,7 +226,7 @@ impl GatewayTransportHandle {
                     log::trace!("Logs sent to {listener:?}");
                 }
                 Err(err) => {
-                    log::error!("Failed to send logs to {listener:?}: {err:?}");
+                    log::warn!("Failed to send logs to {listener:?}: {err:?}");
                 }
             }
         }
