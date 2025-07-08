@@ -25,6 +25,9 @@ use crate::{
     util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
 
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+
 #[derive(Debug)]
 pub enum PortalLogsCollectorEvent {
     LogQuery { peer_id: PeerId, log: QueryFinished },
@@ -70,7 +73,7 @@ impl PortalLogsCollectorBehaviour {
                 collector: ServerBehaviour::new(
                     ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
                     PORTAL_LOGS_PROTOCOL,
-                    Duration::from_secs(5),
+                    REQUEST_TIMEOUT,
                 )
                 .into(),
             },
