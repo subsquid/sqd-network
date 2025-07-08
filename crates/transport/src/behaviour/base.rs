@@ -163,7 +163,6 @@ impl BaseBehaviour {
         let mut kad_config = kad::Config::new(dht_protocol);
         kad_config.set_query_timeout(config.kad_query_timeout);
         kad_config.set_publication_interval(Some(Duration::from_secs(10 * 60)));
-        kad_config.set_provider_record_ttl(Some(Duration::from_secs(40 * 60)));
         let mut inner = InnerBehaviour {
             identify: identify::Behaviour::new(
                 identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
