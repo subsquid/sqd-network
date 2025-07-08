@@ -72,6 +72,7 @@ pub struct GatewayConfig {
     /// Subcribe to worker status via direct polling (default: true).
     pub worker_status_via_polling: bool,
     pub portal_logs_collector_lookup_interval: Duration,
+    pub log_sending_timeout: Duration,
 }
 
 impl Default for GatewayConfig {
@@ -86,6 +87,7 @@ impl Default for GatewayConfig {
             worker_status_via_gossipsub: false,
             worker_status_via_polling: true,
             portal_logs_collector_lookup_interval: Duration::from_secs(60),
+            log_sending_timeout: Duration::from_secs(10),
         }
     }
 }
@@ -150,6 +152,7 @@ impl GatewayTransportHandle {
         transport: GatewayTransport,
         shutdown_timeout: Duration,
         portal_logs_collector_lookup_interval: Duration,
+        log_sending_timeout: Duration,
     ) -> Self {
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(portal_logs_collector_lookup_interval, c));
@@ -172,7 +175,7 @@ impl GatewayTransportHandle {
             query_handle,
             logs_handle,
             log_listeners,
-            log_sending_timeout: Duration::from_secs(10),
+            log_sending_timeout,
         }
     }
 
@@ -270,6 +273,7 @@ pub fn start_transport(
         transport,
         config.shutdown_timeout,
         config.portal_logs_collector_lookup_interval,
+        config.log_sending_timeout,
     );
     (events_rx, handle)
 }
