@@ -5378,8 +5378,7 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "clap",
- "sqd-network-transport",
- "tokio",
+ "libp2p",
 ]
 
 [[package]]
