@@ -14,8 +14,8 @@ pub const LOGS_COLLECTED_TOPIC: &str = "/subsquid/logs_collected/1.0.0";
 
 pub const KNOWN_TOPICS: [&'static str; 6] = [
     HEARTBEAT_TOPIC,
-    OLD_PING_TOPIC,
     PORTAL_LOGS_TOPIC,
+    OLD_PING_TOPIC,
     WORKER_LOGS_TOPIC_1_0,
     WORKER_LOGS_TOPIC_1_1,
     LOGS_COLLECTED_TOPIC,
@@ -25,6 +25,9 @@ pub const ID_PROTOCOL: &str = "/subsquid/1.0.0";
 pub const QUERY_PROTOCOL: &str = "/sqd/query/1.1.0";
 pub const WORKER_LOGS_PROTOCOL: &str = "/sqd/worker_logs/1.1.0";
 pub const WORKER_STATUS_PROTOCOL: &str = "/sqd/worker_status/1.0.0";
+pub const PORTAL_LOGS_PROTOCOL: &str = "/sqd/portal_logs/1.0.0";
+
+pub const PORTAL_LOGS_PROVIDER_KEY: &[u8; 22] = b"/sqd/portal_logs/1.0.0";
 
 pub const MAX_RAW_QUERY_SIZE: u64 = 256 * 1024;
 pub const MAX_QUERY_MSG_SIZE: u64 = 257 * 1024;

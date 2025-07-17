@@ -12,15 +12,13 @@ use bimap::BiHashMap;
 use futures::{Stream, StreamExt};
 use futures_bounded::FuturesMap;
 use libp2p::{
-    autonat,
-    autonat::NatStatus,
+    autonat::{self, NatStatus},
     core::ConnectedPoint,
     dcutr, identify,
     identity::Keypair,
-    kad,
     kad::{
-        store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, ProgressStep, QueryId,
-        QueryResult,
+        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersError,
+        GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats,
     },
     ping, relay,
     swarm::{
@@ -164,6 +162,7 @@ impl BaseBehaviour {
         let local_peer_id = keypair.public().to_peer_id();
         let mut kad_config = kad::Config::new(dht_protocol);
         kad_config.set_query_timeout(config.kad_query_timeout);
+        kad_config.set_publication_interval(Some(Duration::from_secs(10 * 60)));
         let mut inner = InnerBehaviour {
             identify: identify::Behaviour::new(
                 identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
@@ -269,6 +268,10 @@ impl BaseBehaviour {
         self.inner.pubsub.publish(HEARTBEAT_TOPIC, heartbeat.encode_to_vec());
         #[cfg(feature = "metrics")]
         HEARTBEATS_PUBLISHED.inc();
+    }
+
+    pub fn get_kademlia_mut(&mut self) -> &mut kad::Behaviour<MemoryStore> {
+        &mut self.inner.kademlia
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -415,6 +418,12 @@ pub enum BaseBehaviourEvent {
         heartbeat: Heartbeat,
     },
     PeerProbed(PeerProbed),
+    ProviderRecord {
+        id: QueryId,
+        result: Result<GetProvidersOk, GetProvidersError>,
+        stats: QueryStats,
+        step: ProgressStep,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -599,6 +608,19 @@ impl BaseBehaviour {
                 kad::Event::RoutablePeer { peer, address }
                 | kad::Event::PendingRoutablePeer { peer, address } => {
                     self.inner.address_cache.put(peer, Some(address));
+                }
+                kad::Event::OutboundQueryProgressed {
+                    id,
+                    result: QueryResult::GetProviders(result),
+                    stats,
+                    step,
+                } => {
+                    return Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::ProviderRecord {
+                        id,
+                        result,
+                        stats,
+                        step,
+                    }));
                 }
                 _ => {}
             }

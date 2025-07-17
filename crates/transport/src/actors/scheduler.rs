@@ -91,6 +91,7 @@ impl SchedulerBehaviour {
         match ev {
             BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => self.on_heartbeat(peer_id, heartbeat),
             BaseBehaviourEvent::PeerProbed(PeerProbed { peer_id, result }) => self.on_peer_probed(peer_id, &result),
+            _ => None
         }
     }
 
