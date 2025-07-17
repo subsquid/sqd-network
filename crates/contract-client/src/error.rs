@@ -28,7 +28,7 @@ impl<M: Middleware> From<ContractError<M>> for ClientError {
     fn from(err: ContractError<M>) -> Self {
         let decoded = match err {
             ContractError::Revert(ethers::types::Bytes(ref bs)) => {
-                decode_error(bs, err.to_string())
+                decode_error(bs).unwrap_or_else(|| err.to_string())
             }
             _ => err.to_string(),
         };
@@ -48,28 +48,28 @@ impl From<AbiError> for ClientError {
     }
 }
 
-fn decode_error(msg: &[u8], default: String) -> String {
+fn decode_error(msg: &[u8]) -> Option<String> {
     if msg.len() < 64 {
-        return default;
+        return None;
     }
 
     // check function selector
-    if let Ok(funsel) = TryInto::<[u8; 4]>::try_into(&msg[..4]) {
+    if let Ok(funsel) = <[u8; 4]>::try_from(&msg[..4]) {
         if u32::from_be_bytes(funsel) != 0x08c379a0 {
-            return default;
+            return None;
         }
     } else {
-        return default;
+        return None;
     }
 
     // check offset
-    if let Ok(offset) = TryInto::<[u8; 8]>::try_into(&msg[28..36]) {
+    if let Ok(offset) = <[u8; 8]>::try_from(&msg[28..36]) {
         if u64::from_be_bytes(offset) != 32 {
-            return default;
+            return None;
         }
     } else {
-        return default;
+        return None;
     }
 
-    String::from_utf8_lossy(&msg[36..]).to_string()
+    Some(String::from_utf8_lossy(&msg[36..]).to_string())
 }
