@@ -3264,6 +3264,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-stream"
+version = "0.3.0-alpha"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "826716f1ee125895f1fb44911413cba023485b552ff96c7a2159bd037ac619bb"
+dependencies = [
+ "futures",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
+ "rand",
+ "tracing",
+]
+
+[[package]]
 name = "libp2p-swarm"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5382,6 +5396,7 @@ dependencies = [
  "hex",
  "hmac",
  "libp2p",
+ "libp2p-identity",
  "log",
  "prost 0.13.1",
  "prost-build",
@@ -5399,7 +5414,7 @@ dependencies = [
 
 [[package]]
 name = "sqd-network-transport"
-version = "2.0.1"
+version = "3.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5413,10 +5428,12 @@ dependencies = [
  "lazy_static",
  "libp2p",
  "libp2p-connection-limits",
+ "libp2p-stream",
  "libp2p-swarm-derive",
  "log",
  "lru",
  "parking_lot",
+ "pin-project",
  "prometheus-client",
  "prost 0.13.1",
  "serde",
@@ -5425,6 +5442,7 @@ dependencies = [
  "sqd-messages",
  "thiserror 1.0.61",
  "tokio",
+ "tokio-stream",
  "tokio-util",
 ]
 
@@ -5850,9 +5868,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-stream"
-version = "0.1.15"
+version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "267ac89e0bec6e691e5813911606935d77c476ff49024f98abcea3e7b15e37af"
+checksum = "eca58d7bba4a75707817a2c44174253f9236b2d5fbd055602e9d5c07c139a047"
 dependencies = [
  "futures-core",
  "pin-project-lite",

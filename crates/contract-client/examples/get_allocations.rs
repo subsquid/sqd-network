@@ -5,9 +5,9 @@ use sqd_contract_client::{self, PeerId, RpcArgs};
 
 #[derive(Parser)]
 struct Cli {
+    client_id: PeerId,
     #[command(flatten)]
     rpc: RpcArgs,
-    client_id: PeerId,
 }
 
 #[tokio::main]

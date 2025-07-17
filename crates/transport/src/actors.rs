@@ -8,6 +8,8 @@ pub mod observer;
 pub mod peer_checker;
 #[cfg(feature = "pings-collector")]
 pub mod pings_collector;
+#[cfg(feature = "portal-logs-collector")]
+pub mod portal_logs_collector;
 #[cfg(feature = "scheduler")]
 pub mod scheduler;
 #[cfg(feature = "worker")]

@@ -30,6 +30,10 @@ pub struct Heartbeat {
 pub struct PingsCollectorConfig {
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
+    /// Subcribe to worker status via gossipsub (default: false)
+    pub worker_status_via_gossipsub: bool,
+    /// Retrieve worker statuses via direct polling (default: true)
+    pub worker_status_via_requests: bool,
 }
 
 impl Default for PingsCollectorConfig {
@@ -37,6 +41,8 @@ impl Default for PingsCollectorConfig {
         Self {
             events_queue_size: 1000,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
+            worker_status_via_gossipsub: false,
+            worker_status_via_requests: true,
         }
     }
 }
@@ -46,8 +52,13 @@ pub struct PingsCollectorBehaviour {
 }
 
 impl PingsCollectorBehaviour {
-    pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
-        base.subscribe_heartbeats();
+    pub fn new(mut base: BaseBehaviour, config: PingsCollectorConfig) -> Wrapped<Self> {
+        if config.worker_status_via_gossipsub {
+            base.subscribe_heartbeats();
+        }
+        if config.worker_status_via_requests {
+            base.start_pulling_heartbeats();
+        }
         Self { base: base.into() }.into()
     }
 }

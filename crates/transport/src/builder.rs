@@ -38,6 +38,11 @@ use crate::actors::peer_checker::{
 use crate::actors::pings_collector::{
     self, Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
 };
+#[cfg(feature = "portal-logs-collector")]
+use crate::actors::portal_logs_collector::{
+    self, PortalLogsCollectorBehaviour, PortalLogsCollectorConfig, PortalLogsCollectorEvent,
+    PortalLogsCollectorTransportHandle,
+};
 #[cfg(feature = "scheduler")]
 use crate::actors::scheduler::{
     self, SchedulerBehaviour, SchedulerConfig, SchedulerEvent, SchedulerTransportHandle,
@@ -210,10 +215,20 @@ impl P2PTransportBuilder {
         self,
         config: LogsCollectorConfig,
     ) -> Result<LogsCollectorTransport, Error> {
-        let local_peer_id = self.local_peer_id();
-        let swarm =
-            self.build_swarm(|base| LogsCollectorBehaviour::new(base, local_peer_id, config))?;
+        let swarm = self.build_swarm(LogsCollectorBehaviour::new)?;
         Ok(logs_collector::start_transport(swarm, config))
+    }
+
+    #[cfg(feature = "portal-logs-collector")]
+    pub fn build_portal_logs_collector(
+        self,
+        config: PortalLogsCollectorConfig,
+    ) -> Result<
+        (impl Stream<Item = PortalLogsCollectorEvent>, PortalLogsCollectorTransportHandle),
+        Error,
+    > {
+        let swarm = self.build_swarm(PortalLogsCollectorBehaviour::new)?;
+        Ok(portal_logs_collector::start_transport(swarm, config))
     }
 
     #[cfg(feature = "peer-checker")]
@@ -230,7 +245,7 @@ impl P2PTransportBuilder {
         self,
         config: ObserverConfig,
     ) -> Result<(impl Stream<Item = ObserverEvent>, ObserverTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| ObserverBehaviour::new(base))?;
+        let swarm = self.build_swarm(ObserverBehaviour::new)?;
         Ok(observer::start_transport(swarm, config))
     }
 
@@ -239,7 +254,7 @@ impl P2PTransportBuilder {
         self,
         config: PingsCollectorConfig,
     ) -> Result<(impl Stream<Item = Heartbeat>, PingsCollectorTransportHandle), Error> {
-        let swarm = self.build_swarm(PingsCollectorBehaviour::new)?;
+        let swarm = self.build_swarm(|base| PingsCollectorBehaviour::new(base, config))?;
         Ok(pings_collector::start_transport(swarm, config))
     }
 
@@ -274,8 +289,7 @@ impl P2PTransportBuilder {
             }
             break;
         }
-        let swarm =
-            self.build_swarm(|base| WorkerBehaviour::new(base, config.clone()))?;
+        let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, config.clone()))?;
         Ok(worker::start_transport(swarm, config))
     }
 }

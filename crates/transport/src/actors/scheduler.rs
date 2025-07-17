@@ -49,6 +49,10 @@ pub struct SchedulerConfig {
     pub ignore_existing_conns: bool,
     /// Shutdown timeout for the transport loop (default: `DEFAULT_SHUTDOWN_TIMEOUT`)
     pub shutdown_timeout: Duration,
+    /// Subcribe to worker status via gossipsub (default: false)
+    pub worker_status_via_gossipsub: bool,
+    /// Retrieve worker statuses via direct polling (default: true)
+    pub worker_status_via_requests: bool,
 }
 
 impl Default for SchedulerConfig {
@@ -58,6 +62,8 @@ impl Default for SchedulerConfig {
             events_queue_size: 1000,
             ignore_existing_conns: false,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
+            worker_status_via_gossipsub: false,
+            worker_status_via_requests: true,
         }
     }
 }
@@ -67,8 +73,13 @@ pub struct SchedulerBehaviour {
 }
 
 impl SchedulerBehaviour {
-    pub fn new(mut base: BaseBehaviour, _config: SchedulerConfig) -> Wrapped<Self> {
-        base.subscribe_heartbeats();
+    pub fn new(mut base: BaseBehaviour, config: SchedulerConfig) -> Wrapped<Self> {
+        if config.worker_status_via_gossipsub {
+            base.subscribe_heartbeats();
+        }
+        if config.worker_status_via_requests {
+            base.start_pulling_heartbeats();
+        }
         Self {
             inner: InnerBehaviour { base: base.into() },
         }
@@ -80,6 +91,7 @@ impl SchedulerBehaviour {
         match ev {
             BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => self.on_heartbeat(peer_id, heartbeat),
             BaseBehaviourEvent::PeerProbed(PeerProbed { peer_id, result }) => self.on_peer_probed(peer_id, &result),
+            _ => None
         }
     }
 

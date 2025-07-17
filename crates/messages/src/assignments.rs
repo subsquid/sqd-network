@@ -1,10 +1,7 @@
 use core::str;
-use std::borrow::Borrow;
 use std::collections::HashMap;
 #[cfg(feature = "assignment_reader")]
 use std::collections::{BTreeMap, VecDeque};
-use std::ops::Deref;
-use std::str::FromStr;
 
 use anyhow::anyhow;
 #[cfg(feature = "assignment_writer")]
@@ -14,7 +11,7 @@ use crypto_box::{aead::Aead, PublicKey, SalsaBox, SecretKey};
 use curve25519_dalek::edwards::CompressedEdwardsY;
 #[cfg(feature = "assignment_reader")]
 use flate2::read::GzDecoder;
-use libp2p::PeerId;
+use libp2p_identity::PeerId;
 #[cfg(feature = "assignment_writer")]
 use log::error;
 #[cfg(feature = "assignment_reader")]
@@ -47,6 +44,17 @@ pub struct Chunk {
     pub base_url: String,
     pub files: HashMap<String, String>,
     pub size_bytes: u64,
+    // Is used for the portal API
+    pub summary: Option<ChunkSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkSummary {
+    pub last_block_hash: String,
+    // Only needed for Solana because it differs from the block number in the chunk ID.
+    // Remove when Solana dataset is updated to use the slot number in the chunk ID.
+    pub last_block_number: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -88,10 +96,10 @@ pub enum WorkerStatus {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct WorkerAssignment {
-    status: WorkerStatus,
-    jail_reason: Option<String>,
-    chunks_deltas: Vec<u64>,
+pub struct WorkerAssignment {
+    pub status: WorkerStatus,
+    pub jail_reason: Option<String>,
+    pub chunks_deltas: Vec<u64>,
     encrypted_headers: EncryptedHeaders,
 }
 
@@ -99,7 +107,7 @@ struct WorkerAssignment {
 #[serde(rename_all = "camelCase")]
 pub struct Assignment {
     pub datasets: Vec<Dataset>,
-    worker_assignments: HashMap<SerdePeerId, WorkerAssignment>,
+    pub worker_assignments: HashMap<PeerId, WorkerAssignment>,
     #[cfg(feature = "assignment_writer")]
     #[serde(skip)]
     chunk_map: Option<HashMap<String, u64>>,
@@ -195,7 +203,7 @@ impl Assignment {
 
     #[cfg(feature = "assignment_reader")]
     pub fn get_all_peer_ids(&self) -> Vec<PeerId> {
-        self.worker_assignments.keys().map(|peer_id| **peer_id).collect()
+        self.worker_assignments.keys().map(|peer_id| *peer_id).collect()
     }
 
     #[cfg(feature = "assignment_reader")]
@@ -225,7 +233,7 @@ impl Assignment {
                         break;
                     }
                 }
-                if idxs[0] == cursor {
+                while !idxs.is_empty() && (idxs[0] == cursor) {
                     filtered_chunks.push(v.clone());
                     idxs.pop_front();
                 }
@@ -366,60 +374,6 @@ impl Assignment {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct SerdePeerId {
-    peer_id: PeerId,
-}
-
-impl Deref for SerdePeerId {
-    type Target = PeerId;
-
-    fn deref(&self) -> &Self::Target {
-        &self.peer_id
-    }
-}
-
-impl From<PeerId> for SerdePeerId {
-    fn from(peer_id: PeerId) -> Self {
-        SerdePeerId { peer_id }
-    }
-}
-
-impl Borrow<PeerId> for SerdePeerId {
-    fn borrow(&self) -> &PeerId {
-        &self.peer_id
-    }
-}
-
-impl std::fmt::Display for SerdePeerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.peer_id.to_base58())
-    }
-}
-
-impl Serialize for SerdePeerId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.peer_id.to_base58().serialize(serializer)
-    }
-}
-
-impl<'l> Deserialize<'l> for SerdePeerId {
-    fn deserialize<D>(deserializer: D) -> Result<SerdePeerId, D::Error>
-    where
-        D: serde::Deserializer<'l>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(SerdePeerId {
-            peer_id: PeerId::from_str(&s).map_err(|_| {
-                serde::de::Error::invalid_value(serde::de::Unexpected::Str(&s), &"PeerId")
-            })?,
-        })
-    }
-}
-
 // Generate signature with timestamp as required by Cloudflare's is_timed_hmac_valid_v0 function
 // https://developers.cloudflare.com/ruleset-engine/rules-language/functions/#hmac-validation
 #[cfg(feature = "assignment_writer")]
@@ -451,6 +405,7 @@ fn test_hmac_sign() {
 #[cfg(all(feature = "assignment_writer", feature = "assignment_reader"))]
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
     use sqd_network_transport::Keypair;
 
     use super::*;
@@ -481,6 +436,10 @@ mod tests {
                 .into_iter()
                 .collect(),
             size_bytes: 100_000,
+            summary: Some(ChunkSummary {
+                last_block_hash: "0xdeadbeef".to_owned(),
+                last_block_number: 1000,
+            }),
         };
         assignment.add_chunk(
             chunk,

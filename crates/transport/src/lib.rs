@@ -47,7 +47,8 @@ pub mod util;
 
 #[cfg(feature = "gateway")]
 pub use crate::actors::gateway::{
-    GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransportHandle, QueryFailure,
+    GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransport, GatewayTransportHandle,
+    QueryFailure,
 };
 #[cfg(feature = "logs-collector")]
 pub use crate::actors::logs_collector::{
@@ -66,6 +67,11 @@ pub use crate::actors::peer_checker::{
 pub use crate::actors::pings_collector::{
     Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
 };
+#[cfg(feature = "portal-logs-collector")]
+pub use crate::actors::portal_logs_collector::{
+    PortalLogsCollectorBehaviour, PortalLogsCollectorConfig, PortalLogsCollectorEvent,
+    PortalLogsCollectorTransportHandle,
+};
 #[cfg(feature = "scheduler")]
 pub use crate::actors::scheduler::{
     SchedulerBehaviour, SchedulerConfig, SchedulerEvent, SchedulerTransportHandle,
@@ -76,8 +82,8 @@ pub use crate::actors::worker::{
 };
 #[cfg(feature = "actors")]
 pub use behaviour::base::BaseConfig;
-#[cfg(feature = "request-client")]
-pub use behaviour::request_client::ClientConfig;
+#[cfg(feature = "actors")]
+pub use behaviour::stream_client::{ClientConfig, Timeout as StreamClientTimeout};
 #[cfg(feature = "behaviour")]
 pub use behaviour::{
     addr_cache::AddressCache,

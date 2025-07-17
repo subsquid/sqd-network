@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     num::NonZeroUsize,
+    pin::Pin,
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
@@ -8,17 +9,16 @@ use std::{
 };
 
 use bimap::BiHashMap;
+use futures::{Stream, StreamExt};
 use futures_bounded::FuturesMap;
 use libp2p::{
-    autonat,
-    autonat::NatStatus,
+    autonat::{self, NatStatus},
     core::ConnectedPoint,
     dcutr, identify,
     identity::Keypair,
-    kad,
     kad::{
-        store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, ProgressStep, QueryId,
-        QueryResult,
+        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersError,
+        GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats,
     },
     ping, relay,
     swarm::{
@@ -44,14 +44,22 @@ use crate::{
     behaviour::{
         addr_cache::AddressCache,
         node_whitelist::{WhitelistBehavior, WhitelistConfig},
-        pubsub::{MsgValidationConfig, PubsubBehaviour, PubsubMsg, ValidationError},
+        pubsub::{PubsubBehaviour, PubsubMsg},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_PUBSUB_MSG_SIZE},
+    protocol::{
+        HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_HEARTBEAT_SIZE,
+        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL,
+    },
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, Multiaddr, PeerId,
+};
+
+use super::{
+    pubsub::{MsgValidationConfig, ValidationError},
+    stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle},
 };
 
 #[derive(NetworkBehaviour)]
@@ -65,6 +73,7 @@ pub struct InnerBehaviour {
     whitelist: Wrapped<WhitelistBehavior>,
     pubsub: Wrapped<PubsubBehaviour>,
     address_cache: AddressCache,
+    stream: Wrapped<ClientBehaviour>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -85,6 +94,12 @@ pub struct BaseConfig {
     pub max_pubsub_msg_size: usize,
     /// Maximum number of peers to keep in the address cache (default: 1024)
     pub addr_cache_size: NonZeroUsize,
+    /// Timeout for worker status requests (default: 15 sec).
+    pub status_request_timeout: Duration,
+    /// How often to request the status from each individual worker (default: 55 sec).
+    pub status_request_frequency: Duration,
+    /// How many concurrent status requests to send to the workers (default: 100).
+    pub concurrent_status_requests: usize,
 }
 
 impl BaseConfig {
@@ -99,6 +114,11 @@ impl BaseConfig {
         let max_pubsub_msg_size = parse_env_var("MAX_PUBSUB_MSG_SIZE", MAX_PUBSUB_MSG_SIZE);
         let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
             .expect("addr_cache_size should be > 0");
+        let status_request_timeout =
+            Duration::from_secs(parse_env_var("WORKER_STATUS_TIMEOUT_SEC", 15));
+        let status_request_frequency =
+            Duration::from_secs(parse_env_var("WORKER_STATUS_FREQUENCY_SEC", 55));
+        let concurrent_status_requests = parse_env_var("WORKER_CONCURRENT_STATUS_UPDATES", 100);
         Self {
             onchain_update_interval,
             autonat_timeout,
@@ -108,12 +128,16 @@ impl BaseConfig {
             max_concurrent_probes,
             max_pubsub_msg_size,
             addr_cache_size,
+            status_request_timeout,
+            status_request_frequency,
+            concurrent_status_requests,
         }
     }
 }
 
 pub struct BaseBehaviour {
     inner: InnerBehaviour,
+    config: BaseConfig,
     keypair: Keypair,
     pending_events: VecDeque<TToSwarm<Self>>,
     pending_outbound_conns: BiHashMap<PeerId, ConnectionId>,
@@ -121,6 +145,7 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
+    heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
 }
 
 #[allow(dead_code)]
@@ -137,6 +162,7 @@ impl BaseBehaviour {
         let local_peer_id = keypair.public().to_peer_id();
         let mut kad_config = kad::Config::new(dht_protocol);
         kad_config.set_query_timeout(config.kad_query_timeout);
+        kad_config.set_publication_interval(Some(Duration::from_secs(10 * 60)));
         let mut inner = InnerBehaviour {
             identify: identify::Behaviour::new(
                 identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
@@ -167,6 +193,7 @@ impl BaseBehaviour {
             .into(),
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
+            stream: ClientBehaviour::default().into(),
         };
 
         for boot_node in boot_nodes {
@@ -183,6 +210,8 @@ impl BaseBehaviour {
             outbound_conns: Default::default(),
             probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_workers: Arc::new(RwLock::new(Default::default())),
+            heartbeats_stream: None,
+            config,
         }
     }
 
@@ -193,6 +222,14 @@ impl BaseBehaviour {
     // Prevents removing the address from the DHT even if AutoNAT check fails
     pub fn set_server_mode(&mut self) {
         self.inner.kademlia.set_mode(Some(kad::Mode::Server));
+    }
+
+    pub fn request_handle(
+        &self,
+        protocol: &'static str,
+        config: ClientConfig,
+    ) -> StreamClientHandle {
+        self.inner.stream.new_handle(protocol, config)
     }
 
     pub fn subscribe_heartbeats(&mut self) {
@@ -208,10 +245,33 @@ impl BaseBehaviour {
         self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
     }
 
+    pub fn start_pulling_heartbeats(&mut self) {
+        let registered_workers = self.registered_workers.clone();
+        let status_stream_handle = self.inner.stream.new_handle(
+            WORKER_STATUS_PROTOCOL,
+            ClientConfig {
+                max_concurrent_streams: None,
+                max_response_size: MAX_HEARTBEAT_SIZE,
+                request_timeout: self.config.status_request_timeout,
+                ..Default::default()
+            },
+        );
+        self.heartbeats_stream = Some(Box::pin(stream_heartbeats(
+            registered_workers.clone(),
+            status_stream_handle,
+            self.config.status_request_frequency,
+            self.config.concurrent_status_requests,
+        )));
+    }
+
     pub fn publish_heartbeat(&mut self, heartbeat: Heartbeat) {
         self.inner.pubsub.publish(HEARTBEAT_TOPIC, heartbeat.encode_to_vec());
         #[cfg(feature = "metrics")]
         HEARTBEATS_PUBLISHED.inc();
+    }
+
+    pub fn get_kademlia_mut(&mut self) -> &mut kad::Behaviour<MemoryStore> {
+        &mut self.inner.kademlia
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
@@ -228,6 +288,10 @@ impl BaseBehaviour {
 
     pub fn outbound_conn_exists(&self, peer_id: &PeerId) -> bool {
         self.outbound_conns.get(peer_id).is_some_and(|x| *x > 0)
+    }
+
+    pub fn can_be_dialed(&self, peer_id: &PeerId) -> bool {
+        self.outbound_conn_exists(peer_id) || self.inner.address_cache.contains(peer_id)
     }
 
     fn try_schedule_probe(&mut self, peer_id: PeerId) -> Result<(), TryProbeError> {
@@ -313,6 +377,40 @@ impl BaseBehaviour {
     }
 }
 
+// TODO: make it only return successful responses
+fn stream_heartbeats(
+    registered_workers: Arc<RwLock<HashSet<PeerId>>>,
+    stream_handle: StreamClientHandle,
+    frequency: Duration,
+    parallelism: usize,
+) -> impl Stream<Item = Option<(Heartbeat, PeerId)>> {
+    let mut interval = tokio::time::interval(frequency);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    tokio_stream::wrappers::IntervalStream::new(interval).flat_map(move |_| {
+        let workers = registered_workers.read().clone();
+        let stream_handle = stream_handle.clone();
+        futures::stream::iter(workers.into_iter())
+            .map(move |peer_id| {
+                let stream_handle = stream_handle.clone();
+                async move {
+                    let resp = stream_handle
+                        .request_response(peer_id, b"")
+                        .await
+                        .inspect_err(|e| log::debug!("Couldn't send heartbeat request: {e:?}"))
+                        .ok()?;
+                    let heartbeat = Heartbeat::decode(resp.as_ref())
+                        .inspect_err(|e| {
+                            log::debug!("Error decoding heartbeat from {peer_id}: {e:?}")
+                        })
+                        .ok()?;
+                    log::debug!("Got heartbeat from {peer_id}: {heartbeat:?}");
+                    Some((heartbeat, peer_id))
+                }
+            })
+            .buffer_unordered(parallelism)
+    })
+}
+
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
     Heartbeat {
@@ -320,6 +418,12 @@ pub enum BaseBehaviourEvent {
         heartbeat: Heartbeat,
     },
     PeerProbed(PeerProbed),
+    ProviderRecord {
+        id: QueryId,
+        result: Result<GetProvidersOk, GetProvidersError>,
+        stats: QueryStats,
+        step: ProgressStep,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -385,26 +489,36 @@ impl BehaviourWrapper for BaseBehaviour {
                 None
             }
             InnerBehaviourEvent::Whitelist(nodes) => self.on_nodes_update(nodes),
+            InnerBehaviourEvent::Stream(ev) => self.on_stream_event(ev),
             _ => None,
         }
     }
 
     fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
-        loop {
-            if let Some(ev) = self.pending_events.pop_front() {
-                return Poll::Ready(Some(ev));
-            }
-
-            match self.probe_timeouts.poll_unpin(cx) {
-                Poll::Ready((peer_id, Err(_))) => {
-                    return Poll::Ready(Some(self.on_probe_timeout(peer_id)));
-                }
-                Poll::Pending => {}
-                _ => unreachable!(), // future::pending() should never complete
-            }
-
-            return Poll::Pending;
+        if let Some(ev) = self.pending_events.pop_front() {
+            return Poll::Ready(Some(ev));
         }
+
+        if let Some(stream) = self.heartbeats_stream.as_mut() {
+            if let Poll::Ready(item) = stream.poll_next_unpin(cx) {
+                let heartbeat = item.expect("Heartbeat stream should never finish");
+                if let Some((heartbeat, peer_id)) = heartbeat {
+                    return Poll::Ready(Some(ToSwarm::GenerateEvent(
+                        BaseBehaviourEvent::Heartbeat { peer_id, heartbeat },
+                    )));
+                }
+            }
+        }
+
+        match self.probe_timeouts.poll_unpin(cx) {
+            Poll::Ready((peer_id, Err(_))) => {
+                return Poll::Ready(Some(self.on_probe_timeout(peer_id)));
+            }
+            Poll::Pending => {}
+            _ => unreachable!(), // future::pending() should never complete
+        }
+
+        return Poll::Pending;
     }
 }
 
@@ -490,6 +604,26 @@ impl BaseBehaviour {
             ..
         } = ev
         else {
+            match ev {
+                kad::Event::RoutablePeer { peer, address }
+                | kad::Event::PendingRoutablePeer { peer, address } => {
+                    self.inner.address_cache.put(peer, Some(address));
+                }
+                kad::Event::OutboundQueryProgressed {
+                    id,
+                    result: QueryResult::GetProviders(result),
+                    stats,
+                    step,
+                } => {
+                    return Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::ProviderRecord {
+                        id,
+                        result,
+                        stats,
+                        step,
+                    }));
+                }
+                _ => {}
+            }
             return None;
         };
 
@@ -553,6 +687,21 @@ impl BaseBehaviour {
             _ => return None,
         };
         Some(ToSwarm::GenerateEvent(ev))
+    }
+
+    // TODO: consider capturing all dial requests, not only from the stream behaviour
+    fn on_stream_event(&mut self, ev: stream_client::Event) -> Option<TToSwarm<Self>> {
+        // When trying to dial an unknown peer, try to find it on DHT first
+        let stream_client::Event::Dial(opts) = ev;
+        match opts.get_peer_id() {
+            Some(peer_id) if !self.can_be_dialed(&peer_id) => {
+                // The ConnectionId will not correspond to the requested one,
+                // but it's not used by the stream behaviour anyway
+                self.find_and_dial(peer_id);
+                None
+            }
+            _ => Some(ToSwarm::Dial { opts }),
+        }
     }
 
     fn on_nodes_update(&mut self, nodes: NetworkNodes) -> Option<TToSwarm<Self>> {

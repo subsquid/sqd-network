@@ -25,8 +25,6 @@ use crate::{
     Address, ClientError, PeerId, RpcArgs, U256,
 };
 
-const GATEWAYS_PAGE_SIZE: U256 = U256([10000, 0, 0, 0]);
-
 #[derive(Debug, Clone)]
 pub struct Allocation {
     pub worker_peer_id: PeerId,
@@ -198,6 +196,7 @@ struct EthersClient {
     default_strategy_addr: Address,
     multicall_contract_addr: Option<Address>,
     active_workers_per_page: usize,
+    portals_per_page: U256,
 }
 
 impl EthersClient {
@@ -231,6 +230,7 @@ impl EthersClient {
             default_strategy_addr,
             multicall_contract_addr: Some(rpc_args.multicall_addr()),
             active_workers_per_page: rpc_args.contract_workers_per_page,
+            portals_per_page: U256::from(rpc_args.contract_portals_per_page),
         }))
     }
 
@@ -282,12 +282,12 @@ impl Client for EthersClient {
             tokio::join!(epoch_length_call.call(), latest_block_call);
         let epoch_length_blocks = epoch_length_blocks_res?;
 
-        let latest_block = latest_block_res?.expect("Latest block should be found");
+        let latest_block = latest_block_res?.ok_or(ClientError::BlockNotFound)?;
         let hist_block = self
             .l1_client
             .get_block(latest_block.number.unwrap() - epoch_length_blocks as u64)
             .await?
-            .expect("Last epoch block should be found");
+            .ok_or(ClientError::BlockNotFound)?;
 
         Ok(Duration::from_secs(
             (latest_block.timestamp - hist_block.timestamp)
@@ -369,14 +369,14 @@ impl Client for EthersClient {
         for page in 0.. {
             let gateway_ids = self
                 .gateway_registry
-                .get_active_gateways(page.into(), GATEWAYS_PAGE_SIZE)
+                .get_active_gateways(page.into(), self.portals_per_page)
                 .block(latest_block)
                 .call()
                 .await?;
             let page_size = U256::from(gateway_ids.len());
 
             active_gateways.extend(gateway_ids.iter().filter_map(|id| PeerId::from_bytes(id).ok()));
-            if page_size < GATEWAYS_PAGE_SIZE {
+            if page_size < self.portals_per_page {
                 break;
             }
         }
@@ -454,7 +454,7 @@ impl Client for EthersClient {
         for page in 0.. {
             let allocations = self
                 .allocations_viewer
-                .get_allocations(worker_id, page.into(), GATEWAYS_PAGE_SIZE)
+                .get_allocations(worker_id, page.into(), self.portals_per_page)
                 .block(latest_block)
                 .call()
                 .await?;
@@ -475,7 +475,7 @@ impl Client for EthersClient {
                     .push(gateway_peer_id);
             }
 
-            if page_size < GATEWAYS_PAGE_SIZE {
+            if page_size < self.portals_per_page {
                 break;
             }
         }

@@ -47,6 +47,7 @@ pub struct ObserverBehaviour {
 impl ObserverBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.subscribe_heartbeats();
+        base.start_pulling_heartbeats();
         Self { base: base.into() }.into()
     }
 
