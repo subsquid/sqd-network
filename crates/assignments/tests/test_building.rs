@@ -1,10 +1,12 @@
 #[cfg(feature = "builder")]
 #[test]
 fn test_building() {
+    use libp2p_identity::Keypair;
+    use rand::{rngs::StdRng, SeedableRng};
     use sqd_assignments::AssignmentBuilder;
-    use libp2p_identity::PeerId;
 
-    let mut builder = AssignmentBuilder::new();
+    let mut builder = AssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0));
+
     builder
         .new_chunk()
         .id("0221000000/0221000000-0221000649-9QgFD")
@@ -20,12 +22,16 @@ fn test_building() {
         ])
         .finish();
     builder.finish_dataset();
-    let peer_id = PeerId::from_bytes(&[
-        0, 32, 98, 135, 18, 113, 48, 224, 113, 242, 246, 177, 220, 29, 234, 70, 180, 119, 204, 168,
-        179, 112, 41, 246, 97, 234, 58, 20, 91, 85, 137, 46, 52, 100,
+
+    let keypair = Keypair::ed25519_from_bytes([
+        19, 199, 234, 213, 79, 151, 179, 242, 187, 43, 210, 20, 250, 252, 12, 246, 223, 244, 119,
+        225, 81, 225, 146, 40, 65, 35, 81, 91, 121, 13, 204, 37,
     ])
     .unwrap();
-    builder.add_worker(peer_id, sqd_assignments::assignment_fb::WorkerStatus::Ok, &[0]);
+    let peer_id = keypair.public().to_peer_id();
+    let timestamp = 1750000000;
+    builder.add_worker_with_timestamp(peer_id, sqd_assignments::WorkerStatus::Ok, &[0], timestamp);
+
     let bytes = builder.finish();
     assert_file_equals("assignment.fb", bytes);
 }

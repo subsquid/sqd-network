@@ -5351,8 +5351,10 @@ dependencies = [
  "crypto_box",
  "curve25519-dalek",
  "flatbuffers",
- "hmac",
  "libp2p-identity",
+ "rand",
+ "sqd-messages",
+ "tracing",
 ]
 
 [[package]]
