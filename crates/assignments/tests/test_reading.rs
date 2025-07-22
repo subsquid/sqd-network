@@ -29,16 +29,36 @@ fn test_get_worker() {
 
     let chunks = worker.chunks();
     assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks.get(0).id(), "0221000000/0221000000-0221000649-BQJdx");
+    assert_eq!(chunks.get(1).id(), "0221000000/0221000650-0221001549-AuRE1");
+}
 
-    let chunk = chunks.get(0);
-    assert_eq!(chunk.id(), "0221000000/0221000000-0221000649-BQJdx");
-    assert_eq!(chunk.base_url(), "0221000000/0221000000-0221000649-BQJdx");
-    assert_eq!(chunk.dataset_id(), "s3://solana-mainnet-2");
-    assert_eq!(chunk.dataset_base_url(), "https://solana-mainnet-2.sqd-datasets.io");
-    assert_eq!(chunk.first_block(), 221000000);
-    assert_eq!(chunk.size(), 1000000);
-    assert_eq!(chunk.files().len(), 3);
-    chunk
+#[cfg(feature = "reader")]
+#[test]
+fn test_get_chunks() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("assignment.fb");
+    let buf = std::fs::read(path).expect("Failed to read assignment.fb");
+    let assignment = sqd_assignments::Assignment::from_owned(buf).unwrap();
+
+    let dataset = assignment.get_dataset("s3://solana-mainnet-2").unwrap();
+    assert_eq!(dataset.last_block(), 221001549);
+
+    assert_eq!(assignment.find_chunk("s3://dummy", 0), None);
+    assert_eq!(assignment.find_chunk("s3://solana-mainnet-2", 220999999), None);
+    assert_eq!(assignment.find_chunk("s3://solana-mainnet-2", 221001550), None);
+    let chunk1 = assignment.find_chunk("s3://solana-mainnet-2", 221000000).unwrap();
+    let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
+
+    assert_eq!(chunk1.id(), "0221000000/0221000000-0221000649-BQJdx");
+    assert_eq!(chunk1.base_url(), "0221000000/0221000000-0221000649-BQJdx");
+    assert_eq!(chunk1.dataset_id(), "s3://solana-mainnet-2");
+    assert_eq!(chunk1.dataset_base_url(), "https://solana-mainnet-2.sqd-datasets.io");
+    assert_eq!(chunk1.first_block(), 221000000);
+    assert_eq!(chunk1.size(), 1000000);
+    assert_eq!(chunk1.files().len(), 3);
+    chunk1
         .files()
         .iter()
         .zip(["blocks.parquet", "transactions.parquet", "logs.parquet"].into_iter())
@@ -46,12 +66,11 @@ fn test_get_worker() {
             assert_eq!(file.filename(), expected);
             assert_eq!(file.url(), expected);
         });
-    assert_eq!(chunk.last_block_hash(), Some("BQJdx"));
-    assert_eq!(chunk.last_block_timestamp(), Some(1696192039));
-    assert_eq!(chunk.worker_indexes().iter().collect::<Vec<_>>(), vec![0]);
+    assert_eq!(chunk1.last_block_hash(), Some("BQJdx"));
+    assert_eq!(chunk1.last_block_timestamp(), Some(1696192039));
+    assert_eq!(chunk1.worker_indexes().iter().collect::<Vec<_>>(), vec![0]);
 
-    let chunk = chunks.get(1);
-    assert_eq!(chunk.first_block(), 221000650);
-    assert_eq!(chunk.last_block_hash(), None);
-    assert_eq!(chunk.last_block_timestamp(), None);
+    assert_eq!(chunk2.first_block(), 221000650);
+    assert_eq!(chunk2.last_block_hash(), None);
+    assert_eq!(chunk2.last_block_timestamp(), None);
 }

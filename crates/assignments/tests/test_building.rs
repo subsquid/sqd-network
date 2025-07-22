@@ -13,7 +13,7 @@ fn test_building() {
         .id("0221000000/0221000000-0221000649-BQJdx")
         .dataset_id("s3://solana-mainnet-2")
         .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
-        .first_block(221000000)
+        .block_range(221000000..=221000649)
         .size(1000000)
         .worker_indexes(&[0])
         .last_block_hash("BQJdx")
@@ -29,7 +29,7 @@ fn test_building() {
         .id("0221000000/0221000650-0221001549-AuRE1")
         .dataset_id("s3://solana-mainnet-2")
         .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
-        .first_block(221000650)
+        .block_range(221000650..=221001549)
         .size(1000000)
         .worker_indexes(&[0])
         .files(&[
@@ -43,12 +43,18 @@ fn test_building() {
     let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
     let timestamp = 1750000000;
-    builder.add_worker_with_timestamp(peer_id, sqd_assignments::WorkerStatus::Ok, &[0, 1], timestamp);
+    builder.add_worker_with_timestamp(
+        peer_id,
+        sqd_assignments::WorkerStatus::Ok,
+        &[0, 1],
+        timestamp,
+    );
 
     let bytes = builder.finish();
     assert_file_equals("assignment.fb", bytes);
 }
 
+#[cfg(feature = "builder")]
 fn assert_file_equals(filename: &str, bytes: Vec<u8>) {
     use std::fs;
     use std::path::PathBuf;

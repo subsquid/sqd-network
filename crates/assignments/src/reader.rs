@@ -26,7 +26,7 @@ impl Assignment {
     }
 
     pub fn get_worker(&self, id: PeerId) -> Option<Worker<'_>> {
-        let workers = self.borrow_reader().workers()?;
+        let workers = self.borrow_reader().workers();
         let worker = workers.lookup_by_key(id, |x, key| {
             let id: PeerId = (*x.worker_id()).try_into().unwrap_or_else(|e| {
                 panic!("Couldn't parse peer id '{:?}': {}", x.worker_id().peer_id(), e);
@@ -35,13 +35,47 @@ impl Assignment {
         })?;
         Some(Worker { reader: worker })
     }
+
+    pub fn get_dataset(&self, dataset: &str) -> Option<assignment_fb::Dataset<'_>> {
+        self.borrow_reader()
+            .datasets()
+            .lookup_by_key(dataset, |ds, key| ds.key_compare_with_value(key))
+    }
+
+    pub fn find_chunk(&self, dataset: &str, block: u64) -> Option<assignment_fb::Chunk<'_>> {
+        let dataset = self.get_dataset(dataset)?;
+
+        if block > dataset.last_block() {
+            return None;
+        }
+
+        // find last chunk with first_block <= block
+        let chunks = dataset.chunks();
+        // left is always either equal to -1 or points to the chunk with first_block <= block
+        let mut left = -1;
+        // right is always either equal to chunks.len() or points to the chunk with first_block > block
+        let mut right = chunks.len() as isize;
+        while left + 1 < right {
+            let mid = (left + right) / 2;
+            let chunk = chunks.get(mid as usize);
+            if chunk.first_block() <= block {
+                left = mid;
+            } else {
+                right = mid;
+            }
+        }
+        if left == -1 {
+            return None; // block is below the first chunk
+        }
+        Some(chunks.get(left as usize))
+    }
 }
 
 pub struct Worker<'f> {
     reader: assignment_fb::WorkerAssignment<'f>,
 }
 
-impl<'f> Worker<'f> {
+impl Worker<'_> {
     pub fn chunks(
         &self,
     ) -> flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<assignment_fb::Chunk<'_>>> {

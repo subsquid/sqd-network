@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::RangeInclusive};
 
 use crypto_box::{
     aead::{rand_core::CryptoRngCore, OsRng},
@@ -17,6 +17,7 @@ pub struct AssignmentBuilder<Rng: CryptoRngCore> {
     rng: Rng,
     files_list_offsets: FileListOffsets,
     all_chunks: Vec<fb::WIPOffset<assignment_fb::Chunk<'static>>>,
+    last_block: Option<u64>,
     current_chunks: Vec<fb::WIPOffset<assignment_fb::Chunk<'static>>>,
     current_dataset_id_offset: Option<fb::WIPOffset<&'static str>>,
     all_datasets: Vec<fb::WIPOffset<assignment_fb::Dataset<'static>>>,
@@ -44,6 +45,7 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
             rng,
             files_list_offsets: HashMap::new(),
             all_chunks: Vec::new(),
+            last_block: None,
             current_chunks: Vec::new(),
             current_dataset_id_offset: None,
             all_datasets: Vec::new(),
@@ -66,6 +68,10 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
             &assignment_fb::DatasetArgs {
                 id: self.current_dataset_id_offset.take(),
                 chunks: Some(chunks),
+                last_block: self
+                    .last_block
+                    .take()
+                    .expect("At least one chunk should be present in the dataset"),
             },
         );
         self.all_datasets.push(offset);
@@ -145,8 +151,13 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
         &mut self,
         offset: fb::WIPOffset<assignment_fb::Chunk<'static>>,
         dataset: WIPOffset<&'static str>,
+        block_range: RangeInclusive<u64>,
     ) {
         self.all_chunks.push(offset);
+        if let Some(last) = self.last_block {
+            assert_eq!(last + 1, *block_range.start(), "Chunks in the dataset must be contiguous");
+        }
+        self.last_block = Some(*block_range.end());
         self.current_chunks.push(offset);
         self.current_dataset_id_offset = Some(dataset);
     }
@@ -157,7 +168,7 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
     ) -> fb::WIPOffset<fb::Vector<'static, fb::ForwardsUOffset<assignment_fb::FileUrl<'static>>>>
     {
         match self.files_list_offsets.get(files) {
-            Some(&offset) => return offset,
+            Some(&offset) => offset,
             None => {
                 let file_offsets: Vec<_> = files
                     .iter()
@@ -223,7 +234,7 @@ type FileListOffsets = HashMap<
 pub struct ChunkBuilder<'b, Rng: CryptoRngCore> {
     p: &'b mut AssignmentBuilder<Rng>,
 
-    first_block: Option<u64>,
+    block_range: Option<RangeInclusive<u64>>,
     id: Option<fb::WIPOffset<&'static str>>,
     dataset_id: Option<fb::WIPOffset<&'static str>>,
     size: Option<u32>,
@@ -240,7 +251,7 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
     pub fn new(parent: &'b mut AssignmentBuilder<Rng>) -> Self {
         Self {
             p: parent,
-            first_block: None,
+            block_range: None,
             id: None,
             dataset_id: None,
             size: None,
@@ -253,7 +264,7 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
     }
 
     pub fn id(mut self, id: &str) -> Self {
-        self.id = Some(self.p.builder.create_string(&id));
+        self.id = Some(self.p.builder.create_string(id));
         self
     }
 
@@ -262,8 +273,8 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
         self
     }
 
-    pub fn first_block(mut self, block: u64) -> Self {
-        self.first_block = Some(block);
+    pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
+        self.block_range = Some(range);
         self
     }
 
@@ -273,7 +284,7 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
     }
 
     pub fn last_block_hash(mut self, hash: &str) -> Self {
-        self.last_block_hash = Some(self.p.builder.create_string(&hash));
+        self.last_block_hash = Some(self.p.builder.create_string(hash));
         self
     }
 
@@ -283,7 +294,7 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
     }
 
     pub fn dataset_base_url(mut self, url: &str) -> Self {
-        self.dataset_base_url = Some(self.p.builder.create_shared_string(&url));
+        self.dataset_base_url = Some(self.p.builder.create_shared_string(url));
         self
     }
 
@@ -298,11 +309,12 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
     }
 
     pub fn finish(self) {
+        let block_range = self.block_range.expect("Block range must be set");
         let offset = assignment_fb::Chunk::create(
             &mut self.p.builder,
             &assignment_fb::ChunkArgs {
                 id: self.id,
-                first_block: self.first_block.expect("First block must be set"),
+                first_block: *block_range.start(),
                 last_block_hash: self.last_block_hash,
                 last_block_timestamp: self.last_block_timestamp,
                 dataset_id: self.dataset_id,
@@ -313,6 +325,7 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
                 worker_indexes: self.worker_indexes,
             },
         );
-        self.p.add_chunk(offset, self.dataset_id.expect("Dataset ID must be set"));
+        self.p
+            .add_chunk(offset, self.dataset_id.expect("Dataset ID must be set"), block_range);
     }
 }

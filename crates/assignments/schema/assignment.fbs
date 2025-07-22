@@ -1,6 +1,6 @@
 table Assignment {
-  datasets: [Dataset];
-  workers: [WorkerAssignment];
+  datasets: [Dataset] (required);
+  workers: [WorkerAssignment] (required);
 }
 
 enum WorkerStatus: byte {
@@ -25,6 +25,7 @@ table WorkerAssignment {
 table Dataset {
   id: string (key);  // e.g. "s3://solana-mainnet-2"
   chunks: [Chunk] (required);
+  last_block: uint64;
 }
 
 table Chunk {
