@@ -122,6 +122,7 @@ pub struct Assignment {
 #[derive(Serialize, Deserialize)]
 pub struct NetworkAssignment {
     pub url: String,
+    pub fb_url: Option<String>,
     pub id: String,
     pub effective_from: u64,
 }
