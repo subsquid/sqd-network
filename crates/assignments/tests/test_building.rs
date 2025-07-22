@@ -1,7 +1,8 @@
+mod common;
+
 #[cfg(feature = "builder")]
 #[test]
 fn test_building() {
-    use libp2p_identity::Keypair;
     use rand::{rngs::StdRng, SeedableRng};
     use sqd_assignments::AssignmentBuilder;
 
@@ -9,10 +10,26 @@ fn test_building() {
 
     builder
         .new_chunk()
-        .id("0221000000/0221000000-0221000649-9QgFD")
+        .id("0221000000/0221000000-0221000649-BQJdx")
         .dataset_id("s3://solana-mainnet-2")
         .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .first_block(221000000)
+        .size(1000000)
+        .worker_indexes(&[0])
+        .last_block_hash("BQJdx")
+        .last_block_timestamp(1696192039)
+        .files(&[
+            String::from("blocks.parquet"),
+            String::from("transactions.parquet"),
+            String::from("logs.parquet"),
+        ])
+        .finish();
+    builder
+        .new_chunk()
+        .id("0221000000/0221000650-0221001549-AuRE1")
+        .dataset_id("s3://solana-mainnet-2")
+        .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
+        .first_block(221000650)
         .size(1000000)
         .worker_indexes(&[0])
         .files(&[
@@ -23,14 +40,10 @@ fn test_building() {
         .finish();
     builder.finish_dataset();
 
-    let keypair = Keypair::ed25519_from_bytes([
-        19, 199, 234, 213, 79, 151, 179, 242, 187, 43, 210, 20, 250, 252, 12, 246, 223, 244, 119,
-        225, 81, 225, 146, 40, 65, 35, 81, 91, 121, 13, 204, 37,
-    ])
-    .unwrap();
+    let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
     let timestamp = 1750000000;
-    builder.add_worker_with_timestamp(peer_id, sqd_assignments::WorkerStatus::Ok, &[0], timestamp);
+    builder.add_worker_with_timestamp(peer_id, sqd_assignments::WorkerStatus::Ok, &[0, 1], timestamp);
 
     let bytes = builder.finish();
     assert_file_equals("assignment.fb", bytes);

@@ -46,7 +46,7 @@ table FileUrl {
 }
 
 struct WorkerId {
-  peer_id: [ubyte:34];
+  peer_id: [ubyte:38];
 }
 
 table EncryptedHeaders {

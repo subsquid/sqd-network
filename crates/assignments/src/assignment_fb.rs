@@ -6,18 +6,6 @@ include!("../schema/gen/assignment_generated.rs");
 
 impl Eq for WorkerId {}
 
-impl PartialOrd for WorkerId {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for WorkerId {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.cmp(&other.0)
-    }
-}
-
 impl TryInto<PeerId> for WorkerId {
     type Error = libp2p_identity::ParseError;
 
@@ -29,9 +17,17 @@ impl TryInto<PeerId> for WorkerId {
 impl From<PeerId> for WorkerId {
     fn from(peer_id: PeerId) -> Self {
         let buf = peer_id.to_bytes();
-        let (bytes, _) = buf
-            .split_first_chunk()
-            .expect("PeerId should always have a valid length");
+        let (bytes, rest) =
+            buf.split_first_chunk().expect("PeerId should always have a valid length");
+        debug_assert_eq!(rest, &[] as &[u8], "PeerId should not have extra bytes");
         WorkerId(*bytes)
     }
+}
+
+#[test]
+fn test_worker_id_conversion() {
+    let peer_id = libp2p_identity::Keypair::generate_ed25519().public().to_peer_id();
+    let worker_id: WorkerId = peer_id.clone().into();
+    let converted_peer_id: PeerId = worker_id.try_into().expect("Conversion should succeed");
+    assert_eq!(peer_id, converted_peer_id, "PeerId conversion failed");
 }
