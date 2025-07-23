@@ -1,3 +1,6 @@
+// When changing this file, regenerate the sources by running
+// flatc --rust -o gen ./assignment.fbs
+
 table Assignment {
   datasets: [Dataset] (required);
   workers: [WorkerAssignment] (required);
