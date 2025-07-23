@@ -152,14 +152,20 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
         offset: fb::WIPOffset<assignment_fb::Chunk<'static>>,
         dataset: WIPOffset<&'static str>,
         block_range: RangeInclusive<u64>,
-    ) {
+    ) -> anyhow::Result<()> {
         self.all_chunks.push(offset);
         if let Some(last) = self.last_block {
-            assert_eq!(last + 1, *block_range.start(), "Chunks in the dataset must be contiguous");
+            anyhow::ensure!(
+                last + 1 == *block_range.start(),
+                "Chunks in the dataset must be contiguous, got {} -> {}",
+                last,
+                block_range.start()
+            );
         }
         self.last_block = Some(*block_range.end());
         self.current_chunks.push(offset);
         self.current_dataset_id_offset = Some(dataset);
+        Ok(())
     }
 
     fn cache_files_list(
@@ -308,7 +314,7 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
         self
     }
 
-    pub fn finish(self) {
+    pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
         let offset = assignment_fb::Chunk::create(
             &mut self.p.builder,
@@ -326,6 +332,6 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
             },
         );
         self.p
-            .add_chunk(offset, self.dataset_id.expect("Dataset ID must be set"), block_range);
+            .add_chunk(offset, self.dataset_id.expect("Dataset ID must be set"), block_range)
     }
 }
