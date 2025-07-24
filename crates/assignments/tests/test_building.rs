@@ -23,7 +23,8 @@ fn test_building() {
             String::from("transactions.parquet"),
             String::from("logs.parquet"),
         ])
-        .finish();
+        .finish()
+        .unwrap();
     builder
         .new_chunk()
         .id("0221000000/0221000650-0221001549-AuRE1")
@@ -37,7 +38,8 @@ fn test_building() {
             String::from("transactions.parquet"),
             String::from("logs.parquet"),
         ])
-        .finish();
+        .finish()
+        .unwrap();
     builder.finish_dataset();
 
     let keypair = common::get_test_keypair();
