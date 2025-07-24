@@ -13,6 +13,8 @@ fn test_get_worker() {
     let buf = std::fs::read(path).expect("Failed to read assignment.fb");
     let assignment = sqd_assignments::Assignment::from_owned(buf).unwrap();
 
+    assert_eq!(assignment.get_worker_id(0).unwrap(), peer_id);
+
     let worker = assignment.get_worker(peer_id).unwrap();
     let headers = worker.decrypt_headers(&keypair).unwrap();
     assert_eq!(

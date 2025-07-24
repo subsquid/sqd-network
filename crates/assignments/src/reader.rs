@@ -25,6 +25,12 @@ impl Assignment {
         .try_build()
     }
 
+    pub fn get_worker_id(&self, index: u16) -> Result<PeerId, anyhow::Error> {
+        let workers = self.borrow_reader().workers();
+        let worker = workers.get(index as usize);
+        Ok((*worker.worker_id()).try_into()?)
+    }
+
     pub fn get_worker(&self, id: PeerId) -> Option<Worker<'_>> {
         let workers = self.borrow_reader().workers();
         let worker = workers.lookup_by_key(id, |x, key| {
