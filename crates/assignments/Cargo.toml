@@ -1,0 +1,24 @@
+[package]
+name = "sqd-assignments"
+license = "AGPL-3.0-or-later"
+version = "0.0.1"
+edition = "2021"
+
+[features]
+reader = ["sha2", "serde_json", "ouroboros"]
+builder = ["curve25519-dalek", "sqd-messages/assignment_writer"]
+
+[dependencies]
+anyhow = { version = "1.0" }
+crypto_box = { version = "0.9.1", features = ["std"] }
+curve25519-dalek = { version = "4.1.3", optional = true }
+flatbuffers = "25.2.10"
+libp2p-identity = { workspace = true, features = ["rand", "ed25519"] }
+ouroboros = { version = "0.18.5", optional = true }
+serde_json = { version = "1.0", optional = true }
+sha2 = { version = "0.10.8", optional = true }
+sqd-messages = { path = "../messages", optional = true }
+tracing = "0.1.41"
+
+[dev-dependencies]
+rand = "0.8.5"

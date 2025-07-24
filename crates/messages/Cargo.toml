@@ -5,8 +5,8 @@ version = "2.0.2"
 edition = "2021"
 
 [features]
-assignment_reader = ["anyhow", "crypto_box", "flate2", "libp2p-identity", "reqwest", "serde_json", "serde_with", "sha2", "tokio"]
-assignment_writer = ["anyhow", "base64", "bs58", "crypto_box", "curve25519-dalek", "hmac", "libp2p-identity", "log", "serde_json", "serde_with", "sha2", "url"]
+assignment_reader = ["anyhow", "crypto_box", "flate2", "libp2p-identity/serde", "reqwest", "serde_json", "serde_with", "sha2", "tokio"]
+assignment_writer = ["anyhow", "base64", "bs58", "crypto_box", "curve25519-dalek", "hmac", "libp2p-identity/serde", "log", "serde_json", "serde_with", "sha2", "url"]
 bitstring = ["bytemuck", "flate2"]
 signatures = ["libp2p"]
 
