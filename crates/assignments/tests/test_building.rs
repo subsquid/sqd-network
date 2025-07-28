@@ -6,7 +6,8 @@ fn test_building() {
     use rand::{rngs::StdRng, SeedableRng};
     use sqd_assignments::AssignmentBuilder;
 
-    let mut builder = AssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0));
+    let mut builder = AssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0))
+        .check_continuity(false);
 
     builder
         .new_chunk()

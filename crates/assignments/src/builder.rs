@@ -26,6 +26,7 @@ pub struct AssignmentBuilder<Rng: CryptoRngCore> {
     cloudflare_storage_secret: String,
     common_identity: fb::WIPOffset<fb::Vector<'static, u8>>,
     common_secret_key: SecretKey,
+    check_continuity: bool,
 }
 
 impl AssignmentBuilder<OsRng> {
@@ -54,7 +55,16 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
             cloudflare_storage_secret: cloudflare_storage_secret.into(),
             common_identity,
             common_secret_key,
+            check_continuity: true,
         }
+    }
+
+    /// If this check is enabled, the chunk breaking the continuity condition won't be added and an error will be returned.
+    /// If it's disabled, the chunk will be added but the error will still be returned for logging purposes.
+    /// Enabled by default.
+    pub fn check_continuity(mut self, check: bool) -> Self {
+        self.check_continuity = check;
+        self
     }
 
     pub fn new_chunk(&mut self) -> ChunkBuilder<'_, Rng> {
@@ -153,19 +163,21 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
         dataset: WIPOffset<&'static str>,
         block_range: RangeInclusive<u64>,
     ) -> anyhow::Result<()> {
-        self.all_chunks.push(offset);
-        if let Some(last) = self.last_block {
-            anyhow::ensure!(
-                last + 1 == *block_range.start(),
+        let result = match self.last_block {
+            Some(last) if last + 1 != *block_range.start() => Err(anyhow::anyhow!(
                 "Chunks in the dataset must be contiguous, got {} -> {}",
                 last,
                 block_range.start()
-            );
+            )),
+            _ => Ok(()),
+        };
+        if result.is_ok() || !self.check_continuity {
+            self.all_chunks.push(offset);
+            self.last_block = Some(*block_range.end());
+            self.current_chunks.push(offset);
+            self.current_dataset_id_offset = Some(dataset);
         }
-        self.last_block = Some(*block_range.end());
-        self.current_chunks.push(offset);
-        self.current_dataset_id_offset = Some(dataset);
-        Ok(())
+        result
     }
 
     fn cache_files_list(
