@@ -11,4 +11,4 @@ pub use common::WorkerStatus;
 pub use builder::AssignmentBuilder;
 
 #[cfg(feature = "reader")]
-pub use reader::Assignment;
+pub use reader::{Assignment, ChunkNotFound, Worker};

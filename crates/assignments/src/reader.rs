@@ -18,9 +18,13 @@ pub struct Assignment {
 
 impl Assignment {
     pub fn from_owned(buf: Vec<u8>) -> Result<Self, flatbuffers::InvalidFlatbuffer> {
+        let opts = flatbuffers::VerifierOptions {
+            max_tables: 200_000_000,
+            ..Default::default()
+        };
         AssignmentTryBuilder {
             buf,
-            reader_builder: |buf| assignment_fb::root_as_assignment(buf),
+            reader_builder: |buf| assignment_fb::root_as_assignment_with_opts(&opts, buf),
         }
         .try_build()
     }
@@ -42,17 +46,36 @@ impl Assignment {
         Some(Worker { reader: worker })
     }
 
+    pub fn workers(
+        &self,
+    ) -> flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<assignment_fb::WorkerAssignment<'_>>>
+    {
+        self.borrow_reader().workers()
+    }
+
+    pub fn datasets(
+        &self,
+    ) -> flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<assignment_fb::Dataset<'_>>> {
+        self.borrow_reader().datasets()
+    }
+
     pub fn get_dataset(&self, dataset: &str) -> Option<assignment_fb::Dataset<'_>> {
         self.borrow_reader()
             .datasets()
             .lookup_by_key(dataset, |ds, key| ds.key_compare_with_value(key))
     }
 
-    pub fn find_chunk(&self, dataset: &str, block: u64) -> Option<assignment_fb::Chunk<'_>> {
-        let dataset = self.get_dataset(dataset)?;
+    pub fn find_chunk(
+        &self,
+        dataset: &str,
+        block: u64,
+    ) -> Result<assignment_fb::Chunk<'_>, ChunkNotFound> {
+        let Some(dataset) = self.get_dataset(dataset) else {
+            return Err(ChunkNotFound::UnknownDataset);
+        };
 
         if block > dataset.last_block() {
-            return None;
+            return Err(ChunkNotFound::AfterLast);
         }
 
         // find last chunk with first_block <= block
@@ -71,10 +94,17 @@ impl Assignment {
             }
         }
         if left == -1 {
-            return None; // block is below the first chunk
+            return Err(ChunkNotFound::BeforeFirst);
         }
-        Some(chunks.get(left as usize))
+        Ok(chunks.get(left as usize))
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChunkNotFound {
+    UnknownDataset,
+    BeforeFirst,
+    AfterLast,
 }
 
 pub struct Worker<'f> {

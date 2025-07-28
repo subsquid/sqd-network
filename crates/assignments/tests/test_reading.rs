@@ -38,6 +38,8 @@ fn test_get_worker() {
 #[cfg(feature = "reader")]
 #[test]
 fn test_get_chunks() {
+    use sqd_assignments::ChunkNotFound;
+
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("assignment.fb");
@@ -47,9 +49,9 @@ fn test_get_chunks() {
     let dataset = assignment.get_dataset("s3://solana-mainnet-2").unwrap();
     assert_eq!(dataset.last_block(), 221001549);
 
-    assert_eq!(assignment.find_chunk("s3://dummy", 0), None);
-    assert_eq!(assignment.find_chunk("s3://solana-mainnet-2", 220999999), None);
-    assert_eq!(assignment.find_chunk("s3://solana-mainnet-2", 221001550), None);
+    assert_eq!(assignment.find_chunk("s3://dummy", 0), Err(ChunkNotFound::UnknownDataset));
+    assert_eq!(assignment.find_chunk("s3://solana-mainnet-2", 220999999), Err(ChunkNotFound::BeforeFirst));
+    assert_eq!(assignment.find_chunk("s3://solana-mainnet-2", 221001550), Err(ChunkNotFound::AfterLast));
     let chunk1 = assignment.find_chunk("s3://solana-mainnet-2", 221000000).unwrap();
     let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
 

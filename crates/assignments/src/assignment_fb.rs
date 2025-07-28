@@ -31,3 +31,13 @@ fn test_worker_id_conversion() {
     let converted_peer_id: PeerId = worker_id.try_into().expect("Conversion should succeed");
     assert_eq!(peer_id, converted_peer_id, "PeerId conversion failed");
 }
+
+impl Dataset<'_> {
+    pub fn first_block(&self) -> u64 {
+        self.chunks().get(0).first_block()
+    }
+
+    pub fn last_block_hash(&self) -> Option<&str> {
+        self.chunks().get(self.chunks().len() - 1).last_block_hash()
+    }
+}
