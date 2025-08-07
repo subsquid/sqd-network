@@ -16,7 +16,7 @@
 
 use std::fmt::{Display, Formatter};
 
-use libp2p::{noise, swarm::DialError, TransportError};
+use libp2p::{swarm::DialError, TransportError};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
@@ -130,12 +130,6 @@ pub enum Error {
     Dial(#[from] DialError),
     #[error("{0}")]
     Contract(#[from] sqd_contract_client::ClientError),
-}
-
-impl From<noise::Error> for Error {
-    fn from(e: noise::Error) -> Self {
-        Self::Transport(e.to_string())
-    }
 }
 
 impl From<std::io::Error> for Error {

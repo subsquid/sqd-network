@@ -13,13 +13,13 @@ use futures::{Stream, StreamExt};
 use libp2p::{
     autonat::{self, NatStatus},
     core::ConnectedPoint,
-    dcutr, identify,
+    identify,
     identity::Keypair,
     kad::{
         self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersError,
         GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats,
     },
-    ping, relay,
+    ping,
     swarm::{
         behaviour::ConnectionEstablished,
         dial_opts::{DialOpts, PeerCondition},
@@ -57,8 +57,6 @@ use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHand
 pub struct InnerBehaviour {
     identify: identify::Behaviour,
     kademlia: kad::Behaviour<MemoryStore>,
-    relay: relay::client::Behaviour,
-    dcutr: dcutr::Behaviour,
     ping: ping::Behaviour,
     autonat: autonat::Behaviour,
     whitelist: Wrapped<WhitelistBehavior>,
@@ -136,7 +134,6 @@ impl BaseBehaviour {
         contract_client: Box<dyn ContractClient>,
         config: BaseConfig,
         boot_nodes: Vec<BootNode>,
-        relay: relay::client::Behaviour,
         dht_protocol: StreamProtocol,
         agent_info: AgentInfo,
     ) -> Self {
@@ -156,8 +153,6 @@ impl BaseBehaviour {
                 MemoryStore::new(local_peer_id),
                 kad_config,
             ),
-            relay,
-            dcutr: dcutr::Behaviour::new(local_peer_id),
             ping: ping::Behaviour::new(ping::Config::default()),
             autonat: autonat::Behaviour::new(
                 local_peer_id,
@@ -333,10 +328,6 @@ impl BehaviourWrapper for BaseBehaviour {
             InnerBehaviourEvent::Autonat(ev) => self.on_autonat_event(ev),
             InnerBehaviourEvent::Pubsub(ev) => self.on_pubsub_event(ev),
             InnerBehaviourEvent::Ping(ev) => {
-                record_event(&ev);
-                None
-            }
-            InnerBehaviourEvent::Dcutr(ev) => {
                 record_event(&ev);
                 None
             }
