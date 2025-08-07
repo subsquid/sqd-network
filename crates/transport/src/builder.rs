@@ -30,10 +30,6 @@ use crate::actors::logs_collector::{
 use crate::actors::observer::{
     self, ObserverBehaviour, ObserverConfig, ObserverEvent, ObserverTransportHandle,
 };
-#[cfg(feature = "peer-checker")]
-use crate::actors::peer_checker::{
-    self, PeerCheckerBehaviour, PeerCheckerConfig, PeerCheckerTransportHandle,
-};
 #[cfg(feature = "pings-collector")]
 use crate::actors::pings_collector::{
     self, Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
@@ -42,10 +38,6 @@ use crate::actors::pings_collector::{
 use crate::actors::portal_logs_collector::{
     self, PortalLogsCollectorBehaviour, PortalLogsCollectorConfig, PortalLogsCollectorEvent,
     PortalLogsCollectorTransportHandle,
-};
-#[cfg(feature = "scheduler")]
-use crate::actors::scheduler::{
-    self, SchedulerBehaviour, SchedulerConfig, SchedulerEvent, SchedulerTransportHandle,
 };
 #[cfg(feature = "worker")]
 use crate::actors::worker::{
@@ -231,15 +223,6 @@ impl P2PTransportBuilder {
         Ok(portal_logs_collector::start_transport(swarm, config))
     }
 
-    #[cfg(feature = "peer-checker")]
-    pub fn build_peer_checker(
-        self,
-        config: PeerCheckerConfig,
-    ) -> Result<PeerCheckerTransportHandle, Error> {
-        let swarm = self.build_swarm(PeerCheckerBehaviour::new)?;
-        Ok(peer_checker::start_transport(swarm, config))
-    }
-
     #[cfg(feature = "observer")]
     pub fn build_observer(
         self,
@@ -256,15 +239,6 @@ impl P2PTransportBuilder {
     ) -> Result<(impl Stream<Item = Heartbeat>, PingsCollectorTransportHandle), Error> {
         let swarm = self.build_swarm(|base| PingsCollectorBehaviour::new(base, config))?;
         Ok(pings_collector::start_transport(swarm, config))
-    }
-
-    #[cfg(feature = "scheduler")]
-    pub fn build_scheduler(
-        self,
-        config: SchedulerConfig,
-    ) -> Result<(impl Stream<Item = SchedulerEvent>, SchedulerTransportHandle), Error> {
-        let swarm = self.build_swarm(|base| SchedulerBehaviour::new(base, config))?;
-        Ok(scheduler::start_transport(swarm, config))
     }
 
     #[cfg(feature = "worker")]

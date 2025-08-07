@@ -58,11 +58,6 @@ pub use crate::actors::logs_collector::{
 pub use crate::actors::observer::{
     ObserverBehaviour, ObserverConfig, ObserverEvent, ObserverTransportHandle,
 };
-#[cfg(feature = "peer-checker")]
-pub use crate::actors::peer_checker::{
-    PeerCheckerBehaviour, PeerCheckerConfig, PeerCheckerTransportHandle, ProbeOk, ProbeRequest,
-    ProbeResult,
-};
 #[cfg(feature = "pings-collector")]
 pub use crate::actors::pings_collector::{
     Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
@@ -71,10 +66,6 @@ pub use crate::actors::pings_collector::{
 pub use crate::actors::portal_logs_collector::{
     PortalLogsCollectorBehaviour, PortalLogsCollectorConfig, PortalLogsCollectorEvent,
     PortalLogsCollectorTransportHandle,
-};
-#[cfg(feature = "scheduler")]
-pub use crate::actors::scheduler::{
-    SchedulerBehaviour, SchedulerConfig, SchedulerEvent, SchedulerTransportHandle,
 };
 #[cfg(feature = "worker")]
 pub use crate::actors::worker::{
