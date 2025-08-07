@@ -67,10 +67,6 @@ pub struct GatewayConfig {
     pub query_config: ClientConfig,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
-    /// Subcribe to worker status via gossipsub (default: false).
-    pub worker_status_via_gossipsub: bool,
-    /// Subcribe to worker status via direct polling (default: true).
-    pub worker_status_via_polling: bool,
     pub portal_logs_collector_lookup_interval: Duration,
     pub log_sending_timeout: Duration,
 }
@@ -84,8 +80,6 @@ impl Default for GatewayConfig {
             },
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
-            worker_status_via_gossipsub: false,
-            worker_status_via_polling: true,
             portal_logs_collector_lookup_interval: Duration::from_secs(60),
             log_sending_timeout: Duration::from_secs(10),
         }
@@ -215,9 +209,7 @@ impl GatewayTransportHandle {
             stream.close().await?;
             Ok(())
         };
-        tokio::time::timeout(self.log_sending_timeout, fut)
-        .await
-        .unwrap_or_else(|_| {
+        tokio::time::timeout(self.log_sending_timeout, fut).await.unwrap_or_else(|_| {
             log::debug!("Log sending to {listener} timed out");
             Err(RequestError::Timeout(Timeout::Connect))?
         })
@@ -285,14 +277,8 @@ pub struct GatewayBehaviour {
 }
 
 impl GatewayBehaviour {
-    pub fn new(mut base: BaseBehaviour, config: GatewayConfig) -> Wrapped<Self> {
-        if config.worker_status_via_gossipsub {
-            base.subscribe_heartbeats();
-        }
-
-        if config.worker_status_via_polling {
-            base.start_pulling_heartbeats();
-        }
+    pub fn new(mut base: BaseBehaviour, _config: GatewayConfig) -> Wrapped<Self> {
+        base.start_pulling_heartbeats();
 
         Self {
             base: base.into(),

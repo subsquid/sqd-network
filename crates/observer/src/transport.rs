@@ -16,7 +16,6 @@ use libp2p::{
 };
 
 use sqd_contract_client::Network;
-use sqd_messages::ProstMsg;
 use sqd_network_transport::{
     get_agent_info,
     protocol::{self, dht_protocol},
@@ -35,6 +34,8 @@ pub struct Transport {
 pub enum Event {
     Gossipsub(GossipsubMessage),
     PeerSeen(PeerSeen),
+    // TODO: reuse base behavior to poll statuses from workers
+    #[allow(dead_code)]
     WorkerHeartbeat(WorkerHeartbeat),
     Ping(libp2p::ping::Event),
 }
@@ -156,16 +157,6 @@ impl Transport {
         let peer_id = message.source;
 
         self.events.push_back(Event::Gossipsub(GossipsubMessage { peer_id, topic }));
-
-        if topic == protocol::HEARTBEAT_TOPIC {
-            match sqd_messages::Heartbeat::decode(message.data.as_slice()) {
-                Ok(heartbeat) => {
-                    self.events
-                        .push_back(Event::WorkerHeartbeat(WorkerHeartbeat { peer_id, heartbeat }));
-                }
-                Err(e) => log::warn!("Couldn't parse heartbeat from {peer_id:?}: {e:?}"),
-            }
-        }
     }
 }
 

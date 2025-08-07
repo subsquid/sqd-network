@@ -11,7 +11,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::{Heartbeat, LogsRequest, Query, QueryLogs, QueryResult, WorkerStatus};
+use sqd_messages::{LogsRequest, Query, QueryLogs, QueryResult, WorkerStatus};
 
 use crate::{
     behaviour::{
@@ -73,7 +73,6 @@ pub struct WorkerConfig {
     pub shutdown_timeout: Duration,
     pub query_execution_timeout: Duration,
     pub send_logs_timeout: Duration,
-    pub enable_heartbeat_gossipsub: bool,
 }
 
 impl WorkerConfig {
@@ -87,7 +86,6 @@ impl WorkerConfig {
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
             query_execution_timeout: Duration::from_secs(20),
             send_logs_timeout: Duration::from_secs(5),
-            enable_heartbeat_gossipsub: false,
         }
     }
 }
@@ -98,10 +96,6 @@ pub struct WorkerBehaviour {
 
 impl WorkerBehaviour {
     pub fn new(mut base: BaseBehaviour, config: WorkerConfig) -> Wrapped<Self> {
-        if config.enable_heartbeat_gossipsub {
-            // You have to subscribe to the topic to be able to publish to it
-            base.subscribe_heartbeats();
-        }
         base.set_server_mode();
         Self {
             inner: InnerBehaviour {
@@ -144,10 +138,6 @@ impl WorkerBehaviour {
             query,
             resp_chan,
         })
-    }
-
-    pub fn send_heartbeat(&mut self, heartbeat: Heartbeat) {
-        self.inner.base.publish_heartbeat(heartbeat);
     }
 
     pub fn send_query_result(
@@ -237,7 +227,6 @@ impl BehaviourWrapper for WorkerBehaviour {
 
 struct WorkerTransport {
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
-    heartbeats_rx: Receiver<Heartbeat>,
     query_results_rx: Receiver<(QueryResult, ResponseChannel<QueryResult>)>,
     logs_rx: Receiver<(QueryLogs, ResponseChannel<QueryLogs>)>,
     status_rx: Receiver<(WorkerStatus, ResponseChannel<WorkerStatus>)>,
@@ -251,7 +240,6 @@ impl WorkerTransport {
             tokio::select! {
                  _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
-                Some(heartbeat) = self.heartbeats_rx.recv() => self.swarm.behaviour_mut().send_heartbeat(heartbeat),
                 Some((res, resp_chan)) = self.query_results_rx.recv() => self.swarm.behaviour_mut().send_query_result(res, resp_chan),
                 Some((logs, resp_chan)) = self.logs_rx.recv() => self.swarm.behaviour_mut().send_logs(logs, resp_chan),
                 Some((status, resp_chan)) = self.status_rx.recv() => self.swarm.behaviour_mut().send_status(status, resp_chan),
@@ -271,7 +259,6 @@ impl WorkerTransport {
 
 #[derive(Clone)]
 pub struct WorkerTransportHandle {
-    heartbeats_tx: Sender<Heartbeat>,
     query_results_tx: Sender<(QueryResult, ResponseChannel<QueryResult>)>,
     logs_tx: Sender<(QueryLogs, ResponseChannel<QueryLogs>)>,
     status_tx: Sender<(WorkerStatus, ResponseChannel<WorkerStatus>)>,
@@ -280,7 +267,6 @@ pub struct WorkerTransportHandle {
 
 impl WorkerTransportHandle {
     fn new(
-        heartbeats_tx: Sender<Heartbeat>,
         query_results_tx: Sender<(QueryResult, ResponseChannel<QueryResult>)>,
         logs_tx: Sender<(QueryLogs, ResponseChannel<QueryLogs>)>,
         status_tx: Sender<(WorkerStatus, ResponseChannel<WorkerStatus>)>,
@@ -290,17 +276,11 @@ impl WorkerTransportHandle {
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(c));
         Self {
-            heartbeats_tx,
             query_results_tx,
             logs_tx,
             status_tx,
             _task_manager: Arc::new(task_manager),
         }
-    }
-
-    pub fn send_heartbeat(&self, heartbeat: Heartbeat) -> Result<(), QueueFull> {
-        log::trace!("Queueing heartbeat {heartbeat:?}");
-        self.heartbeats_tx.try_send(heartbeat)
     }
 
     pub fn send_query_result(
@@ -335,7 +315,6 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
     config: WorkerConfig,
 ) -> (impl Stream<Item = WorkerEvent>, WorkerTransportHandle) {
-    let (heartbeats_tx, heartbeats_rx) = new_queue(config.heartbeats_queue_size, "heartbeats");
     let (query_results_tx, query_results_rx) =
         new_queue(config.query_results_queue_size, "query_results");
     let (logs_tx, logs_rx) = new_queue(config.logs_queue_size, "logs");
@@ -343,14 +322,12 @@ pub fn start_transport(
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let transport = WorkerTransport {
         swarm,
-        heartbeats_rx,
         query_results_rx,
         logs_rx,
         status_rx,
         events_tx,
     };
     let handle = WorkerTransportHandle::new(
-        heartbeats_tx,
         query_results_tx,
         logs_tx,
         status_tx,

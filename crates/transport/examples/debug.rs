@@ -231,11 +231,10 @@ fn bootnodes(network: Network) -> impl Iterator<Item = (Multiaddr, PeerId)> {
 }
 
 fn on_gossipsub_message(message: libp2p::gossipsub::Message) {
-    use sqd_messages::ProstMsg;
-
     lazy_static! {
-        static ref TOPIC_BY_HASH: BTreeMap<TopicHash, &'static str> =
-            BTreeMap::from_iter(protocol::KNOWN_TOPICS.iter().map(|&topic| (topic_hash(topic), topic)));
+        static ref TOPIC_BY_HASH: BTreeMap<TopicHash, &'static str> = BTreeMap::from_iter(
+            protocol::KNOWN_TOPICS.iter().map(|&topic| (topic_hash(topic), topic))
+        );
     }
 
     let Some(topic) = TOPIC_BY_HASH.get(&message.topic) else {
@@ -243,21 +242,8 @@ fn on_gossipsub_message(message: libp2p::gossipsub::Message) {
         return;
     };
 
-    match topic {
-        &protocol::HEARTBEAT_TOPIC => {
-            let peer_id = message.source.expect("message should have a known source");
-            match sqd_messages::Heartbeat::decode(message.data.as_slice()) {
-                Ok(heartbeat) => {
-                    log::info!("Gossipsub message ({topic}) from {peer_id}: {heartbeat:?}")
-                }
-                Err(e) => log::warn!("Couldn't parse heartbeat from {peer_id}: {e:?}",),
-            }
-        }
-        topic => {
-            log::info!("Gossipsub legacy message ({topic}): {message:?}");
-            return;
-        }
-    }
+    log::info!("Gossipsub legacy message ({topic}): {message:?}");
+    return;
 }
 
 fn topic_hash(topic: &str) -> TopicHash {

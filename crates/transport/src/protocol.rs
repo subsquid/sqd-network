@@ -4,13 +4,13 @@ use libp2p::StreamProtocol;
 
 use sqd_contract_client::Network;
 
-pub const HEARTBEAT_TOPIC: &str = "/sqd/worker_heartbeats/1.1.0";
-pub const PORTAL_LOGS_TOPIC: &str = "/sqd/portal_logs/1.1.0";
 // Legacy topics
-pub const OLD_PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
-pub const WORKER_LOGS_TOPIC_1_0: &str = "/subsquid/worker_query_logs/1.0.0";
-pub const WORKER_LOGS_TOPIC_1_1: &str = "/subsquid/worker_query_logs/1.1.0";
-pub const LOGS_COLLECTED_TOPIC: &str = "/subsquid/logs_collected/1.0.0";
+const HEARTBEAT_TOPIC: &str = "/sqd/worker_heartbeats/1.1.0";
+const PORTAL_LOGS_TOPIC: &str = "/sqd/portal_logs/1.1.0";
+const OLD_PING_TOPIC: &str = "/subsquid/worker_pings/1.0.0";
+const WORKER_LOGS_TOPIC_1_0: &str = "/subsquid/worker_query_logs/1.0.0";
+const WORKER_LOGS_TOPIC_1_1: &str = "/subsquid/worker_query_logs/1.1.0";
+const LOGS_COLLECTED_TOPIC: &str = "/subsquid/logs_collected/1.0.0";
 
 pub const KNOWN_TOPICS: [&'static str; 6] = [
     HEARTBEAT_TOPIC,
@@ -37,7 +37,6 @@ pub const MAX_LOGS_RESPONSE_SIZE: u64 = 10 * 1024 * 1024;
 pub const MAX_PUBSUB_MSG_SIZE: usize = 65536;
 pub const MAX_HEARTBEAT_SIZE: u64 = 10 * 1024 * 1024;
 
-pub const HEARTBEATS_MIN_INTERVAL: Duration = Duration::from_secs(20);
 pub const APPROX_EPOCH_LEN: Duration = Duration::from_secs(1200);
 pub const MAX_TIME_LAG: Duration = Duration::from_secs(60);
 

@@ -17,8 +17,6 @@ lazy_static! {
     pub static ref DROPPED: Family<Vec<(&'static str, &'static str)>, Counter<u64, AtomicU64>> =
         Default::default();
     pub static ref DISCARDED_MESSAGES: Counter = Default::default();
-    pub static ref HEARTBEATS_PUBLISHED: Counter = Default::default();
-    pub static ref HEARTBEATS_RECEIVED: Counter = Default::default();
 }
 
 pub static LIBP2P_METRICS: OnceCell<Metrics> = OnceCell::const_new();
@@ -54,14 +52,4 @@ pub fn register_metrics(registry: &mut Registry) {
         DISCARDED_MESSAGES.clone(),
     );
     registry.register("dropped", "The number of dropped messages/events", DROPPED.clone());
-    registry.register(
-        "heartbeats_published",
-        "The number of published heartbeat messages",
-        HEARTBEATS_PUBLISHED.clone(),
-    );
-    registry.register(
-        "heartbeats_received",
-        "The number of received heartbeat messages",
-        HEARTBEATS_RECEIVED.clone(),
-    );
 }

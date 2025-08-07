@@ -37,9 +37,7 @@ use sqd_contract_client::{Client as ContractClient, NetworkNodes};
 use sqd_messages::Heartbeat;
 
 #[cfg(feature = "metrics")]
-use crate::metrics::{
-    ACTIVE_CONNECTIONS, HEARTBEATS_PUBLISHED, HEARTBEATS_RECEIVED, ONGOING_PROBES, ONGOING_QUERIES,
-};
+use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_PROBES, ONGOING_QUERIES};
 use crate::{
     behaviour::{
         addr_cache::AddressCache,
@@ -48,19 +46,13 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{
-        HEARTBEATS_MIN_INTERVAL, HEARTBEAT_TOPIC, ID_PROTOCOL, MAX_HEARTBEAT_SIZE,
-        MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL,
-    },
+    protocol::{ID_PROTOCOL, MAX_HEARTBEAT_SIZE, MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL},
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, Multiaddr, PeerId,
 };
 
-use super::{
-    pubsub::{MsgValidationConfig, ValidationError},
-    stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle},
-};
+use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle};
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
@@ -232,19 +224,6 @@ impl BaseBehaviour {
         self.inner.stream.new_handle(protocol, config)
     }
 
-    pub fn subscribe_heartbeats(&mut self) {
-        let registered_workers = self.registered_workers.clone();
-        let config = MsgValidationConfig::new(HEARTBEATS_MIN_INTERVAL).max_burst(2).msg_validator(
-            move |peer_id: PeerId, _seq_no: u64, _data: &[u8]| {
-                if !registered_workers.read().contains(&peer_id) {
-                    return Err(ValidationError::Invalid("Worker not registered"));
-                }
-                Ok(())
-            },
-        );
-        self.inner.pubsub.subscribe(HEARTBEAT_TOPIC, config);
-    }
-
     pub fn start_pulling_heartbeats(&mut self) {
         let registered_workers = self.registered_workers.clone();
         let status_stream_handle = self.inner.stream.new_handle(
@@ -262,12 +241,6 @@ impl BaseBehaviour {
             self.config.status_request_frequency,
             self.config.concurrent_status_requests,
         )));
-    }
-
-    pub fn publish_heartbeat(&mut self, heartbeat: Heartbeat) {
-        self.inner.pubsub.publish(HEARTBEAT_TOPIC, heartbeat.encode_to_vec());
-        #[cfg(feature = "metrics")]
-        HEARTBEATS_PUBLISHED.inc();
     }
 
     pub fn get_kademlia_mut(&mut self) -> &mut kad::Behaviour<MemoryStore> {
@@ -677,16 +650,11 @@ impl BaseBehaviour {
         PubsubMsg {
             peer_id,
             topic,
-            data,
+            ..
         }: PubsubMsg,
     ) -> Option<TToSwarm<Self>> {
         log::trace!("Pub-sub message received: peer_id={peer_id} topic={topic}");
-        let data = data.as_ref();
-        let ev = match topic {
-            HEARTBEAT_TOPIC => decode_heartbeat(peer_id, data)?,
-            _ => return None,
-        };
-        Some(ToSwarm::GenerateEvent(ev))
+        None
     }
 
     // TODO: consider capturing all dial requests, not only from the stream behaviour
@@ -709,13 +677,4 @@ impl BaseBehaviour {
         *self.registered_workers.write() = nodes.workers;
         None
     }
-}
-
-fn decode_heartbeat(peer_id: PeerId, data: &[u8]) -> Option<BaseBehaviourEvent> {
-    let heartbeat = Heartbeat::decode(data)
-        .map_err(|e| log::warn!("Error decoding heartbeat: {e:?}"))
-        .ok()?;
-    #[cfg(feature = "metrics")]
-    HEARTBEATS_RECEIVED.inc();
-    Some(BaseBehaviourEvent::Heartbeat { peer_id, heartbeat })
 }
