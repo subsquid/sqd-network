@@ -19,7 +19,8 @@ pub struct Assignment {
 impl Assignment {
     pub fn from_owned(buf: Vec<u8>) -> Result<Self, flatbuffers::InvalidFlatbuffer> {
         let opts = flatbuffers::VerifierOptions {
-            max_tables: 200_000_000,
+            max_tables: 1_000_000_000_000,
+            max_apparent_size: 1 << 40, // 1TB
             ..Default::default()
         };
         AssignmentTryBuilder {
