@@ -10,7 +10,6 @@ use tokio::sync::OnceCell;
 
 lazy_static! {
     pub static ref ACTIVE_CONNECTIONS: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref ONGOING_PROBES: Gauge<u32, AtomicU32> = Default::default();
     pub static ref ONGOING_QUERIES: Gauge<u32, AtomicU32> = Default::default();
     pub static ref QUEUE_SIZE: Family<Vec<(&'static str, &'static str)>, Gauge<u32, AtomicU32>> =
         Default::default();
@@ -30,11 +29,6 @@ pub fn register_metrics(registry: &mut Registry) {
         "active_connections",
         "The number of active p2p connections (both incoming and outgoing)",
         ACTIVE_CONNECTIONS.clone(),
-    );
-    registry.register(
-        "ongoing_probes",
-        "The number of ongoing peer reachability probes",
-        ONGOING_PROBES.clone(),
     );
     registry.register(
         "ongoing_queries",

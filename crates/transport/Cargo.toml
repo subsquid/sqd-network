@@ -11,7 +11,6 @@ bimap = "0.6"
 clap = { version = "4", features = ["derive", "env"] }
 derivative = "2"
 futures = "0.3"
-futures-bounded = "0.2.4"
 futures-core = "0.3"
 lazy_static = { version = "1" }
 libp2p = { workspace = true, features = ["dns", "tokio", "noise", "yamux", "identify", "kad", "relay", "dcutr", "ping", "request-response", "gossipsub", "serde", "autonat", "quic"] }

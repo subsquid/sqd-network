@@ -10,7 +10,6 @@ use std::{
 
 use bimap::BiHashMap;
 use futures::{Stream, StreamExt};
-use futures_bounded::FuturesMap;
 use libp2p::{
     autonat::{self, NatStatus},
     core::ConnectedPoint,
@@ -24,7 +23,7 @@ use libp2p::{
     swarm::{
         behaviour::ConnectionEstablished,
         dial_opts::{DialOpts, PeerCondition},
-        ConnectionClosed, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, ToSwarm,
+        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm,
     },
     StreamProtocol,
 };
@@ -37,7 +36,7 @@ use sqd_contract_client::{Client as ContractClient, NetworkNodes};
 use sqd_messages::Heartbeat;
 
 #[cfg(feature = "metrics")]
-use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_PROBES, ONGOING_QUERIES};
+use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_QUERIES};
 use crate::{
     behaviour::{
         addr_cache::AddressCache,
@@ -49,7 +48,7 @@ use crate::{
     protocol::{ID_PROTOCOL, MAX_HEARTBEAT_SIZE, MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL},
     record_event,
     util::{addr_is_reachable, parse_env_var},
-    AgentInfo, Multiaddr, PeerId,
+    AgentInfo, PeerId,
 };
 
 use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle};
@@ -76,12 +75,8 @@ pub struct BaseConfig {
     pub autonat_timeout: Duration,
     /// How often to publish identify info to connected nodes (default: 60 sec).
     pub identify_interval: Duration,
-    /// Timeout for outgoing reachability probes (default: 20 sec).
-    pub probe_timeout: Duration,
     /// Timeout for kademlia DHT queries (default: 10 sec).
     pub kad_query_timeout: Duration,
-    /// Maximum number of concurrent outgoing reachability probes (default: 1024)
-    pub max_concurrent_probes: usize,
     /// Maximum size of gossipsub messages in bytes (default: `MAX_PUBSUB_MSG_SIZE`)
     pub max_pubsub_msg_size: usize,
     /// Maximum number of peers to keep in the address cache (default: 1024)
@@ -100,9 +95,7 @@ impl BaseConfig {
             Duration::from_secs(parse_env_var("ONCHAIN_UPDATE_INTERVAL_SEC", 60));
         let autonat_timeout = Duration::from_secs(parse_env_var("AUTONAT_TIMEOUT_SEC", 60));
         let identify_interval = Duration::from_secs(parse_env_var("IDENTIFY_INTERVAL_SEC", 60));
-        let probe_timeout = Duration::from_secs(parse_env_var("PROBE_TIMEOUT_SEC", 20));
         let kad_query_timeout = Duration::from_secs(parse_env_var("KAD_QUERY_TIMEOUT_SEC", 5));
-        let max_concurrent_probes = parse_env_var("MAX_CONCURRENT_PROBES", 1024);
         let max_pubsub_msg_size = parse_env_var("MAX_PUBSUB_MSG_SIZE", MAX_PUBSUB_MSG_SIZE);
         let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
             .expect("addr_cache_size should be > 0");
@@ -115,9 +108,7 @@ impl BaseConfig {
             onchain_update_interval,
             autonat_timeout,
             identify_interval,
-            probe_timeout,
             kad_query_timeout,
-            max_concurrent_probes,
             max_pubsub_msg_size,
             addr_cache_size,
             status_request_timeout,
@@ -132,10 +123,8 @@ pub struct BaseBehaviour {
     config: BaseConfig,
     keypair: Keypair,
     pending_events: VecDeque<TToSwarm<Self>>,
-    pending_outbound_conns: BiHashMap<PeerId, ConnectionId>,
     ongoing_queries: BiHashMap<PeerId, QueryId>,
     outbound_conns: HashMap<PeerId, u32>,
-    probe_timeouts: FuturesMap<PeerId, ()>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
 }
@@ -197,10 +186,8 @@ impl BaseBehaviour {
             inner,
             keypair: keypair.clone(),
             pending_events: Default::default(),
-            pending_outbound_conns: Default::default(),
             ongoing_queries: Default::default(),
             outbound_conns: Default::default(),
-            probe_timeouts: FuturesMap::new(config.probe_timeout, config.max_concurrent_probes),
             registered_workers: Arc::new(RwLock::new(Default::default())),
             heartbeats_stream: None,
             config,
@@ -267,84 +254,6 @@ impl BaseBehaviour {
         self.outbound_conn_exists(peer_id) || self.inner.address_cache.contains(peer_id)
     }
 
-    fn try_schedule_probe(&mut self, peer_id: PeerId) -> Result<(), TryProbeError> {
-        if self.probe_timeouts.contains(peer_id) {
-            log::debug!("Probe for peer {peer_id} already ongoing");
-            return Err(TryProbeError::Ongoing);
-        }
-        if self.probe_timeouts.try_push(peer_id, futures::future::pending()).is_err() {
-            log::debug!("Too  many ongoing probes");
-            return Err(TryProbeError::TooManyProbes);
-        }
-        if self.outbound_conn_exists(&peer_id) {
-            log::debug!("Closing outbound connection(s) to {peer_id}");
-            self.pending_events.push_back(ToSwarm::CloseConnection {
-                peer_id,
-                connection: Default::default(),
-            });
-        }
-        log::debug!("Probing peer {peer_id}");
-        #[cfg(feature = "metrics")]
-        ONGOING_PROBES.inc();
-        Ok(())
-    }
-
-    /// Try to find peer on DHT and connect
-    pub fn try_probe_dht(&mut self, peer_id: PeerId) -> Result<(), TryProbeError> {
-        self.try_schedule_probe(peer_id)?;
-        self.find_and_dial(peer_id);
-        Ok(())
-    }
-
-    /// Try to connect to peer directly
-    pub fn try_probe_direct(
-        &mut self,
-        peer_id: PeerId,
-        addr: Multiaddr,
-    ) -> Result<(), TryProbeError> {
-        self.try_schedule_probe(peer_id)?;
-        let dial_opts = DialOpts::peer_id(peer_id)
-            .addresses(vec![addr])
-            .condition(PeerCondition::Always)
-            .build();
-        let conn_id = dial_opts.connection_id();
-        self.pending_outbound_conns.insert(peer_id, conn_id);
-        self.pending_events.push_back(ToSwarm::Dial { opts: dial_opts });
-        Ok(())
-    }
-
-    fn on_dial_failure(
-        &mut self,
-        peer_id: PeerId,
-        conn_id: ConnectionId,
-        error: String,
-    ) -> Option<TToSwarm<Self>> {
-        self.pending_outbound_conns.remove_by_right(&conn_id)?;
-        log::debug!("Probe for peer {peer_id} failed: {error}");
-        #[cfg(feature = "metrics")]
-        if ONGOING_PROBES.dec() == 0 {
-            ONGOING_PROBES.set(0); // FIXME: There is underflow sometimes
-        }
-        _ = self.probe_timeouts.remove(peer_id);
-        Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::PeerProbed(PeerProbed {
-            peer_id,
-            result: ProbeResult::Error(error.into_boxed_str()),
-        })))
-    }
-
-    fn on_probe_timeout(&mut self, peer_id: PeerId) -> TToSwarm<Self> {
-        log::debug!("Probe for peer {peer_id} timed out");
-        #[cfg(feature = "metrics")]
-        if ONGOING_PROBES.dec() == 0 {
-            ONGOING_PROBES.set(0); // FIXME: There is underflow sometimes
-        }
-        self.pending_outbound_conns.remove_by_left(&peer_id);
-        ToSwarm::GenerateEvent(BaseBehaviourEvent::PeerProbed(PeerProbed {
-            peer_id,
-            result: ProbeResult::Timeout,
-        }))
-    }
-
     pub fn allow_peer(&mut self, peer_id: PeerId) {
         self.inner.whitelist.allow_peer(peer_id);
     }
@@ -390,37 +299,12 @@ pub enum BaseBehaviourEvent {
         peer_id: PeerId,
         heartbeat: Heartbeat,
     },
-    PeerProbed(PeerProbed),
     ProviderRecord {
         id: QueryId,
         result: Result<GetProvidersOk, GetProvidersError>,
         stats: QueryStats,
         step: ProgressStep,
     },
-}
-
-#[derive(Debug, Clone)]
-pub struct PeerProbed {
-    pub peer_id: PeerId,
-    pub result: ProbeResult,
-}
-
-#[derive(Debug, Clone)]
-pub enum ProbeResult {
-    Timeout,
-    Error(Box<str>),
-    Reachable {
-        listen_addrs: Vec<Multiaddr>,
-        agent_version: Box<str>,
-    },
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum TryProbeError {
-    #[error("There are too many active probes")]
-    TooManyProbes,
-    #[error("There is already an ongoing probe for this peer")]
-    Ongoing,
 }
 
 impl BehaviourWrapper for BaseBehaviour {
@@ -435,11 +319,6 @@ impl BehaviourWrapper for BaseBehaviour {
         match ev {
             FromSwarm::ConnectionEstablished(conn) => self.on_connection_established(conn),
             FromSwarm::ConnectionClosed(conn) => self.on_connection_closed(conn),
-            FromSwarm::DialFailure(DialFailure {
-                peer_id: Some(peer_id),
-                error,
-                connection_id,
-            }) => self.on_dial_failure(peer_id, connection_id, error.to_string()),
             _ => None,
         }
     }
@@ -483,14 +362,6 @@ impl BehaviourWrapper for BaseBehaviour {
             }
         }
 
-        match self.probe_timeouts.poll_unpin(cx) {
-            Poll::Ready((peer_id, Err(_))) => {
-                return Poll::Ready(Some(self.on_probe_timeout(peer_id)));
-            }
-            Poll::Pending => {}
-            _ => unreachable!(), // future::pending() should never complete
-        }
-
         return Poll::Pending;
     }
 }
@@ -526,12 +397,8 @@ impl BaseBehaviour {
     fn on_identify_event(&mut self, ev: identify::Event) -> Option<TToSwarm<Self>> {
         log::debug!("Identify event received: {ev:?}");
         record_event(&ev);
-        let (peer_id, listen_addrs, agent_version, conn_id) = match ev {
-            identify::Event::Received {
-                peer_id,
-                info,
-                connection_id,
-            } => (peer_id, info.listen_addrs, info.agent_version, connection_id),
+        let (peer_id, listen_addrs) = match ev {
+            identify::Event::Received { peer_id, info, .. } => (peer_id, info.listen_addrs),
             _ => return None,
         };
 
@@ -542,29 +409,7 @@ impl BaseBehaviour {
             self.inner.kademlia.add_address(&peer_id, addr);
         });
 
-        let pending_conn = self.pending_outbound_conns.get_by_left(&peer_id);
-        // In case of a DHT probe, there should be no connection ID in `pending_outbound_conns`
-        // In case of a direct probe, the connection ID should match the one stored
-        if self.probe_timeouts.contains(peer_id)
-            && (pending_conn.is_none() || pending_conn.is_some_and(|id| id == &conn_id))
-        {
-            self.probe_timeouts.remove(peer_id);
-            self.pending_outbound_conns.remove_by_left(&peer_id);
-            #[cfg(feature = "metrics")]
-            if ONGOING_PROBES.dec() == 0 {
-                ONGOING_PROBES.set(0); // FIXME: There is underflow sometimes
-            }
-            log::debug!("Probe for {peer_id} succeeded");
-            Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::PeerProbed(PeerProbed {
-                peer_id,
-                result: ProbeResult::Reachable {
-                    listen_addrs: listen_addrs.collect(),
-                    agent_version: agent_version.into_boxed_str(),
-                },
-            })))
-        } else {
-            None
-        }
+        None
     }
 
     fn on_kademlia_event(&mut self, ev: kad::Event) -> Option<TToSwarm<Self>> {
@@ -647,11 +492,7 @@ impl BaseBehaviour {
 
     fn on_pubsub_event(
         &mut self,
-        PubsubMsg {
-            peer_id,
-            topic,
-            ..
-        }: PubsubMsg,
+        PubsubMsg { peer_id, topic, .. }: PubsubMsg,
     ) -> Option<TToSwarm<Self>> {
         log::trace!("Pub-sub message received: peer_id={peer_id} topic={topic}");
         None

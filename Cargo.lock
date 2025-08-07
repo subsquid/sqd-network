@@ -5493,7 +5493,6 @@ dependencies = [
  "derivative",
  "env_logger",
  "futures",
- "futures-bounded",
  "futures-core",
  "lazy_static",
  "libp2p",

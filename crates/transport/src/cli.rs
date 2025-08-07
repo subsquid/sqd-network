@@ -13,7 +13,7 @@ pub struct TransportArgs {
         long,
         env,
         help = "Addresses on which the p2p node will listen",
-        value_delimiter = ',',
+        value_delimiter = ','
     )]
     pub p2p_listen_addrs: Vec<Multiaddr>,
 
@@ -21,7 +21,7 @@ pub struct TransportArgs {
         long,
         env,
         help = "Public address(es) on which the p2p node can be reached",
-        value_delimiter = ',',
+        value_delimiter = ','
     )]
     pub p2p_public_addrs: Vec<Multiaddr>,
 

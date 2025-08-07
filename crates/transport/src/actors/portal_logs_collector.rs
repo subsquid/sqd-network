@@ -3,7 +3,10 @@ use std::{sync::Arc, time::Duration};
 use futures::StreamExt;
 use futures_core::Stream;
 use libp2p::{
-    kad::RecordKey, request_response::ResponseChannel, swarm::{NetworkBehaviour, SwarmEvent, ToSwarm}, PeerId, Swarm
+    kad::RecordKey,
+    request_response::ResponseChannel,
+    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
+    PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
@@ -26,7 +29,6 @@ use crate::{
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-
 
 #[derive(Debug)]
 pub enum PortalLogsCollectorEvent {
