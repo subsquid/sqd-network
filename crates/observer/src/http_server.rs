@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use axum::{http::{header, HeaderMap}, response::IntoResponse, routing::get};
+use axum::{
+    http::{header, HeaderMap},
+    response::IntoResponse,
+    routing::get,
+};
 use prometheus_client::{encoding::text::encode, registry::Registry};
 
 async fn get_metrics(registry: Arc<Registry>) -> impl IntoResponse {
@@ -37,8 +41,7 @@ impl Server {
 
     pub async fn run(self, port: u16) -> anyhow::Result<()> {
         let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
-        axum::serve(listener, self.router)
-            .await?;
+        axum::serve(listener, self.router).await?;
         Ok(())
     }
 }

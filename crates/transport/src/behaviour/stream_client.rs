@@ -133,7 +133,7 @@ impl StreamClientHandle {
 impl Clone for StreamClientHandle {
     fn clone(&self) -> Self {
         Self {
-            config: self.config.clone(),
+            config: self.config,
             control: self.control.clone(),
             protocol: self.protocol,
             semaphores: Default::default(),

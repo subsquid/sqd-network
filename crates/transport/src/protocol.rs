@@ -12,7 +12,7 @@ const WORKER_LOGS_TOPIC_1_0: &str = "/subsquid/worker_query_logs/1.0.0";
 const WORKER_LOGS_TOPIC_1_1: &str = "/subsquid/worker_query_logs/1.1.0";
 const LOGS_COLLECTED_TOPIC: &str = "/subsquid/logs_collected/1.0.0";
 
-pub const KNOWN_TOPICS: [&'static str; 6] = [
+pub const KNOWN_TOPICS: [&str; 6] = [
     HEARTBEAT_TOPIC,
     PORTAL_LOGS_TOPIC,
     OLD_PING_TOPIC,

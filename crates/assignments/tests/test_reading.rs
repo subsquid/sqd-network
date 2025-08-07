@@ -50,8 +50,14 @@ fn test_get_chunks() {
     assert_eq!(dataset.last_block(), 221001549);
 
     assert_eq!(assignment.find_chunk("s3://dummy", 0), Err(ChunkNotFound::UnknownDataset));
-    assert_eq!(assignment.find_chunk("s3://solana-mainnet-2", 220999999), Err(ChunkNotFound::BeforeFirst));
-    assert_eq!(assignment.find_chunk("s3://solana-mainnet-2", 221001550), Err(ChunkNotFound::AfterLast));
+    assert_eq!(
+        assignment.find_chunk("s3://solana-mainnet-2", 220999999),
+        Err(ChunkNotFound::BeforeFirst)
+    );
+    assert_eq!(
+        assignment.find_chunk("s3://solana-mainnet-2", 221001550),
+        Err(ChunkNotFound::AfterLast)
+    );
     let chunk1 = assignment.find_chunk("s3://solana-mainnet-2", 221000000).unwrap();
     let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
 

@@ -163,7 +163,7 @@ impl BaseBehaviour {
                 },
             ),
             whitelist: WhitelistBehavior::new(
-                contract_client.clone_client(),
+                contract_client,
                 WhitelistConfig::new(config.onchain_update_interval),
             )
             .into(),
@@ -266,7 +266,7 @@ fn stream_heartbeats(
     tokio_stream::wrappers::IntervalStream::new(interval).flat_map(move |_| {
         let workers = registered_workers.read().clone();
         let stream_handle = stream_handle.clone();
-        futures::stream::iter(workers.into_iter())
+        futures::stream::iter(workers)
             .map(move |peer_id| {
                 let stream_handle = stream_handle.clone();
                 async move {
@@ -353,7 +353,7 @@ impl BehaviourWrapper for BaseBehaviour {
             }
         }
 
-        return Poll::Pending;
+        Poll::Pending
     }
 }
 

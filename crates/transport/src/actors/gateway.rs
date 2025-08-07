@@ -202,10 +202,10 @@ impl GatewayTransportHandle {
         Ok(result)
     }
 
-    async fn send_log_to_listener(&self, listener: PeerId, buf: &Vec<u8>) -> Result<(), Error> {
+    async fn send_log_to_listener(&self, listener: PeerId, buf: &[u8]) -> Result<(), Error> {
         let fut = async {
             let mut stream = self.logs_handle.get_raw_stream(listener).await?;
-            stream.write_all(&buf).await?;
+            stream.write_all(buf).await?;
             stream.close().await?;
             Ok(())
         };
@@ -215,15 +215,12 @@ impl GatewayTransportHandle {
         })
     }
 
-    async fn publish_portal_log(&self, log: &QueryFinished, listeners: &Vec<PeerId>) {
+    async fn publish_portal_log(&self, log: &QueryFinished, listeners: &[PeerId]) {
         log::debug!("Sending log: {log:?}");
         let buf = log.encode_to_vec();
-        let results = join_all(
-            listeners
-                .iter()
-                .map(|listener| self.send_log_to_listener(listener.clone(), &buf)),
-        )
-        .await;
+        let results =
+            join_all(listeners.iter().map(|listener| self.send_log_to_listener(*listener, &buf)))
+                .await;
         for (idx, result) in results.iter().enumerate() {
             let listener = listeners[idx];
             match result {
@@ -300,7 +297,7 @@ impl GatewayBehaviour {
                 result,
                 stats,
                 step,
-            } => self.on_provider_record(id, result, stats, step),
+            } => self.on_provider_record(id, result, &stats, &step),
         }
     }
 
@@ -308,8 +305,8 @@ impl GatewayBehaviour {
         &mut self,
         id: QueryId,
         result: Result<GetProvidersOk, GetProvidersError>,
-        stats: QueryStats,
-        step: ProgressStep,
+        stats: &QueryStats,
+        step: &ProgressStep,
     ) -> Option<InternalGatewayEvent> {
         if let Some(expected_id) = self.provider_query {
             if expected_id != id {
@@ -320,13 +317,10 @@ impl GatewayBehaviour {
         }
         log::debug!("Got provider record: {result:?} {stats:?} {step:?}");
 
-        match result {
-            Ok(GetProvidersOk::FoundProviders { providers, .. }) => {
-                providers.iter().for_each(|p| {
-                    self.providers_list.insert(*p);
-                });
-            }
-            _ => {}
+        if let Ok(GetProvidersOk::FoundProviders { providers, .. }) = result {
+            providers.iter().for_each(|p| {
+                self.providers_list.insert(*p);
+            });
         }
         if step.last {
             self.provider_query = None;

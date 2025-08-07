@@ -31,8 +31,8 @@ pub struct ObserverConfig {
     pub shutdown_timeout: Duration,
 }
 
-impl ObserverConfig {
-    pub fn new() -> Self {
+impl Default for ObserverConfig {
+    fn default() -> Self {
         Self {
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,

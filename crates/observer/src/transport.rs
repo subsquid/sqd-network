@@ -103,7 +103,7 @@ impl Transport {
                     BehaviourEvent::Gossipsub(e) => {
                         self.libp2p_metrics.record(&e);
                         if let libp2p::gossipsub::Event::Message { message, .. } = e {
-                            self.on_gossipsub(message)
+                            self.on_gossipsub(&message)
                         }
                     }
                     BehaviourEvent::Identify(e) => self.on_identify(e),
@@ -121,6 +121,7 @@ impl Transport {
         self.events.push_back(Event::Ping(event));
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn on_identify(&mut self, event: libp2p::identify::Event) {
         log::debug!("Identify event: {event:?}");
         self.libp2p_metrics.record(&event);
@@ -150,7 +151,7 @@ impl Transport {
         }
     }
 
-    fn on_gossipsub(&mut self, message: libp2p::gossipsub::Message) {
+    fn on_gossipsub(&mut self, message: &libp2p::gossipsub::Message) {
         log::debug!("Gossipsub message: {message:?}");
 
         let topic = parse_topic(&message.topic);

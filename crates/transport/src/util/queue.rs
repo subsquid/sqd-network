@@ -63,10 +63,9 @@ impl<T> Receiver<T> {
     }
 
     pub async fn recv(&mut self) -> Option<T> {
-        self.inner.recv().await.map(|msg| {
+        self.inner.recv().await.inspect(|_| {
             #[cfg(feature = "metrics")]
             QUEUE_SIZE.get_or_create(&vec![(QUEUE_NAME, self.name)]).dec();
-            msg
         })
     }
 }

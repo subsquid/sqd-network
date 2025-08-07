@@ -41,12 +41,12 @@ impl Debug for QueryOk {
 
 impl From<query_error::Err> for query_result::Result {
     fn from(err: query_error::Err) -> Self {
-        query_result::Result::Err(QueryError { err: Some(err) })
+        Self::Err(QueryError { err: Some(err) })
     }
 }
 
 impl From<query_error::Err> for query_executed::Result {
     fn from(err: query_error::Err) -> Self {
-        query_executed::Result::Err(QueryError { err: Some(err) })
+        Self::Err(QueryError { err: Some(err) })
     }
 }

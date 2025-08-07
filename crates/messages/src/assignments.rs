@@ -168,7 +168,8 @@ impl Assignment {
             let response = reqwest::get(url).await?;
             let bytes = response.bytes().await?;
             anyhow::Ok(bytes)
-        }).await??;
+        })
+        .await??;
         let network_state: NetworkState = serde_json::from_slice(&response)?;
         if Some(network_state.assignment.id.clone()) == previous_id {
             return Ok(None);
@@ -194,7 +195,7 @@ impl Assignment {
             None => WorkerStatus::Ok,
         };
         self.worker_assignments.insert(
-            peer_id.into(),
+            peer_id,
             WorkerAssignment {
                 status,
                 jail_reason,
@@ -206,7 +207,7 @@ impl Assignment {
 
     #[cfg(feature = "assignment_reader")]
     pub fn get_all_peer_ids(&self) -> Vec<PeerId> {
-        self.worker_assignments.keys().map(|peer_id| *peer_id).collect()
+        self.worker_assignments.keys().copied().collect()
     }
 
     #[cfg(feature = "assignment_reader")]
@@ -418,8 +419,8 @@ fn test_hmac_sign() {
 #[cfg(all(feature = "assignment_writer", feature = "assignment_reader"))]
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
     use sqd_network_transport::Keypair;
+    use std::str::FromStr;
 
     use super::*;
 

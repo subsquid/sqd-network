@@ -75,8 +75,8 @@ pub struct WorkerConfig {
     pub send_logs_timeout: Duration,
 }
 
-impl WorkerConfig {
-    pub fn new() -> Self {
+impl Default for WorkerConfig {
+    fn default() -> Self {
         Self {
             heartbeats_queue_size: 100,
             query_results_queue_size: 100,
@@ -95,7 +95,7 @@ pub struct WorkerBehaviour {
 }
 
 impl WorkerBehaviour {
-    pub fn new(mut base: BaseBehaviour, config: WorkerConfig) -> Wrapped<Self> {
+    pub fn new(mut base: BaseBehaviour, config: &WorkerConfig) -> Wrapped<Self> {
         base.set_server_mode();
         Self {
             inner: InnerBehaviour {
@@ -313,7 +313,7 @@ impl WorkerTransportHandle {
 
 pub fn start_transport(
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
-    config: WorkerConfig,
+    config: &WorkerConfig,
 ) -> (impl Stream<Item = WorkerEvent>, WorkerTransportHandle) {
     let (query_results_tx, query_results_rx) =
         new_queue(config.query_results_queue_size, "query_results");

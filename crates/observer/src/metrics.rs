@@ -30,7 +30,12 @@ pub fn peer_seen(peer_id: &str, addr: &str) {
         .set(now());
 }
 
-pub fn worker_heartbeat(peer_id: &str, missing_chunks: u64, stored_bytes: u64, assignment_timestamp: i64) {
+pub fn worker_heartbeat(
+    peer_id: &str,
+    missing_chunks: u64,
+    stored_bytes: u64,
+    assignment_timestamp: i64,
+) {
     let labels = vec![("peer_id", peer_id.to_owned())];
     MISSING_CHUNKS.get_or_create(&labels).set(missing_chunks as i64);
     STORED_BYTES.get_or_create(&labels).set(stored_bytes as i64);
