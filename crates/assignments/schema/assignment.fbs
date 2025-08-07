@@ -1,0 +1,62 @@
+// When changing this file, regenerate the sources by running
+// flatc --rust -o gen ./assignment.fbs
+
+table Assignment {
+  datasets: [Dataset] (required);
+  workers: [WorkerAssignment] (required);
+}
+
+enum WorkerStatus: byte {
+  Ok,
+  Unreliable,
+  DeprecatedVersion,
+  UnsupportedVersion,
+}
+
+table WorkerAssignment {
+  worker_id: WorkerId (required);  // sorted by parsed PeerId
+
+  // TODO: use Elias-Fano encoding to compress this sequence ~4 times.
+  // This field takes about 85% of the entire file's length, but
+  // provides easy access for the reader
+  chunks: [Chunk] (required);
+
+  status: WorkerStatus;
+  encrypted_headers: EncryptedHeaders;
+}
+
+table Dataset {
+  id: string (key);  // e.g. "s3://solana-mainnet-2"
+  chunks: [Chunk] (required);
+  last_block: uint64;
+}
+
+table Chunk {
+  first_block: uint64 (key);
+  id: string (required);  // e.g. "0221000000/0221000000-0221000649-9QgFD"
+  dataset_id: string (required);  // e.g. "s3://solana-mainnet-2"
+  size: uint32;
+  last_block_hash: string;
+  last_block_timestamp: uint64 = null;
+  dataset_base_url: string (required);  // shared memory across all chunks of the dataset
+  base_url: string (required);  // relative url added to dataset_base_url
+  files: [FileUrl] (required);
+  worker_indexes: [uint16] (required);
+}
+
+table FileUrl {
+  filename: string (required);
+  url: string (required);  // may be a relative url added to dataset_base_url + base_url
+}
+
+struct WorkerId {
+  peer_id: [ubyte:38];
+}
+
+table EncryptedHeaders {
+  identity: [ubyte] (required);
+  nonce: [ubyte] (required);
+  ciphertext: [ubyte] (required);
+}
+
+root_type Assignment;
