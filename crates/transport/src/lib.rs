@@ -45,11 +45,6 @@ pub mod metrics;
 pub mod protocol;
 pub mod util;
 
-#[cfg(feature = "gateway")]
-pub use crate::actors::gateway::{
-    GatewayBehaviour, GatewayConfig, GatewayEvent, GatewayTransport, GatewayTransportHandle,
-    QueryFailure,
-};
 #[cfg(feature = "logs-collector")]
 pub use crate::actors::logs_collector::{
     LogsCollectorBehaviour, LogsCollectorConfig, LogsCollectorEvent, LogsCollectorTransport,
@@ -61,6 +56,11 @@ pub use crate::actors::observer::{
 #[cfg(feature = "pings-collector")]
 pub use crate::actors::pings_collector::{
     Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
+};
+#[cfg(feature = "portal")]
+pub use crate::actors::portal::{
+    PortalBehaviour, PortalConfig, PortalEvent, PortalTransport, PortalTransportHandle,
+    QueryFailure,
 };
 #[cfg(feature = "portal-logs-collector")]
 pub use crate::actors::portal_logs_collector::{

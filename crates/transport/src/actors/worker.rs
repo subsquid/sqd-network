@@ -31,7 +31,7 @@ use crate::{
 
 #[derive(Debug)]
 pub enum WorkerEvent {
-    /// Query received from a gateway
+    /// Query received from a portal
     Query {
         peer_id: PeerId,
         query: Query,

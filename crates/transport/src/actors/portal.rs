@@ -31,7 +31,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GatewayEvent {
+pub enum PortalEvent {
     Heartbeat {
         peer_id: PeerId,
         heartbeat: Heartbeat,
@@ -44,7 +44,7 @@ enum LogListenersEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum InternalGatewayEvent {
+pub enum InternalPortalEvent {
     Heartbeat {
         peer_id: PeerId,
         heartbeat: Heartbeat,
@@ -63,7 +63,7 @@ pub enum QueryFailure {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct GatewayConfig {
+pub struct PortalConfig {
     pub query_config: ClientConfig,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
@@ -71,7 +71,7 @@ pub struct GatewayConfig {
     pub log_sending_timeout: Duration,
 }
 
-impl Default for GatewayConfig {
+impl Default for PortalConfig {
     fn default() -> Self {
         Self {
             query_config: ClientConfig {
@@ -86,19 +86,19 @@ impl Default for GatewayConfig {
     }
 }
 
-pub struct GatewayTransport {
-    swarm: Swarm<Wrapped<GatewayBehaviour>>,
-    events_tx: Sender<GatewayEvent>,
+pub struct PortalTransport {
+    swarm: Swarm<Wrapped<PortalBehaviour>>,
+    events_tx: Sender<PortalEvent>,
     log_listeners_tx: Sender<LogListenersEvent>,
 }
 
-impl GatewayTransport {
+impl PortalTransport {
     pub async fn run(
         mut self,
         portal_logs_collector_lookup_interval: Duration,
         cancel_token: CancellationToken,
     ) {
-        log::info!("Starting gateway P2P transport");
+        log::info!("Starting portal P2P transport");
         let mut interval = time::interval(portal_logs_collector_lookup_interval);
         loop {
             tokio::select! {
@@ -110,18 +110,18 @@ impl GatewayTransport {
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
             }
         }
-        log::info!("Shutting down gateway P2P transport");
+        log::info!("Shutting down portal P2P transport");
     }
 
-    fn on_swarm_event(&mut self, ev: SwarmEvent<InternalGatewayEvent>) {
+    fn on_swarm_event(&mut self, ev: SwarmEvent<InternalPortalEvent>) {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             match ev {
-                InternalGatewayEvent::Heartbeat { peer_id, heartbeat } => {
-                    self.events_tx.send_lossy(GatewayEvent::Heartbeat { peer_id, heartbeat })
+                InternalPortalEvent::Heartbeat { peer_id, heartbeat } => {
+                    self.events_tx.send_lossy(PortalEvent::Heartbeat { peer_id, heartbeat })
                 }
-                InternalGatewayEvent::LogListeners { listeners } => {
+                InternalPortalEvent::LogListeners { listeners } => {
                     self.log_listeners_tx.send_lossy(LogListenersEvent::LogListeners { listeners })
                 }
             }
@@ -130,7 +130,7 @@ impl GatewayTransport {
 }
 
 #[derive(Clone)]
-pub struct GatewayTransportHandle {
+pub struct PortalTransportHandle {
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
     query_handle: StreamClientHandle,
     logs_handle: StreamClientHandle,
@@ -138,12 +138,12 @@ pub struct GatewayTransportHandle {
     log_sending_timeout: Duration,
 }
 
-impl GatewayTransportHandle {
+impl PortalTransportHandle {
     fn new(
         mut log_listeners_rx: Receiver<LogListenersEvent>,
         logs_handle: StreamClientHandle,
         query_handle: StreamClientHandle,
-        transport: GatewayTransport,
+        transport: PortalTransport,
         shutdown_timeout: Duration,
         portal_logs_collector_lookup_interval: Duration,
         log_sending_timeout: Duration,
@@ -241,21 +241,21 @@ impl GatewayTransportHandle {
 }
 
 pub fn start_transport(
-    swarm: Swarm<Wrapped<GatewayBehaviour>>,
-    config: GatewayConfig,
-) -> (impl Stream<Item = GatewayEvent>, GatewayTransportHandle) {
+    swarm: Swarm<Wrapped<PortalBehaviour>>,
+    config: PortalConfig,
+) -> (impl Stream<Item = PortalEvent>, PortalTransportHandle) {
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
     let logs_handle =
         swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
     let (log_listeners_tx, log_listeners_rx) = new_queue(config.events_queue_size, "listeners");
 
-    let transport = GatewayTransport {
+    let transport = PortalTransport {
         swarm,
         events_tx,
         log_listeners_tx,
     };
-    let handle = GatewayTransportHandle::new(
+    let handle = PortalTransportHandle::new(
         log_listeners_rx,
         logs_handle,
         query_handle,
@@ -267,14 +267,14 @@ pub fn start_transport(
     (events_rx, handle)
 }
 
-pub struct GatewayBehaviour {
+pub struct PortalBehaviour {
     base: Wrapped<BaseBehaviour>,
     provider_query: Option<QueryId>,
     providers_list: HashSet<PeerId>,
 }
 
-impl GatewayBehaviour {
-    pub fn new(mut base: BaseBehaviour, _config: GatewayConfig) -> Wrapped<Self> {
+impl PortalBehaviour {
+    pub fn new(mut base: BaseBehaviour, _config: PortalConfig) -> Wrapped<Self> {
         base.start_pulling_heartbeats();
 
         Self {
@@ -285,12 +285,12 @@ impl GatewayBehaviour {
         .into()
     }
 
-    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<InternalGatewayEvent> {
+    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<InternalPortalEvent> {
         match ev {
             BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
                 log::debug!("Got heartbeat from {peer_id}");
                 log::trace!("{heartbeat:?}");
-                Some(InternalGatewayEvent::Heartbeat { peer_id, heartbeat })
+                Some(InternalPortalEvent::Heartbeat { peer_id, heartbeat })
             }
             BaseBehaviourEvent::ProviderRecord {
                 id,
@@ -307,7 +307,7 @@ impl GatewayBehaviour {
         result: Result<GetProvidersOk, GetProvidersError>,
         stats: &QueryStats,
         step: &ProgressStep,
-    ) -> Option<InternalGatewayEvent> {
+    ) -> Option<InternalPortalEvent> {
         if let Some(expected_id) = self.provider_query {
             if expected_id != id {
                 return None;
@@ -324,7 +324,7 @@ impl GatewayBehaviour {
         }
         if step.last {
             self.provider_query = None;
-            return Some(InternalGatewayEvent::LogListeners {
+            return Some(InternalPortalEvent::LogListeners {
                 listeners: self.providers_list.drain().collect(),
             });
         }
@@ -341,9 +341,9 @@ impl GatewayBehaviour {
     }
 }
 
-impl BehaviourWrapper for GatewayBehaviour {
+impl BehaviourWrapper for PortalBehaviour {
     type Inner = Wrapped<BaseBehaviour>;
-    type Event = InternalGatewayEvent;
+    type Event = InternalPortalEvent;
 
     fn inner(&mut self) -> &mut Self::Inner {
         &mut self.base

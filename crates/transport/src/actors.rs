@@ -1,11 +1,11 @@
-#[cfg(feature = "gateway")]
-pub mod gateway;
 #[cfg(feature = "logs-collector")]
 pub mod logs_collector;
 #[cfg(feature = "observer")]
 pub mod observer;
 #[cfg(feature = "pings-collector")]
 pub mod pings_collector;
+#[cfg(feature = "portal")]
+pub mod portal;
 #[cfg(feature = "portal-logs-collector")]
 pub mod portal_logs_collector;
 #[cfg(feature = "worker")]

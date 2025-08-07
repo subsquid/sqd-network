@@ -33,9 +33,9 @@ pub struct Allocation {
 }
 
 #[derive(Debug, Clone)]
-pub struct GatewayCluster {
+pub struct PortalCluster {
     pub operator_addr: Address,
-    pub gateway_ids: Vec<PeerId>,
+    pub portal_ids: Vec<PeerId>,
     pub allocated_computation_units: U256,
 }
 
@@ -66,13 +66,13 @@ impl Worker {
 
 #[derive(Debug, Clone)]
 pub struct NetworkNodes {
-    pub gateways: HashSet<PeerId>,
+    pub portals: HashSet<PeerId>,
     pub workers: HashSet<PeerId>,
 }
 
 impl NetworkNodes {
     pub fn all(self) -> HashSet<PeerId> {
-        let mut nodes = self.gateways;
+        let mut nodes = self.portals;
         nodes.extend(self.workers);
         nodes
     }
@@ -105,8 +105,8 @@ pub trait Client: Send + Sync + 'static {
     /// Get current active worker set
     async fn active_workers(&self) -> Result<Vec<Worker>, ClientError>;
 
-    /// Check if gateway (client) is registered on chain
-    async fn is_gateway_registered(&self, gateway_id: PeerId) -> Result<bool, ClientError>;
+    /// Check if portal (client) is registered on chain
+    async fn is_portal_registered(&self, portal_id: PeerId) -> Result<bool, ClientError>;
 
     /// Get worker registration time (None if not registered)
     async fn worker_registration_time(
@@ -114,14 +114,14 @@ pub trait Client: Send + Sync + 'static {
         peer_id: PeerId,
     ) -> Result<Option<SystemTime>, ClientError>;
 
-    /// Get current active gateways
-    async fn active_gateways(&self) -> Result<Vec<PeerId>, ClientError>;
+    /// Get current active portals
+    async fn active_portals(&self) -> Result<Vec<PeerId>, ClientError>;
 
     /// Get client's allocations for the current epoch.
-    #[deprecated = "Use `gateway_clusters` instead"]
+    #[deprecated = "Use `portal_clusters` instead"]
     async fn current_allocations(
         &self,
-        gateway_id: PeerId,
+        portal_id: PeerId,
         worker_ids: Option<Vec<Worker>>,
     ) -> Result<Vec<Allocation>, ClientError>;
 
@@ -131,8 +131,8 @@ pub trait Client: Send + Sync + 'static {
     /// Check if the portal uses the default strategy — allocates CUs evenly among workers
     async fn portal_uses_default_strategy(&self, portal_id: PeerId) -> Result<bool, ClientError>;
 
-    /// Get the current list of all gateway clusters with their allocated CUs for this worker
-    async fn gateway_clusters(&self, worker_id: U256) -> Result<Vec<GatewayCluster>, ClientError>;
+    /// Get the current list of all portal clusters with their allocated CUs for this worker
+    async fn portal_clusters(&self, worker_id: U256) -> Result<Vec<PortalCluster>, ClientError>;
 
     /// Get operator address and the total amount of SQD
     /// locked by the operator shared across all portals
@@ -141,16 +141,16 @@ pub trait Client: Send + Sync + 'static {
         portal_id: PeerId,
     ) -> Result<Option<(String, Ratio<u128>)>, ClientError>;
 
-    /// Get a stream of peer IDs of all active network participants (workers & gateways)
+    /// Get a stream of peer IDs of all active network participants (workers & portals)
     /// Updated on the given interval
     fn network_nodes_stream(self: Box<Self>, interval: Duration) -> NodeStream {
         Box::pin(IntervalStream::new(tokio::time::interval(interval)).then(move |_| {
             let client = self.clone_client();
             async move {
-                let (gateways, workers) =
-                    tokio::try_join!(client.active_gateways(), client.active_workers())?;
+                let (portals, workers) =
+                    tokio::try_join!(client.active_portals(), client.active_workers())?;
                 Ok(NetworkNodes {
-                    gateways: gateways.into_iter().collect(),
+                    portals: portals.into_iter().collect(),
                     workers: workers.into_iter().map(|w| w.peer_id).collect(),
                 })
             }
@@ -334,11 +334,11 @@ impl Client for EthersClient {
         Ok(workers)
     }
 
-    async fn is_gateway_registered(&self, gateway_id: PeerId) -> Result<bool, ClientError> {
-        let gateway_id = gateway_id.to_bytes().into();
-        let gateway_info: contracts::Gateway =
-            self.gateway_registry.get_gateway(gateway_id).call().await?;
-        Ok(gateway_info.operator != Address::zero())
+    async fn is_portal_registered(&self, portal_id: PeerId) -> Result<bool, ClientError> {
+        let portal_id = portal_id.to_bytes().into();
+        let portal_info: contracts::Gateway =
+            self.gateway_registry.get_gateway(portal_id).call().await?;
+        Ok(portal_info.operator != Address::zero())
     }
 
     async fn worker_registration_time(
@@ -363,29 +363,29 @@ impl Client for EthersClient {
         Ok(Some(UNIX_EPOCH + Duration::from_secs(block.timestamp.as_u64())))
     }
 
-    async fn active_gateways(&self) -> Result<Vec<PeerId>, ClientError> {
+    async fn active_portals(&self) -> Result<Vec<PeerId>, ClientError> {
         let latest_block = self.l2_client.get_block_number().await?;
-        let mut active_gateways = Vec::new();
+        let mut active_portals = Vec::new();
         for page in 0.. {
-            let gateway_ids = self
+            let portal_ids = self
                 .gateway_registry
                 .get_active_gateways(page.into(), self.portals_per_page)
                 .block(latest_block)
                 .call()
                 .await?;
-            let page_size = U256::from(gateway_ids.len());
+            let page_size = U256::from(portal_ids.len());
 
-            active_gateways.extend(gateway_ids.iter().filter_map(|id| PeerId::from_bytes(id).ok()));
+            active_portals.extend(portal_ids.iter().filter_map(|id| PeerId::from_bytes(id).ok()));
             if page_size < self.portals_per_page {
                 break;
             }
         }
-        Ok(active_gateways)
+        Ok(active_portals)
     }
 
     async fn current_allocations(
         &self,
-        gateway_id: PeerId,
+        portal_id: PeerId,
         workers: Option<Vec<Worker>>,
     ) -> Result<Vec<Allocation>, ClientError> {
         let workers = match workers {
@@ -396,9 +396,9 @@ impl Client for EthersClient {
             return Ok(vec![]);
         }
 
-        let gateway_id: Bytes = gateway_id.to_bytes().into();
+        let portal_id: Bytes = portal_id.to_bytes().into();
         let strategy_addr =
-            self.gateway_registry.get_used_strategy(gateway_id.clone()).call().await?;
+            self.gateway_registry.get_used_strategy(portal_id.clone()).call().await?;
         let strategy = Strategy::get(strategy_addr, self.l2_client.clone());
 
         // A little hack to make less requests: default strategy distributes CUs evenly,
@@ -406,7 +406,7 @@ impl Client for EthersClient {
         if strategy_addr == self.default_strategy_addr {
             let first_worker_id = workers.first().expect("non empty").onchain_id;
             let cus_per_epoch =
-                strategy.computation_units_per_epoch(gateway_id, first_worker_id).call().await?;
+                strategy.computation_units_per_epoch(portal_id, first_worker_id).call().await?;
             return Ok(workers
                 .into_iter()
                 .map(|w| Allocation {
@@ -421,7 +421,7 @@ impl Client for EthersClient {
         for worker in &workers {
             multicall.add_call::<U256>(
                 strategy
-                    .method("computationUnitsPerEpoch", (gateway_id.clone(), worker.onchain_id))?,
+                    .method("computationUnitsPerEpoch", (portal_id.clone(), worker.onchain_id))?,
                 false,
             );
         }
@@ -447,7 +447,7 @@ impl Client for EthersClient {
         Ok(strategy_addr == self.default_strategy_addr)
     }
 
-    async fn gateway_clusters(&self, worker_id: U256) -> Result<Vec<GatewayCluster>, ClientError> {
+    async fn portal_clusters(&self, worker_id: U256) -> Result<Vec<PortalCluster>, ClientError> {
         let latest_block = self.l2_client.get_block_number().await?;
 
         let mut clusters = HashMap::new();
@@ -461,18 +461,18 @@ impl Client for EthersClient {
             let page_size = U256::from(allocations.len());
 
             for allocation in allocations {
-                let Ok(gateway_peer_id) = PeerId::from_bytes(&allocation.gateway_id) else {
+                let Ok(portal_peer_id) = PeerId::from_bytes(&allocation.gateway_id) else {
                     continue;
                 };
                 clusters
                     .entry(allocation.operator)
-                    .or_insert_with(|| GatewayCluster {
+                    .or_insert_with(|| PortalCluster {
                         operator_addr: allocation.operator,
-                        gateway_ids: Vec::new(),
+                        portal_ids: Vec::new(),
                         allocated_computation_units: allocation.allocated,
                     })
-                    .gateway_ids
-                    .push(gateway_peer_id);
+                    .portal_ids
+                    .push(portal_peer_id);
             }
 
             if page_size < self.portals_per_page {
