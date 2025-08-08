@@ -30,6 +30,14 @@ impl Assignment {
         .try_build()
     }
 
+    pub fn from_owned_unchecked(buf: Vec<u8>) -> Self {
+        AssignmentBuilder {
+            buf,
+            reader_builder: |buf| unsafe { assignment_fb::root_as_assignment_unchecked(buf) },
+        }
+        .build()
+    }
+
     pub fn get_worker_id(&self, index: u16) -> Result<PeerId, anyhow::Error> {
         let workers = self.borrow_reader().workers();
         let worker = workers.get(index as usize);
