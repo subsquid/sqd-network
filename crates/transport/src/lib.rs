@@ -59,8 +59,7 @@ pub use crate::actors::pings_collector::{
 };
 #[cfg(feature = "portal")]
 pub use crate::actors::portal::{
-    PortalBehaviour, PortalConfig, PortalEvent, PortalTransport, PortalTransportHandle,
-    QueryFailure,
+    PortalBehaviour, PortalConfig, PortalTransport, PortalTransportHandle, QueryFailure,
 };
 #[cfg(feature = "portal-logs-collector")]
 pub use crate::actors::portal_logs_collector::{

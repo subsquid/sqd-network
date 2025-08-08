@@ -29,9 +29,7 @@ use crate::actors::pings_collector::{
     self, Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
 };
 #[cfg(feature = "portal")]
-use crate::actors::portal::{
-    self, PortalBehaviour, PortalConfig, PortalEvent, PortalTransportHandle,
-};
+use crate::actors::portal::{self, PortalBehaviour, PortalConfig, PortalTransportHandle};
 #[cfg(feature = "portal-logs-collector")]
 use crate::actors::portal_logs_collector::{
     self, PortalLogsCollectorBehaviour, PortalLogsCollectorConfig, PortalLogsCollectorEvent,
@@ -158,10 +156,7 @@ impl P2PTransportBuilder {
     }
 
     #[cfg(feature = "portal")]
-    pub fn build_portal(
-        self,
-        config: PortalConfig,
-    ) -> Result<(impl Stream<Item = PortalEvent>, PortalTransportHandle), Error> {
+    pub fn build_portal(self, config: PortalConfig) -> Result<PortalTransportHandle, Error> {
         let swarm = self.build_swarm(|base| PortalBehaviour::new(base, config))?;
         Ok(portal::start_transport(swarm, config))
     }

@@ -2,7 +2,6 @@ use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use futures::{future::join_all, AsyncWriteExt, StreamExt};
-use futures_core::Stream;
 use libp2p::{
     kad::{GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryStats, RecordKey},
     swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
@@ -12,7 +11,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use parking_lot::Mutex;
-use sqd_messages::{Heartbeat, Query, QueryFinished, QueryResult};
+use sqd_messages::{Query, QueryFinished, QueryResult};
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
@@ -31,27 +30,13 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PortalEvent {
-    Heartbeat {
-        peer_id: PeerId,
-        heartbeat: Heartbeat,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 enum LogListenersEvent {
     LogListeners { listeners: Vec<PeerId> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InternalPortalEvent {
-    Heartbeat {
-        peer_id: PeerId,
-        heartbeat: Heartbeat,
-    },
-    LogListeners {
-        listeners: Vec<PeerId>,
-    },
+    LogListeners { listeners: Vec<PeerId> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +50,7 @@ pub enum QueryFailure {
 #[derive(Debug, Clone, Copy)]
 pub struct PortalConfig {
     pub query_config: ClientConfig,
-    pub events_queue_size: usize,
+    pub listeners_queue_size: usize,
     pub shutdown_timeout: Duration,
     pub portal_logs_collector_lookup_interval: Duration,
     pub log_sending_timeout: Duration,
@@ -78,7 +63,7 @@ impl Default for PortalConfig {
                 max_response_size: MAX_QUERY_RESULT_SIZE,
                 ..Default::default()
             },
-            events_queue_size: 100,
+            listeners_queue_size: 20,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
             portal_logs_collector_lookup_interval: Duration::from_secs(60),
             log_sending_timeout: Duration::from_secs(10),
@@ -88,7 +73,6 @@ impl Default for PortalConfig {
 
 pub struct PortalTransport {
     swarm: Swarm<Wrapped<PortalBehaviour>>,
-    events_tx: Sender<PortalEvent>,
     log_listeners_tx: Sender<LogListenersEvent>,
 }
 
@@ -118,9 +102,6 @@ impl PortalTransport {
         record_event(&ev);
         if let SwarmEvent::Behaviour(ev) = ev {
             match ev {
-                InternalPortalEvent::Heartbeat { peer_id, heartbeat } => {
-                    self.events_tx.send_lossy(PortalEvent::Heartbeat { peer_id, heartbeat })
-                }
                 InternalPortalEvent::LogListeners { listeners } => {
                     self.log_listeners_tx.send_lossy(LogListenersEvent::LogListeners { listeners })
                 }
@@ -243,19 +224,17 @@ impl PortalTransportHandle {
 pub fn start_transport(
     swarm: Swarm<Wrapped<PortalBehaviour>>,
     config: PortalConfig,
-) -> (impl Stream<Item = PortalEvent>, PortalTransportHandle) {
+) -> PortalTransportHandle {
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
     let logs_handle =
         swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
-    let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
-    let (log_listeners_tx, log_listeners_rx) = new_queue(config.events_queue_size, "listeners");
+    let (log_listeners_tx, log_listeners_rx) = new_queue(config.listeners_queue_size, "listeners");
 
     let transport = PortalTransport {
         swarm,
-        events_tx,
         log_listeners_tx,
     };
-    let handle = PortalTransportHandle::new(
+    PortalTransportHandle::new(
         log_listeners_rx,
         logs_handle,
         query_handle,
@@ -263,8 +242,7 @@ pub fn start_transport(
         config.shutdown_timeout,
         config.portal_logs_collector_lookup_interval,
         config.log_sending_timeout,
-    );
-    (events_rx, handle)
+    )
 }
 
 pub struct PortalBehaviour {
@@ -274,9 +252,7 @@ pub struct PortalBehaviour {
 }
 
 impl PortalBehaviour {
-    pub fn new(mut base: BaseBehaviour, _config: PortalConfig) -> Wrapped<Self> {
-        base.start_pulling_heartbeats();
-
+    pub fn new(base: BaseBehaviour, _config: PortalConfig) -> Wrapped<Self> {
         Self {
             base: base.into(),
             provider_query: Default::default(),
@@ -287,11 +263,7 @@ impl PortalBehaviour {
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<InternalPortalEvent> {
         match ev {
-            BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
-                log::debug!("Got heartbeat from {peer_id}");
-                log::trace!("{heartbeat:?}");
-                Some(InternalPortalEvent::Heartbeat { peer_id, heartbeat })
-            }
+            BaseBehaviourEvent::Heartbeat { .. } => None,
             BaseBehaviourEvent::ProviderRecord {
                 id,
                 result,
