@@ -59,8 +59,7 @@ fn test_building() {
 
 #[cfg(feature = "builder")]
 fn assert_file_equals(filename: &str, bytes: Vec<u8>) {
-    use std::fs;
-    use std::path::PathBuf;
+    use std::{fs, path::PathBuf};
 
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push("tests");

@@ -133,11 +133,16 @@ impl WorkerBehaviour {
         query: Query,
         resp_chan: ResponseChannel<QueryResult>,
     ) -> Option<WorkerEvent> {
-        Some(WorkerEvent::Query {
-            peer_id,
-            query,
-            resp_chan,
-        })
+        // Drop empty messages
+        if query == Query::default() {
+            None
+        } else {
+            Some(WorkerEvent::Query {
+                peer_id,
+                query,
+                resp_chan,
+            })
+        }
     }
 
     pub fn send_query_result(
