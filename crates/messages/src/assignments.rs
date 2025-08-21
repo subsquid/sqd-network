@@ -21,8 +21,7 @@ use prost::bytes::Bytes;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "assignment_reader")]
 use serde_json::Value;
-use serde_with::base64::Base64;
-use serde_with::serde_as;
+use serde_with::{base64::Base64, serde_as};
 #[cfg(feature = "assignment_reader")]
 use sha2::Digest;
 #[cfg(feature = "assignment_reader")]

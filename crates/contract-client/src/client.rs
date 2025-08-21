@@ -7,10 +7,9 @@ use std::{
 };
 
 use async_trait::async_trait;
-use ethers::types::H160;
 use ethers::{
     prelude::{BlockId, Bytes, Middleware, Multicall, Provider},
-    types::BlockNumber,
+    types::{BlockNumber, H160},
 };
 use libp2p::futures::Stream;
 use num_rational::Ratio;
