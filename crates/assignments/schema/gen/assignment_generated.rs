@@ -346,11 +346,11 @@ impl<'a> WorkerAssignment<'a> {
     unsafe { self._tab.get::<WorkerId>(WorkerAssignment::VT_WORKER_ID, None).unwrap()}
   }
   #[inline]
-  pub fn chunks(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk<'a>>> {
+  pub fn chunks(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk<'a>>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk>>>>(WorkerAssignment::VT_CHUNKS, None).unwrap()}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk>>>>(WorkerAssignment::VT_CHUNKS, None)}
   }
   #[inline]
   pub fn status(&self) -> WorkerStatus {
@@ -376,7 +376,7 @@ impl flatbuffers::Verifiable for WorkerAssignment<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<WorkerId>("worker_id", Self::VT_WORKER_ID, true)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Chunk>>>>("chunks", Self::VT_CHUNKS, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Chunk>>>>("chunks", Self::VT_CHUNKS, false)?
      .visit_field::<WorkerStatus>("status", Self::VT_STATUS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<EncryptedHeaders>>("encrypted_headers", Self::VT_ENCRYPTED_HEADERS, false)?
      .finish();
@@ -394,7 +394,7 @@ impl<'a> Default for WorkerAssignmentArgs<'a> {
   fn default() -> Self {
     WorkerAssignmentArgs {
       worker_id: None, // required field
-      chunks: None, // required field
+      chunks: None,
       status: WorkerStatus::Ok,
       encrypted_headers: None,
     }
@@ -434,7 +434,6 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WorkerAssignmentBuilder<'a, 'b,
   pub fn finish(self) -> flatbuffers::WIPOffset<WorkerAssignment<'a>> {
     let o = self.fbb_.end_table(self.start_);
     self.fbb_.required(o, WorkerAssignment::VT_WORKER_ID,"worker_id");
-    self.fbb_.required(o, WorkerAssignment::VT_CHUNKS,"chunks");
     flatbuffers::WIPOffset::new(o.value())
   }
 }

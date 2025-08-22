@@ -16,10 +16,7 @@ enum WorkerStatus: byte {
 table WorkerAssignment {
   worker_id: WorkerId (required);  // sorted by parsed PeerId
 
-  // TODO: use Elias-Fano encoding to compress this sequence ~4 times.
-  // This field takes about 85% of the entire file's length, but
-  // provides easy access for the reader
-  chunks: [Chunk] (required);
+  chunks: [Chunk] (deprecated);
 
   status: WorkerStatus;
   encrypted_headers: EncryptedHeaders;

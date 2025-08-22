@@ -122,6 +122,7 @@ pub struct Assignment {
 pub struct NetworkAssignment {
     pub url: String,
     pub fb_url: Option<String>,
+    pub fb_url_v1: Option<String>,
     pub id: String,
     pub effective_from: u64,
 }

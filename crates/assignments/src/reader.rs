@@ -1,7 +1,8 @@
-use std::collections::BTreeMap;
+use std::{cmp::Ordering, collections::BTreeMap};
 
 use anyhow::anyhow;
 use crypto_box::{aead::Aead, PublicKey, SalsaBox, SecretKey};
+use flatbuffers::Follow;
 use libp2p_identity::{Keypair, PeerId};
 use sha2::{digest::generic_array::GenericArray, Digest, Sha512};
 
@@ -44,15 +45,19 @@ impl Assignment {
         Ok((*worker.worker_id()).try_into()?)
     }
 
-    pub fn get_worker(&self, id: PeerId) -> Option<Worker<'_>> {
+    pub fn get_worker(&self, id: &PeerId) -> Option<Worker<'_>> {
         let workers = self.borrow_reader().workers();
-        let worker = workers.lookup_by_key(id, |x, key| {
-            let id: PeerId = (*x.worker_id()).try_into().unwrap_or_else(|e| {
+        let index = lookup_index_by_key(&workers, |x| {
+            let parsed: PeerId = (*x.worker_id()).try_into().unwrap_or_else(|e| {
                 panic!("Couldn't parse peer id '{:?}': {}", x.worker_id().peer_id(), e);
             });
-            id.cmp(key)
+            parsed.cmp(&id)
         })?;
-        Some(Worker { reader: worker })
+        Some(Worker {
+            assignment: *self.borrow_reader(),
+            reader: workers.get(index),
+            index: index as u16,
+        })
     }
 
     pub fn workers(
@@ -117,14 +122,19 @@ pub enum ChunkNotFound {
 }
 
 pub struct Worker<'f> {
+    assignment: assignment_fb::Assignment<'f>,
     reader: assignment_fb::WorkerAssignment<'f>,
+    index: u16,
 }
 
 impl Worker<'_> {
-    pub fn chunks(
-        &self,
-    ) -> flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<assignment_fb::Chunk<'_>>> {
-        self.reader.chunks()
+    pub fn iter_chunks(&self) -> impl Iterator<Item = assignment_fb::Chunk<'_>> + '_ {
+        self.assignment.datasets().iter().flat_map(move |dataset| {
+            dataset
+                .chunks()
+                .iter()
+                .filter(move |chunk| chunk.worker_indexes().iter().any(|i| self.index == i))
+        })
     }
 
     pub fn status(&self) -> WorkerStatus {
@@ -160,4 +170,33 @@ impl Worker<'_> {
             .collect();
         Ok(map)
     }
+}
+
+fn lookup_index_by_key<'a, T: Follow<'a> + 'a>(
+    v: &flatbuffers::Vector<'a, T>,
+    f: impl Fn(&<T as Follow<'a>>::Inner) -> Ordering,
+) -> Option<usize> {
+    if v.is_empty() {
+        return None;
+    }
+
+    let mut left: usize = 0;
+    let mut right = v.len() - 1;
+
+    while left <= right {
+        let mid = (left + right) / 2;
+        let value = v.get(mid);
+        match f(&value) {
+            Ordering::Equal => return Some(mid),
+            Ordering::Less => left = mid + 1,
+            Ordering::Greater => {
+                if mid == 0 {
+                    return None;
+                }
+                right = mid - 1;
+            }
+        }
+    }
+
+    None
 }

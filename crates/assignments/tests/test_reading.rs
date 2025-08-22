@@ -15,7 +15,7 @@ fn test_get_worker() {
 
     assert_eq!(assignment.get_worker_id(0).unwrap(), peer_id);
 
-    let worker = assignment.get_worker(peer_id).unwrap();
+    let worker = assignment.get_worker(&peer_id).unwrap();
     let headers = worker.decrypt_headers(&keypair).unwrap();
     assert_eq!(
         headers,
@@ -29,10 +29,10 @@ fn test_get_worker() {
     );
     assert_eq!(worker.status(), sqd_assignments::WorkerStatus::Ok);
 
-    let chunks = worker.chunks();
+    let chunks = worker.iter_chunks().collect::<Vec<_>>();
     assert_eq!(chunks.len(), 2);
-    assert_eq!(chunks.get(0).id(), "0221000000/0221000000-0221000649-BQJdx");
-    assert_eq!(chunks.get(1).id(), "0221000000/0221000650-0221001549-AuRE1");
+    assert_eq!(chunks[0].id(), "0221000000/0221000000-0221000649-BQJdx");
+    assert_eq!(chunks[1].id(), "0221000000/0221000650-0221001549-AuRE1");
 }
 
 #[cfg(feature = "reader")]
