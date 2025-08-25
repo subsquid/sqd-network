@@ -13,7 +13,7 @@ derivative = "2"
 futures = "0.3"
 futures-core = "0.3"
 lazy_static = { version = "1" }
-libp2p = { workspace = true, features = ["dns", "tokio", "identify", "kad", "ping", "request-response", "gossipsub", "serde", "autonat", "quic"] }
+libp2p = { workspace = true, features = ["dns", "tokio", "identify", "kad", "ping", "request-response", "serde", "autonat", "quic"] }
 libp2p-connection-limits = { workspace = true }
 libp2p-stream = { workspace = true }
 libp2p-swarm-derive = { workspace = true }
@@ -36,6 +36,7 @@ sqd-messages = { path = "../messages", features = ["signatures", "semver"] }
 actors = ["behaviour"]
 behaviour = []
 proto = []
+pubsub = ["behaviour", "libp2p/gossipsub"]
 request-server = []
 portal = ["actors"]
 logs-collector = ["actors"]

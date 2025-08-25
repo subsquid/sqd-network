@@ -72,13 +72,14 @@ pub use crate::actors::worker::{
 };
 #[cfg(feature = "actors")]
 pub use behaviour::base::BaseConfig;
+#[cfg(feature = "pubsub")]
+pub use behaviour::pubsub::{PubsubBehaviour, PubsubMsg};
 #[cfg(feature = "actors")]
 pub use behaviour::stream_client::{ClientConfig, Timeout as StreamClientTimeout};
 #[cfg(feature = "behaviour")]
 pub use behaviour::{
     addr_cache::AddressCache,
     node_whitelist::{WhitelistBehavior, WhitelistConfig},
-    pubsub::{PubsubBehaviour, PubsubMsg},
     wrapped::{BehaviourWrapper, Wrapped},
 };
 #[cfg(feature = "actors")]

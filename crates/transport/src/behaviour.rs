@@ -2,6 +2,7 @@ pub mod addr_cache;
 #[cfg(feature = "actors")]
 pub mod base;
 pub mod node_whitelist;
+#[cfg(feature = "pubsub")]
 pub mod pubsub;
 #[cfg(feature = "request-server")]
 pub mod request_server;

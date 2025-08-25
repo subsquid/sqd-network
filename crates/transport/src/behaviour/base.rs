@@ -41,15 +41,16 @@ use crate::{
     behaviour::{
         addr_cache::AddressCache,
         node_whitelist::{WhitelistBehavior, WhitelistConfig},
-        pubsub::{PubsubBehaviour, PubsubMsg},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{ID_PROTOCOL, MAX_HEARTBEAT_SIZE, MAX_PUBSUB_MSG_SIZE, WORKER_STATUS_PROTOCOL},
+    protocol::{ID_PROTOCOL, MAX_HEARTBEAT_SIZE, WORKER_STATUS_PROTOCOL},
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, PeerId,
 };
+#[cfg(feature = "pubsub")]
+use crate::{protocol::MAX_PUBSUB_MSG_SIZE, PubsubBehaviour, PubsubMsg};
 
 use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle};
 
@@ -60,6 +61,7 @@ pub struct InnerBehaviour {
     ping: ping::Behaviour,
     autonat: autonat::Behaviour,
     whitelist: Wrapped<WhitelistBehavior>,
+    #[cfg(feature = "pubsub")]
     pubsub: Wrapped<PubsubBehaviour>,
     address_cache: AddressCache,
     stream: Wrapped<ClientBehaviour>,
@@ -76,6 +78,7 @@ pub struct BaseConfig {
     /// Timeout for kademlia DHT queries (default: 10 sec).
     pub kad_query_timeout: Duration,
     /// Maximum size of gossipsub messages in bytes (default: `MAX_PUBSUB_MSG_SIZE`)
+    #[cfg(feature = "pubsub")]
     pub max_pubsub_msg_size: usize,
     /// Maximum number of peers to keep in the address cache (default: 1024)
     pub addr_cache_size: NonZeroUsize,
@@ -94,6 +97,7 @@ impl BaseConfig {
         let autonat_timeout = Duration::from_secs(parse_env_var("AUTONAT_TIMEOUT_SEC", 60));
         let identify_interval = Duration::from_secs(parse_env_var("IDENTIFY_INTERVAL_SEC", 60));
         let kad_query_timeout = Duration::from_secs(parse_env_var("KAD_QUERY_TIMEOUT_SEC", 5));
+        #[cfg(feature = "pubsub")]
         let max_pubsub_msg_size = parse_env_var("MAX_PUBSUB_MSG_SIZE", MAX_PUBSUB_MSG_SIZE);
         let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
             .expect("addr_cache_size should be > 0");
@@ -107,6 +111,7 @@ impl BaseConfig {
             autonat_timeout,
             identify_interval,
             kad_query_timeout,
+            #[cfg(feature = "pubsub")]
             max_pubsub_msg_size,
             addr_cache_size,
             status_request_timeout,
@@ -167,6 +172,7 @@ impl BaseBehaviour {
                 WhitelistConfig::new(config.onchain_update_interval),
             )
             .into(),
+            #[cfg(feature = "pubsub")]
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
             stream: ClientBehaviour::default().into(),
@@ -326,6 +332,7 @@ impl BehaviourWrapper for BaseBehaviour {
             InnerBehaviourEvent::Identify(ev) => self.on_identify_event(ev),
             InnerBehaviourEvent::Kademlia(ev) => self.on_kademlia_event(ev),
             InnerBehaviourEvent::Autonat(ev) => self.on_autonat_event(ev),
+            #[cfg(feature = "pubsub")]
             InnerBehaviourEvent::Pubsub(ev) => self.on_pubsub_event(ev),
             InnerBehaviourEvent::Ping(ev) => {
                 record_event(&ev);
@@ -481,6 +488,7 @@ impl BaseBehaviour {
         None
     }
 
+    #[cfg(feature = "pubsub")]
     fn on_pubsub_event(
         &mut self,
         PubsubMsg { peer_id, topic, .. }: PubsubMsg,
