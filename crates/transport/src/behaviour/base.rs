@@ -130,6 +130,7 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
+    whitelist_initialized: bool,
 }
 
 #[allow(dead_code)]
@@ -192,6 +193,7 @@ impl BaseBehaviour {
             registered_workers: Arc::new(RwLock::new(Default::default())),
             heartbeats_stream: None,
             config,
+            whitelist_initialized: false,
         }
     }
 
@@ -515,6 +517,21 @@ impl BaseBehaviour {
     fn on_nodes_update(&mut self, nodes: NetworkNodes) -> Option<TToSwarm<Self>> {
         log::debug!("Updating registered workers");
         *self.registered_workers.write() = nodes.workers;
+
+        if !self.whitelist_initialized {
+            self.whitelist_initialized = true;
+            let ongoing = self
+                .get_kademlia_mut()
+                .iter_queries()
+                .any(|q| matches!(q.info(), kad::QueryInfo::Bootstrap { .. }));
+            if !ongoing {
+                log::debug!("Whitelist initialized, running Kademlia bootstrap");
+                if let Err(kad::NoKnownPeers()) = self.get_kademlia_mut().bootstrap() {
+                    log::warn!("Failed to trigger bootstrap: no known peers");
+                }
+            }
+        }
+
         None
     }
 }
