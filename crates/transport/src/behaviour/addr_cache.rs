@@ -29,12 +29,16 @@ impl AddressCache {
     }
 
     pub fn put(&mut self, peer_id: PeerId, addrs: impl IntoIterator<Item = Multiaddr>) {
-        let addrs = addrs.into_iter().filter(addr_is_reachable).map(|e| {
-            e.with_p2p(peer_id).unwrap_or_else(|e| {
-                log::warn!("Found invalid address for peer {peer_id}: {e}");
-                e
+        let addrs = addrs
+            .into_iter()
+            .filter(addr_is_reachable)
+            .map(|e| {
+                e.with_p2p(peer_id).unwrap_or_else(|e| {
+                    log::warn!("Found invalid address for peer {peer_id}: {e}");
+                    e
+                })
             })
-        });
+            .inspect(|a| log::trace!("Caching address for peer {peer_id}: {a}"));
         self.cache.get_or_insert_mut(peer_id, Default::default).extend(addrs)
     }
 
