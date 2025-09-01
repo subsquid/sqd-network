@@ -7,7 +7,7 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
     PeerId, Swarm,
 };
-use prost::Message;
+use prost::{bytes::BytesMut, Message};
 use serde::{Deserialize, Serialize};
 
 use parking_lot::Mutex;
@@ -183,7 +183,7 @@ impl PortalTransportHandle {
         Ok(result)
     }
 
-    async fn send_log_to_listener(&self, listener: PeerId, buf: &[u8]) -> Result<(), Error> {
+    async fn send_logs_to_listener(&self, listener: PeerId, buf: &[u8]) -> Result<(), Error> {
         let fut = async {
             let mut stream = self.logs_handle.get_raw_stream(listener).await?;
             stream.write_all(buf).await?;
@@ -196,12 +196,19 @@ impl PortalTransportHandle {
         })
     }
 
-    async fn publish_portal_log(&self, log: &QueryFinished, listeners: &[PeerId]) {
-        log::debug!("Sending log: {log:?}");
-        let buf = log.encode_to_vec();
-        let results =
-            join_all(listeners.iter().map(|listener| self.send_log_to_listener(*listener, &buf)))
-                .await;
+    async fn publish_portal_logs(&self, logs: &Vec<QueryFinished>, listeners: &[PeerId]) {
+        log::debug!("Sending logs: {logs:?}");
+        let mut buffer = BytesMut::new();
+        //let buf = log.encode_to_vec();
+        for msg in logs {
+            let _ = msg.encode_length_delimited(&mut buffer);
+        }
+        let results = join_all(
+            listeners
+                .iter()
+                .map(|listener| self.send_logs_to_listener(*listener, buffer.as_ref())),
+        )
+        .await;
         for (idx, result) in results.iter().enumerate() {
             let listener = listeners[idx];
             match result {
@@ -215,9 +222,9 @@ impl PortalTransportHandle {
         }
     }
 
-    pub async fn send_log(&self, log: &QueryFinished) {
+    pub async fn send_logs(&self, logs: &Vec<QueryFinished>) {
         let listeners = self.log_listeners.lock().clone();
-        self.publish_portal_log(log, &listeners).await;
+        self.publish_portal_logs(logs, &listeners).await;
     }
 }
 

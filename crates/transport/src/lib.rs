@@ -44,6 +44,8 @@ mod codec;
 pub mod metrics;
 pub mod protocol;
 pub mod util;
+#[cfg(feature = "proto")]
+mod vec_codec;
 
 #[cfg(feature = "logs-collector")]
 pub use crate::actors::logs_collector::{
