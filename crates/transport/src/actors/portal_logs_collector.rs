@@ -71,7 +71,7 @@ impl PortalLogsCollectorBehaviour {
         let _ = base
             .get_kademlia_mut()
             .start_providing(RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
-        log::error!("Start providing: {:?}", PORTAL_LOGS_PROVIDER_KEY);
+        log::info!("Start providing: {:?}", PORTAL_LOGS_PROVIDER_KEY);
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
