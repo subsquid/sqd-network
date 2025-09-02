@@ -88,24 +88,28 @@ pub use cli::{BootNode, TransportArgs};
 use util::parse_env_var;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuicConfig {
+pub struct TransportConfig {
     /// Maximum transmission unit to use during MTU discovery (default: 1452).
     pub mtu_discovery_max: u16,
     /// Interval for sending keep-alive packets in milliseconds (default: 5000).
     pub keep_alive_interval_ms: u32,
-    /// Timeout after which idle connections are closed in milliseconds (default: 60000).
+    /// Timeout after which connections are closed if they were not receiving keep-alive packets, in milliseconds (default: 60000).
     pub max_idle_timeout_ms: u32,
+    /// Timeout after which connections are closed if they are not used by any protocol, in milliseconds (default: 10000).
+    pub idle_connection_timeout_ms: u32,
 }
 
-impl QuicConfig {
+impl TransportConfig {
     pub fn from_env() -> Self {
         let mtu_discovery_max = parse_env_var("MTU_DISCOVERY_MAX", 1452);
         let keep_alive_interval_ms = parse_env_var("KEEP_ALIVE_INTERVAL_MS", 5000);
         let max_idle_timeout_ms = parse_env_var("MAX_IDLE_TIMEOUT_MS", 60000);
+        let idle_connection_timeout_ms = parse_env_var("IDLE_CONNECTION_TIMEOUT_MS", 10000);
         Self {
             mtu_discovery_max,
             keep_alive_interval_ms,
             max_idle_timeout_ms,
+            idle_connection_timeout_ms,
         }
     }
 }

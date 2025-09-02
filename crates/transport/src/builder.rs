@@ -13,7 +13,7 @@ use crate::{
     behaviour::base::{BaseBehaviour, BaseConfig},
     cli::{BootNode, TransportArgs},
     util::get_keypair,
-    AgentInfo, Error, Keypair, Multiaddr, PeerId, QuicConfig,
+    AgentInfo, Error, Keypair, Multiaddr, PeerId, TransportConfig,
 };
 
 #[cfg(feature = "logs-collector")]
@@ -46,7 +46,7 @@ pub struct P2PTransportBuilder {
     listen_addrs: Vec<Multiaddr>,
     public_addrs: Vec<Multiaddr>,
     boot_nodes: Vec<BootNode>,
-    quic_config: QuicConfig,
+    transport_config: TransportConfig,
     base_config: BaseConfig,
     contract_client: Box<dyn ContractClient>,
     dht_protocol: StreamProtocol,
@@ -63,7 +63,7 @@ impl P2PTransportBuilder {
             listen_addrs,
             public_addrs: args.p2p_public_addrs,
             boot_nodes: args.boot_nodes,
-            quic_config: QuicConfig::from_env(),
+            transport_config: TransportConfig::from_env(),
             base_config: BaseConfig::from_env(),
             contract_client,
             dht_protocol,
@@ -86,8 +86,11 @@ impl P2PTransportBuilder {
         self
     }
 
-    pub fn with_quic_config(mut self, f: impl FnOnce(QuicConfig) -> QuicConfig) -> Self {
-        self.quic_config = f(self.quic_config);
+    pub fn with_transport_config(
+        mut self,
+        f: impl FnOnce(TransportConfig) -> TransportConfig,
+    ) -> Self {
+        self.transport_config = f(self.transport_config);
         self
     }
 
@@ -115,10 +118,10 @@ impl P2PTransportBuilder {
         let mut swarm = SwarmBuilder::with_existing_identity(self.keypair)
             .with_tokio()
             .with_quic_config(|config| {
-                let mut config = config.mtu_upper_bound(self.quic_config.mtu_discovery_max);
+                let mut config = config.mtu_upper_bound(self.transport_config.mtu_discovery_max);
                 config.keep_alive_interval =
-                    Duration::from_millis(self.quic_config.keep_alive_interval_ms as u64);
-                config.max_idle_timeout = self.quic_config.max_idle_timeout_ms;
+                    Duration::from_millis(self.transport_config.keep_alive_interval_ms as u64);
+                config.max_idle_timeout = self.transport_config.max_idle_timeout_ms;
                 config
             })
             .with_dns()?
@@ -134,6 +137,11 @@ impl P2PTransportBuilder {
                 behaviour(base)
             })
             .expect("infallible")
+            .with_swarm_config(|c| {
+                c.with_idle_connection_timeout(Duration::from_millis(
+                    self.transport_config.idle_connection_timeout_ms as u64,
+                ))
+            })
             .build();
 
         // Listen on provided addresses

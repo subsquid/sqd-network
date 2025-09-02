@@ -129,7 +129,7 @@ pub struct BaseBehaviour {
     ongoing_queries: BiHashMap<PeerId, QueryId>,
     outbound_conns: HashMap<PeerId, u32>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
-    heartbeats_stream: Option<Pin<Box<dyn Stream<Item = Option<(Heartbeat, PeerId)>> + Send>>>,
+    heartbeats_stream: Option<Pin<Box<dyn Stream<Item = (Heartbeat, PeerId)> + Send>>>,
     whitelist_initialized: bool,
 }
 
@@ -262,13 +262,12 @@ impl BaseBehaviour {
     }
 }
 
-// TODO: make it only return successful responses
 fn stream_heartbeats(
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     stream_handle: StreamClientHandle,
     frequency: Duration,
     parallelism: usize,
-) -> impl Stream<Item = Option<(Heartbeat, PeerId)>> {
+) -> impl Stream<Item = (Heartbeat, PeerId)> {
     let mut interval = tokio::time::interval(frequency);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     tokio_stream::wrappers::IntervalStream::new(interval).flat_map(move |_| {
@@ -281,7 +280,9 @@ fn stream_heartbeats(
                     let resp = stream_handle
                         .request_response(peer_id, b"")
                         .await
-                        .inspect_err(|e| log::debug!("Couldn't send heartbeat request: {e:?}"))
+                        .inspect_err(|e| {
+                            log::debug!("Couldn't fetch heartbeat from {peer_id}: {e:?}")
+                        })
                         .ok()?;
                     let heartbeat = Heartbeat::decode(resp.as_ref())
                         .inspect_err(|e| {
@@ -293,6 +294,7 @@ fn stream_heartbeats(
                 }
             })
             .buffer_unordered(parallelism)
+            .filter_map(|x| std::future::ready(x))
     })
 }
 
@@ -354,11 +356,11 @@ impl BehaviourWrapper for BaseBehaviour {
         if let Some(stream) = self.heartbeats_stream.as_mut() {
             if let Poll::Ready(item) = stream.poll_next_unpin(cx) {
                 let heartbeat = item.expect("Heartbeat stream should never finish");
-                if let Some((heartbeat, peer_id)) = heartbeat {
-                    return Poll::Ready(Some(ToSwarm::GenerateEvent(
-                        BaseBehaviourEvent::Heartbeat { peer_id, heartbeat },
-                    )));
-                }
+                let (heartbeat, peer_id) = heartbeat;
+                return Poll::Ready(Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::Heartbeat {
+                    peer_id,
+                    heartbeat,
+                })));
             }
         }
 

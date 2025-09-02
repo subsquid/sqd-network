@@ -20,7 +20,7 @@ use sqd_network_transport::{
     get_agent_info,
     protocol::{dht_protocol, ID_PROTOCOL},
     util::{addr_is_reachable, get_keypair},
-    AgentInfo, BootNode, Keypair, QuicConfig, TransportArgs, WhitelistBehavior, Wrapped,
+    AgentInfo, BootNode, Keypair, TransportArgs, TransportConfig, WhitelistBehavior, Wrapped,
 };
 
 #[cfg(not(target_env = "msvc"))]
@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Start the swarm
-    let quic_config = QuicConfig::from_env();
+    let quic_config = TransportConfig::from_env();
     let mut swarm = SwarmBuilder::with_existing_identity(keypair)
         .with_tokio()
         .with_quic_config(|config| config.mtu_upper_bound(quic_config.mtu_discovery_max))
