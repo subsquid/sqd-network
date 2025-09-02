@@ -1,11 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use futures::StreamExt;
-use futures_core::Stream;
-use libp2p::{
-    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
-    Swarm,
-};
+use libp2p::{swarm::SwarmEvent, Swarm};
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -13,11 +10,13 @@ use sqd_contract_client::PeerId;
 
 use crate::{
     behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent},
-        wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
+        base::BaseBehaviour,
+        stream_client::{ClientConfig, RequestError, StreamClientHandle},
+        wrapped::{BehaviourWrapper, Wrapped},
     },
+    protocol::{MAX_HEARTBEAT_SIZE, WORKER_STATUS_PROTOCOL},
     record_event,
-    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +29,10 @@ pub struct Heartbeat {
 pub struct PingsCollectorConfig {
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
+    /// Timeout for individual heartbeat requests (default: 15 sec)
+    pub request_timeout: Duration,
+    /// Timeout for connecting to peers (default: 10 sec)
+    pub connect_timeout: Duration,
 }
 
 impl Default for PingsCollectorConfig {
@@ -37,6 +40,8 @@ impl Default for PingsCollectorConfig {
         Self {
             events_queue_size: 1000,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
+            request_timeout: Duration::from_secs(15),
+            connect_timeout: Duration::from_secs(10),
         }
     }
 }
@@ -46,38 +51,22 @@ pub struct PingsCollectorBehaviour {
 }
 
 impl PingsCollectorBehaviour {
-    pub fn new(mut base: BaseBehaviour, _config: PingsCollectorConfig) -> Wrapped<Self> {
-        base.start_pulling_heartbeats();
+    pub fn new(base: BaseBehaviour, _config: PingsCollectorConfig) -> Wrapped<Self> {
         Self { base: base.into() }.into()
     }
 }
 
 impl BehaviourWrapper for PingsCollectorBehaviour {
     type Inner = Wrapped<BaseBehaviour>;
-    type Event = Heartbeat;
+    type Event = ();
 
     fn inner(&mut self) -> &mut Self::Inner {
         &mut self.base
-    }
-
-    fn on_inner_event(
-        &mut self,
-        ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
-    ) -> impl IntoIterator<Item = TToSwarm<Self>> {
-        match ev {
-            BaseBehaviourEvent::Heartbeat { peer_id, heartbeat } => {
-                log::debug!("Got heartbeat from {peer_id}");
-                log::trace!("{heartbeat:?}");
-                Some(ToSwarm::GenerateEvent(Heartbeat { peer_id, heartbeat }))
-            }
-            _ => None,
-        }
     }
 }
 
 struct PingsCollectorTransport {
     swarm: Swarm<Wrapped<PingsCollectorBehaviour>>,
-    heartbeats_tx: Sender<Heartbeat>,
 }
 
 impl PingsCollectorTransport {
@@ -92,39 +81,64 @@ impl PingsCollectorTransport {
         log::info!("Shutting down pings collector P2P transport");
     }
 
-    fn on_swarm_event(&mut self, ev: SwarmEvent<Heartbeat>) {
+    fn on_swarm_event(&mut self, ev: SwarmEvent<()>) {
         log::trace!("Swarm event: {ev:?}");
         record_event(&ev);
-        if let SwarmEvent::Behaviour(heartbeat) = ev {
-            self.heartbeats_tx.send_lossy(heartbeat)
-        }
     }
 }
 
 #[derive(Clone)]
 pub struct PingsCollectorTransportHandle {
     _task_manager: Arc<TaskManager>,
+    stream_handle: StreamClientHandle,
 }
 
 impl PingsCollectorTransportHandle {
-    fn new(transport: PingsCollectorTransport, shutdown_timeout: Duration) -> Self {
+    fn new(
+        transport: PingsCollectorTransport,
+        shutdown_timeout: Duration,
+        stream_handle: StreamClientHandle,
+    ) -> Self {
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(c));
         Self {
             _task_manager: Arc::new(task_manager),
+            stream_handle,
         }
+    }
+
+    /// Request a heartbeat from a specific peer
+    pub async fn request_heartbeat(
+        &self,
+        peer_id: PeerId,
+    ) -> Result<sqd_messages::Heartbeat, RequestError> {
+        log::debug!("Requesting heartbeat from {peer_id}");
+        let resp = self.stream_handle.request_response(peer_id, b"").await?;
+        let heartbeat = sqd_messages::Heartbeat::decode(resp.as_ref()).map_err(|e| {
+            RequestError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Error decoding heartbeat: {e}"),
+            ))
+        })?;
+        log::debug!("Got heartbeat from {peer_id}: {heartbeat:?}");
+        Ok(heartbeat)
     }
 }
 
 pub fn start_transport(
     swarm: Swarm<Wrapped<PingsCollectorBehaviour>>,
     config: PingsCollectorConfig,
-) -> (impl Stream<Item = Heartbeat>, PingsCollectorTransportHandle) {
-    let (heartbeats_tx, heartbeats_rx) = new_queue(config.events_queue_size, "events");
-    let transport = PingsCollectorTransport {
-        swarm,
-        heartbeats_tx,
-    };
-    let handle = PingsCollectorTransportHandle::new(transport, config.shutdown_timeout);
-    (heartbeats_rx, handle)
+) -> PingsCollectorTransportHandle {
+    let stream_handle = swarm.behaviour().base.request_handle(
+        WORKER_STATUS_PROTOCOL,
+        ClientConfig {
+            max_concurrent_streams: None,
+            max_response_size: MAX_HEARTBEAT_SIZE,
+            request_timeout: config.request_timeout,
+            connect_timeout: config.connect_timeout,
+            ..Default::default()
+        },
+    );
+    let transport = PingsCollectorTransport { swarm };
+    PingsCollectorTransportHandle::new(transport, config.shutdown_timeout, stream_handle)
 }

@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     num::NonZeroUsize,
-    pin::Pin,
     sync::Arc,
     task::{Context, Poll},
     time::Duration,
@@ -9,7 +8,6 @@ use std::{
 };
 
 use bimap::BiHashMap;
-use futures::{Stream, StreamExt};
 use libp2p::{
     autonat::{self, NatStatus},
     core::ConnectedPoint,
@@ -29,11 +27,9 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use parking_lot::RwLock;
-use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
-use sqd_messages::Heartbeat;
 
 #[cfg(feature = "metrics")]
 use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_QUERIES};
@@ -44,7 +40,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     cli::BootNode,
-    protocol::{ID_PROTOCOL, MAX_HEARTBEAT_SIZE, WORKER_STATUS_PROTOCOL},
+    protocol::ID_PROTOCOL,
     record_event,
     util::{addr_is_reachable, parse_env_var},
     AgentInfo, PeerId,
@@ -82,12 +78,6 @@ pub struct BaseConfig {
     pub max_pubsub_msg_size: usize,
     /// Maximum number of peers to keep in the address cache (default: 1024)
     pub addr_cache_size: NonZeroUsize,
-    /// Timeout for worker status requests (default: 15 sec).
-    pub status_request_timeout: Duration,
-    /// How often to request the status from each individual worker (default: 55 sec).
-    pub status_request_frequency: Duration,
-    /// How many concurrent status requests to send to the workers (default: 100).
-    pub concurrent_status_requests: usize,
 }
 
 impl BaseConfig {
@@ -101,11 +91,6 @@ impl BaseConfig {
         let max_pubsub_msg_size = parse_env_var("MAX_PUBSUB_MSG_SIZE", MAX_PUBSUB_MSG_SIZE);
         let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
             .expect("addr_cache_size should be > 0");
-        let status_request_timeout =
-            Duration::from_secs(parse_env_var("WORKER_STATUS_TIMEOUT_SEC", 15));
-        let status_request_frequency =
-            Duration::from_secs(parse_env_var("WORKER_STATUS_FREQUENCY_SEC", 55));
-        let concurrent_status_requests = parse_env_var("WORKER_CONCURRENT_STATUS_UPDATES", 100);
         Self {
             onchain_update_interval,
             autonat_timeout,
@@ -114,22 +99,17 @@ impl BaseConfig {
             #[cfg(feature = "pubsub")]
             max_pubsub_msg_size,
             addr_cache_size,
-            status_request_timeout,
-            status_request_frequency,
-            concurrent_status_requests,
         }
     }
 }
 
 pub struct BaseBehaviour {
     inner: InnerBehaviour,
-    config: BaseConfig,
     keypair: Keypair,
     pending_events: VecDeque<TToSwarm<Self>>,
     ongoing_queries: BiHashMap<PeerId, QueryId>,
     outbound_conns: HashMap<PeerId, u32>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
-    heartbeats_stream: Option<Pin<Box<dyn Stream<Item = (Heartbeat, PeerId)> + Send>>>,
     whitelist_initialized: bool,
 }
 
@@ -191,8 +171,6 @@ impl BaseBehaviour {
             ongoing_queries: Default::default(),
             outbound_conns: Default::default(),
             registered_workers: Arc::new(RwLock::new(Default::default())),
-            heartbeats_stream: None,
-            config,
             whitelist_initialized: false,
         }
     }
@@ -214,24 +192,6 @@ impl BaseBehaviour {
         self.inner.stream.new_handle(protocol, config)
     }
 
-    pub fn start_pulling_heartbeats(&mut self) {
-        let registered_workers = self.registered_workers.clone();
-        let status_stream_handle = self.inner.stream.new_handle(
-            WORKER_STATUS_PROTOCOL,
-            ClientConfig {
-                max_concurrent_streams: None,
-                max_response_size: MAX_HEARTBEAT_SIZE,
-                request_timeout: self.config.status_request_timeout,
-                ..Default::default()
-            },
-        );
-        self.heartbeats_stream = Some(Box::pin(stream_heartbeats(
-            registered_workers.clone(),
-            status_stream_handle,
-            self.config.status_request_frequency,
-            self.config.concurrent_status_requests,
-        )));
-    }
 
     pub fn get_kademlia_mut(&mut self) -> &mut kad::Behaviour<MemoryStore> {
         &mut self.inner.kademlia
@@ -262,48 +222,9 @@ impl BaseBehaviour {
     }
 }
 
-fn stream_heartbeats(
-    registered_workers: Arc<RwLock<HashSet<PeerId>>>,
-    stream_handle: StreamClientHandle,
-    frequency: Duration,
-    parallelism: usize,
-) -> impl Stream<Item = (Heartbeat, PeerId)> {
-    let mut interval = tokio::time::interval(frequency);
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    tokio_stream::wrappers::IntervalStream::new(interval).flat_map(move |_| {
-        let workers = registered_workers.read().clone();
-        let stream_handle = stream_handle.clone();
-        futures::stream::iter(workers)
-            .map(move |peer_id| {
-                let stream_handle = stream_handle.clone();
-                async move {
-                    let resp = stream_handle
-                        .request_response(peer_id, b"")
-                        .await
-                        .inspect_err(|e| {
-                            log::debug!("Couldn't fetch heartbeat from {peer_id}: {e:?}")
-                        })
-                        .ok()?;
-                    let heartbeat = Heartbeat::decode(resp.as_ref())
-                        .inspect_err(|e| {
-                            log::debug!("Error decoding heartbeat from {peer_id}: {e:?}")
-                        })
-                        .ok()?;
-                    log::debug!("Got heartbeat from {peer_id}: {heartbeat:?}");
-                    Some((heartbeat, peer_id))
-                }
-            })
-            .buffer_unordered(parallelism)
-            .filter_map(|x| std::future::ready(x))
-    })
-}
 
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
-    Heartbeat {
-        peer_id: PeerId,
-        heartbeat: Heartbeat,
-    },
     ProviderRecord {
         id: QueryId,
         result: Result<GetProvidersOk, GetProvidersError>,
@@ -348,20 +269,9 @@ impl BehaviourWrapper for BaseBehaviour {
         }
     }
 
-    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
+    fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
         if let Some(ev) = self.pending_events.pop_front() {
             return Poll::Ready(Some(ev));
-        }
-
-        if let Some(stream) = self.heartbeats_stream.as_mut() {
-            if let Poll::Ready(item) = stream.poll_next_unpin(cx) {
-                let heartbeat = item.expect("Heartbeat stream should never finish");
-                let (heartbeat, peer_id) = heartbeat;
-                return Poll::Ready(Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::Heartbeat {
-                    peer_id,
-                    heartbeat,
-                })));
-            }
         }
 
         Poll::Pending

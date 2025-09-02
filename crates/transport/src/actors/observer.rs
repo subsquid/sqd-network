@@ -45,19 +45,12 @@ pub struct ObserverBehaviour {
 }
 
 impl ObserverBehaviour {
-    pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
-        base.start_pulling_heartbeats();
+    pub fn new(base: BaseBehaviour) -> Wrapped<Self> {
         Self { base: base.into() }.into()
     }
 
-    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<ObserverEvent> {
-        match ev {
-            BaseBehaviourEvent::Heartbeat {
-                peer_id,
-                heartbeat: ping,
-            } => Some(ObserverEvent::Ping { peer_id, ping }),
-            _ => None,
-        }
+    fn on_base_event(&mut self, _ev: BaseBehaviourEvent) -> Option<ObserverEvent> {
+        None
     }
 }
 

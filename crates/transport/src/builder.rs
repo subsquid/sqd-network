@@ -26,7 +26,7 @@ use crate::actors::observer::{
 };
 #[cfg(feature = "pings-collector")]
 use crate::actors::pings_collector::{
-    self, Heartbeat, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
+    self, PingsCollectorBehaviour, PingsCollectorConfig, PingsCollectorTransportHandle,
 };
 #[cfg(feature = "portal")]
 use crate::actors::portal::{self, PortalBehaviour, PortalConfig, PortalTransportHandle};
@@ -203,7 +203,7 @@ impl P2PTransportBuilder {
     pub fn build_pings_collector(
         self,
         config: PingsCollectorConfig,
-    ) -> Result<(impl Stream<Item = Heartbeat>, PingsCollectorTransportHandle), Error> {
+    ) -> Result<PingsCollectorTransportHandle, Error> {
         let swarm = self.build_swarm(|base| PingsCollectorBehaviour::new(base, config))?;
         Ok(pings_collector::start_transport(swarm, config))
     }

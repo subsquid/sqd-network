@@ -263,7 +263,6 @@ impl PortalBehaviour {
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<InternalPortalEvent> {
         match ev {
-            BaseBehaviourEvent::Heartbeat { .. } => None,
             BaseBehaviourEvent::ProviderRecord {
                 id,
                 result,
