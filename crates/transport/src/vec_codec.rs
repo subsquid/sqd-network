@@ -63,7 +63,6 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
         if buf.is_empty() && TypeId::of::<Req>() != TypeId::of::<()>() {
             log::warn!("{protocol}: received an empty request");
         }
-        // let mut decoding_buffer = Bytes::from(buf);
         let mut decoding_cursor = Cursor::new(buf);
         let mut result = Vec::default();
         let mut is_ok = true;

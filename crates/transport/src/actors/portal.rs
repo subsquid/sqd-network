@@ -199,7 +199,6 @@ impl PortalTransportHandle {
     async fn publish_portal_logs(&self, logs: &Vec<QueryFinished>, listeners: &[PeerId]) {
         log::debug!("Sending logs: {logs:?}");
         let mut buffer = BytesMut::new();
-        //let buf = log.encode_to_vec();
         for msg in logs {
             let _ = msg.encode_length_delimited(&mut buffer);
         }
