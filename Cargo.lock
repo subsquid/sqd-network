@@ -2444,16 +2444,6 @@ dependencies = [
 
 [[package]]
 name = "idna"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "634d9b1461af396cad843f47fdba5597a4f9e6ddd4bfb6ff5d85028c25cb12f6"
-dependencies = [
- "unicode-bidi",
- "unicode-normalization",
-]
-
-[[package]]
-name = "idna"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "686f825264d630750a544639377bae737628043f20d38bbc029e8f29ea968a7e"
@@ -2767,7 +2757,7 @@ dependencies = [
  "libp2p-dns",
  "libp2p-gossipsub",
  "libp2p-identify",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-kad",
  "libp2p-mdns",
  "libp2p-metrics",
@@ -2790,7 +2780,7 @@ version = "0.6.0"
 source = "git+https://github.com/kalabukdima/rust-libp2p.git?rev=c0ed330#c0ed3308db3a7deda74a688e13b69007942c41ab"
 dependencies = [
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
 ]
 
@@ -2806,7 +2796,7 @@ dependencies = [
  "futures-bounded",
  "futures-timer",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-request-response",
  "libp2p-swarm",
  "quick-protobuf",
@@ -2824,7 +2814,7 @@ version = "0.6.0"
 source = "git+https://github.com/kalabukdima/rust-libp2p.git?rev=c0ed330#c0ed3308db3a7deda74a688e13b69007942c41ab"
 dependencies = [
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
 ]
 
@@ -2837,7 +2827,7 @@ dependencies = [
  "fnv",
  "futures",
  "futures-timer",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "multiaddr",
  "multihash",
  "multistream-select",
@@ -2861,7 +2851,7 @@ dependencies = [
  "futures",
  "hickory-resolver",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "parking_lot",
  "smallvec",
  "tracing",
@@ -2885,7 +2875,7 @@ dependencies = [
  "hashlink",
  "hex_fmt",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
  "quick-protobuf",
  "quick-protobuf-codec",
@@ -2908,7 +2898,7 @@ dependencies = [
  "futures-bounded",
  "futures-timer",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
  "quick-protobuf",
  "quick-protobuf-codec",
@@ -2937,6 +2927,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "libp2p-identity"
+version = "0.2.12"
+source = "git+https://github.com/kalabukdima/rust-libp2p.git?rev=c0ed330#c0ed3308db3a7deda74a688e13b69007942c41ab"
+dependencies = [
+ "bs58",
+ "ed25519-dalek",
+ "hkdf",
+ "multihash",
+ "quick-protobuf",
+ "rand 0.8.5",
+ "sha2",
+ "thiserror 2.0.11",
+ "tracing",
+ "zeroize",
+]
+
+[[package]]
 name = "libp2p-kad"
 version = "0.49.0"
 source = "git+https://github.com/kalabukdima/rust-libp2p.git?rev=c0ed330#c0ed3308db3a7deda74a688e13b69007942c41ab"
@@ -2949,7 +2956,7 @@ dependencies = [
  "futures-bounded",
  "futures-timer",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
  "quick-protobuf",
  "quick-protobuf-codec",
@@ -2972,7 +2979,7 @@ dependencies = [
  "hickory-proto",
  "if-watch",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
  "rand 0.8.5",
  "smallvec",
@@ -2990,7 +2997,7 @@ dependencies = [
  "libp2p-core",
  "libp2p-gossipsub",
  "libp2p-identify",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-kad",
  "libp2p-ping",
  "libp2p-relay",
@@ -3008,7 +3015,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
  "rand 0.8.5",
  "tracing",
@@ -3024,7 +3031,7 @@ dependencies = [
  "futures-timer",
  "if-watch",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-tls",
  "quinn",
  "rand 0.8.5",
@@ -3048,7 +3055,7 @@ dependencies = [
  "futures-bounded",
  "futures-timer",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
  "quick-protobuf",
  "quick-protobuf-codec",
@@ -3068,7 +3075,7 @@ dependencies = [
  "futures",
  "futures-bounded",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
  "rand 0.8.5",
  "smallvec",
@@ -3082,7 +3089,7 @@ source = "git+https://github.com/kalabukdima/rust-libp2p.git?rev=c0ed330#c0ed330
 dependencies = [
  "futures",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "libp2p-swarm",
  "rand 0.8.5",
  "tracing",
@@ -3141,7 +3148,7 @@ dependencies = [
  "futures",
  "futures-rustls",
  "libp2p-core",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "rcgen",
  "ring 0.17.14",
  "rustls 0.23.10",
@@ -3222,7 +3229,7 @@ version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3262e75e648fce39813cb56ac41f3c3e3f65217ebf3844d818d1f9398cfb0dc"
 dependencies = [
- "hashbrown",
+ "hashbrown 0.14.5",
 ]
 
 [[package]]
@@ -3322,7 +3329,7 @@ dependencies = [
  "arrayref",
  "byteorder",
  "data-encoding",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (registry+https://github.com/rust-lang/crates.io-index)",
  "multibase",
  "multihash",
  "percent-encoding",
@@ -5016,7 +5023,7 @@ dependencies = [
  "curve25519-dalek",
  "flatbuffers",
  "hmac",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (git+https://github.com/kalabukdima/rust-libp2p.git?rev=c0ed330)",
  "ouroboros",
  "rand 0.8.5",
  "serde",
@@ -5082,7 +5089,7 @@ dependencies = [
  "bytemuck",
  "flate2",
  "hex",
- "libp2p-identity",
+ "libp2p-identity 0.2.12 (git+https://github.com/kalabukdima/rust-libp2p.git?rev=c0ed330)",
  "prost 0.13.1",
  "prost-build",
  "semver",
