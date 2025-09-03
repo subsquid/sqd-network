@@ -67,6 +67,10 @@ message QueryError {
 }
 
 // Portal -> Logs collector
+message PortalLogs {
+  repeated QueryFinished portal_logs = 1;
+}
+
 message QueryFinished {
   string worker_id = 2;
   string query_id = 3;

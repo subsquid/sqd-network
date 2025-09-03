@@ -11,7 +11,7 @@ use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use parking_lot::Mutex;
-use sqd_messages::{Query, QueryFinished, QueryResult};
+use sqd_messages::{PortalLogs, Query, QueryFinished, QueryResult};
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
@@ -22,7 +22,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     protocol::{
-        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY,
+        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY,
         QUERY_PROTOCOL,
     },
     record_event,
@@ -183,7 +183,7 @@ impl PortalTransportHandle {
         Ok(result)
     }
 
-    async fn send_log_to_listener(&self, listener: PeerId, buf: &[u8]) -> Result<(), Error> {
+    async fn send_logs_to_listener(&self, listener: PeerId, buf: &[u8]) -> Result<(), Error> {
         let fut = async {
             let mut stream = self.logs_handle.get_raw_stream(listener).await?;
             stream.write_all(buf).await?;
@@ -196,12 +196,18 @@ impl PortalTransportHandle {
         })
     }
 
-    async fn publish_portal_log(&self, log: &QueryFinished, listeners: &[PeerId]) {
-        log::debug!("Sending log: {log:?}");
-        let buf = log.encode_to_vec();
-        let results =
-            join_all(listeners.iter().map(|listener| self.send_log_to_listener(*listener, &buf)))
-                .await;
+    async fn publish_portal_logs(&self, portal_logs: Vec<QueryFinished>, listeners: &[PeerId]) {
+        log::trace!("Sending logs: {portal_logs:?}");
+        let payload = PortalLogs {
+            portal_logs,
+        };
+        let buffer = payload.encode_to_vec();
+        let results = join_all(
+            listeners
+                .iter()
+                .map(|listener| self.send_logs_to_listener(*listener, buffer.as_ref())),
+        )
+        .await;
         for (idx, result) in results.iter().enumerate() {
             let listener = listeners[idx];
             match result {
@@ -215,9 +221,9 @@ impl PortalTransportHandle {
         }
     }
 
-    pub async fn send_log(&self, log: &QueryFinished) {
+    pub async fn send_logs(&self, logs: Vec<QueryFinished>) {
         let listeners = self.log_listeners.lock().clone();
-        self.publish_portal_log(log, &listeners).await;
+        self.publish_portal_logs(logs, &listeners).await;
     }
 }
 
@@ -227,7 +233,7 @@ pub fn start_transport(
 ) -> PortalTransportHandle {
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
     let logs_handle =
-        swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
+        swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL_V2, config.query_config);
     let (log_listeners_tx, log_listeners_rx) = new_queue(config.listeners_queue_size, "listeners");
 
     let transport = PortalTransport {
