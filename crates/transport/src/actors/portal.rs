@@ -196,10 +196,10 @@ impl PortalTransportHandle {
         })
     }
 
-    async fn publish_portal_logs(&self, logs: &[QueryFinished], listeners: &[PeerId]) {
-        log::trace!("Sending logs: {logs:?}");
+    async fn publish_portal_logs(&self, portal_logs: Vec<QueryFinished>, listeners: &[PeerId]) {
+        log::trace!("Sending logs: {portal_logs:?}");
         let payload = PortalLogs {
-            portal_logs: logs.to_vec(),
+            portal_logs,
         };
         let buffer = payload.encode_to_vec();
         let results = join_all(
@@ -221,7 +221,7 @@ impl PortalTransportHandle {
         }
     }
 
-    pub async fn send_logs(&self, logs: &[QueryFinished]) {
+    pub async fn send_logs(&self, logs: Vec<QueryFinished>) {
         let listeners = self.log_listeners.lock().clone();
         self.publish_portal_logs(logs, &listeners).await;
     }
