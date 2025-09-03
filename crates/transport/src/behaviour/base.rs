@@ -131,6 +131,7 @@ impl BaseBehaviour {
             identify: identify::Behaviour::new(
                 identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
                     .with_interval(config.identify_interval)
+                    .with_cache_size(0)
                     .with_push_listen_addr_updates(true)
                     .with_agent_version(agent_info.to_string()),
             ),
