@@ -117,7 +117,7 @@ impl PortalLogsCollectorBehaviour {
         request: PortalLogs,
         resp_chan: ResponseChannel<()>,
     ) -> Option<PortalLogsCollectorEvent> {
-        let _ = self.inner.collector_v1.try_send_response(resp_chan, ());
+        let _ = self.inner.collector_v2.try_send_response(resp_chan, ());
         Some(PortalLogsCollectorEvent::LogQuery {
             peer_id,
             logs: request.portal_logs,
