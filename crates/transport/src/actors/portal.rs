@@ -7,11 +7,11 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
     PeerId, Swarm,
 };
-use prost::{bytes::BytesMut, Message};
+use prost::Message;
 use serde::{Deserialize, Serialize};
 
 use parking_lot::Mutex;
-use sqd_messages::{Query, QueryFinished, QueryResult};
+use sqd_messages::{PortalLogs, Query, QueryFinished, QueryResult};
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
@@ -22,7 +22,7 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     protocol::{
-        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY,
+        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY,
         QUERY_PROTOCOL,
     },
     record_event,
@@ -198,10 +198,10 @@ impl PortalTransportHandle {
 
     async fn publish_portal_logs(&self, logs: &[QueryFinished], listeners: &[PeerId]) {
         log::trace!("Sending logs: {logs:?}");
-        let mut buffer = BytesMut::new();
-        for msg in logs {
-            let _ = msg.encode_length_delimited(&mut buffer);
-        }
+        let payload = PortalLogs {
+            portal_logs: logs.to_vec(),
+        };
+        let buffer = payload.encode_to_vec();
         let results = join_all(
             listeners
                 .iter()
@@ -233,7 +233,7 @@ pub fn start_transport(
 ) -> PortalTransportHandle {
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
     let logs_handle =
-        swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL, config.query_config);
+        swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL_V2, config.query_config);
     let (log_listeners_tx, log_listeners_rx) = new_queue(config.listeners_queue_size, "listeners");
 
     let transport = PortalTransport {

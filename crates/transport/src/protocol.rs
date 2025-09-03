@@ -25,7 +25,8 @@ pub const ID_PROTOCOL: &str = "/subsquid/1.0.0";
 pub const QUERY_PROTOCOL: &str = "/sqd/query/1.1.0";
 pub const WORKER_LOGS_PROTOCOL: &str = "/sqd/worker_logs/1.1.0";
 pub const WORKER_STATUS_PROTOCOL: &str = "/sqd/worker_status/1.0.0";
-pub const PORTAL_LOGS_PROTOCOL: &str = "/sqd/portal_logs/1.0.0";
+pub const PORTAL_LOGS_PROTOCOL_V1: &str = "/sqd/portal_logs/1.0.0";
+pub const PORTAL_LOGS_PROTOCOL_V2: &str = "/sqd/portal_logs/2.0.0";
 
 pub const PORTAL_LOGS_PROVIDER_KEY: &[u8; 22] = b"/sqd/portal_logs/1.0.0";
 

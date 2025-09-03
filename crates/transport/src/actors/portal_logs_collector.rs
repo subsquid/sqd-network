@@ -12,7 +12,7 @@ use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use sqd_messages::QueryFinished;
+use sqd_messages::{PortalLogs, QueryFinished};
 
 use crate::{
     behaviour::{
@@ -21,11 +21,11 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     protocol::{
-        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL, PORTAL_LOGS_PROVIDER_KEY,
+        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V1, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY,
     },
     record_event,
     util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
-    vec_codec::ProtoVecCodec,
+    codec::ProtoCodec,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -53,12 +53,14 @@ impl Default for PortalLogsCollectorConfig {
     }
 }
 
-type PortalLogCollectionBehaviour = Wrapped<ServerBehaviour<ProtoVecCodec<QueryFinished, ()>>>;
+type PortalLogCollectionBehaviourV1 = Wrapped<ServerBehaviour<ProtoCodec<QueryFinished, ()>>>;
+type PortalLogCollectionBehaviourV2 = Wrapped<ServerBehaviour<ProtoCodec<PortalLogs, ()>>>;
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
-    collector: PortalLogCollectionBehaviour,
+    collector_v1: PortalLogCollectionBehaviourV1,
+    collector_v2: PortalLogCollectionBehaviourV2,
 }
 
 pub struct PortalLogsCollectorBehaviour {
@@ -75,9 +77,15 @@ impl PortalLogsCollectorBehaviour {
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
-                collector: ServerBehaviour::new(
-                    ProtoVecCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
-                    PORTAL_LOGS_PROTOCOL,
+                collector_v1: ServerBehaviour::new(
+                    ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
+                    PORTAL_LOGS_PROTOCOL_V1,
+                    REQUEST_TIMEOUT,
+                )
+                .into(),
+                collector_v2: ServerBehaviour::new(
+                    ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
+                    PORTAL_LOGS_PROTOCOL_V2,
                     REQUEST_TIMEOUT,
                 )
                 .into(),
@@ -90,16 +98,29 @@ impl PortalLogsCollectorBehaviour {
         None
     }
 
-    fn on_collector_request(
+    fn on_collector_v1_request(
         &mut self,
         peer_id: PeerId,
-        queries: Vec<QueryFinished>,
+        request: QueryFinished,
         resp_chan: ResponseChannel<()>,
     ) -> Option<PortalLogsCollectorEvent> {
-        let _ = self.inner.collector.try_send_response(resp_chan, ());
+        let _ = self.inner.collector_v1.try_send_response(resp_chan, ());
         Some(PortalLogsCollectorEvent::LogQuery {
             peer_id,
-            logs: queries,
+            logs: vec![request],
+        })
+    }
+
+    fn on_collector_v2_request(
+        &mut self,
+        peer_id: PeerId,
+        request: PortalLogs,
+        resp_chan: ResponseChannel<()>,
+    ) -> Option<PortalLogsCollectorEvent> {
+        let _ = self.inner.collector_v1.try_send_response(resp_chan, ());
+        Some(PortalLogsCollectorEvent::LogQuery {
+            peer_id,
+            logs: request.portal_logs,
         })
     }
 }
@@ -127,11 +148,16 @@ impl BehaviourWrapper for PortalLogsCollectorBehaviour {
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
             InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
-            InnerBehaviourEvent::Collector(Request {
+            InnerBehaviourEvent::CollectorV1(Request {
                 peer_id,
                 request,
                 response_channel,
-            }) => self.on_collector_request(peer_id, request, response_channel),
+            }) => self.on_collector_v1_request(peer_id, request, response_channel),
+            InnerBehaviourEvent::CollectorV2(Request {
+                peer_id,
+                request,
+                response_channel,
+            }) => self.on_collector_v2_request(peer_id, request, response_channel),
         };
         ev.map(ToSwarm::GenerateEvent)
     }
