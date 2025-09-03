@@ -3,11 +3,11 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-libp2p = "0.55"
-libp2p-identity = { version = "0.2.10", features = ["peerid"] }
-libp2p-connection-limits = "0.5"
-libp2p-swarm-derive = "0.35"
-libp2p-stream = { version = "0.3.0-alpha" }
+libp2p = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330" }
+libp2p-identity = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330", features = ["peerid"] }
+libp2p-connection-limits = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330" }
+libp2p-swarm-derive = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330" }
+libp2p-stream = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
