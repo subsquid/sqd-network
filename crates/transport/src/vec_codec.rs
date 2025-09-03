@@ -72,7 +72,7 @@ impl<Req: Message + Default + 'static, Res: Message + Default + 'static> request
                     result.push(msg);
                 }
                 Err(err) => {
-                    log::debug!("Failed to decode incoming buffer as vector: {err}, let's retry single entity");
+                    log::trace!("Failed to decode incoming buffer as vector: {err}, let's retry single entity");
                     is_ok = false;
                     break;
                 }

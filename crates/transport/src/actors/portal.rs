@@ -196,8 +196,8 @@ impl PortalTransportHandle {
         })
     }
 
-    async fn publish_portal_logs(&self, logs: &Vec<QueryFinished>, listeners: &[PeerId]) {
-        log::debug!("Sending logs: {logs:?}");
+    async fn publish_portal_logs(&self, logs: &[QueryFinished], listeners: &[PeerId]) {
+        log::trace!("Sending logs: {logs:?}");
         let mut buffer = BytesMut::new();
         for msg in logs {
             let _ = msg.encode_length_delimited(&mut buffer);
@@ -221,7 +221,7 @@ impl PortalTransportHandle {
         }
     }
 
-    pub async fn send_logs(&self, logs: &Vec<QueryFinished>) {
+    pub async fn send_logs(&self, logs: &[QueryFinished]) {
         let listeners = self.log_listeners.lock().clone();
         self.publish_portal_logs(logs, &listeners).await;
     }
