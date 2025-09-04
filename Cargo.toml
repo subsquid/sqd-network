@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.dependencies]
 libp2p = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330" }
-libp2p-identity = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330", features = ["peerid"] }
+libp2p-identity = { version = "0.2.12", features = ["peerid"] }
 libp2p-connection-limits = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330" }
 libp2p-swarm-derive = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330" }
 libp2p-stream = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "c0ed330" }
