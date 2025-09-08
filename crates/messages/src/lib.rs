@@ -18,8 +18,6 @@ use std::fmt::{Debug, Formatter};
 
 pub use prost::Message as ProstMsg;
 
-#[cfg(any(feature = "assignment_reader", feature = "assignment_writer"))]
-pub mod assignments;
 #[cfg(feature = "bitstring")]
 pub mod bitstring;
 pub mod data_chunk;

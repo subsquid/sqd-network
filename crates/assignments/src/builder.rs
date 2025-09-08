@@ -6,9 +6,11 @@ use crypto_box::{
 };
 use flatbuffers::{self as fb, WIPOffset};
 use libp2p_identity::PeerId;
-use sqd_messages::assignments::timed_hmac;
 
-use crate::common;
+use crate::{
+    common,
+    signatures::{encrypt_with_rng, timed_hmac},
+};
 
 use super::assignment_fb::{self, Assignment, WorkerId};
 
@@ -218,8 +220,8 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
         let plaintext =
             format!(r#"{{"worker-id":"{}","worker-signature":"{}"}}"#, id, worker_signature);
 
-        let (ciphertext, nonce) = sqd_messages::assignments::encrypt_with_rng(
-            &id,
+        let (ciphertext, nonce) = encrypt_with_rng(
+            &peer_id,
             &self.common_secret_key,
             plaintext.as_bytes(),
             &mut self.rng,

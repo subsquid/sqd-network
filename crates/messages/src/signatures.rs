@@ -2,10 +2,7 @@ use std::mem::{size_of, size_of_val};
 
 use sha3::{Digest, Sha3_256};
 
-use libp2p::{
-    identity::{Keypair, PublicKey},
-    PeerId,
-};
+use libp2p_identity::{Keypair, PeerId, PublicKey};
 
 use crate::{
     query_error, query_finished, query_result, ProstMsg, Query, QueryError, QueryExecuted,

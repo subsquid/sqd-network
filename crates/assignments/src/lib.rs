@@ -4,6 +4,8 @@ mod builder;
 mod common;
 #[cfg(feature = "reader")]
 mod reader;
+#[cfg(feature = "builder")]
+mod signatures;
 
 pub use common::WorkerStatus;
 
