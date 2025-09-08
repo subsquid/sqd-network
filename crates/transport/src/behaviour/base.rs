@@ -69,7 +69,7 @@ pub struct BaseConfig {
     pub onchain_update_interval: Duration,
     /// Timeout for autoNAT probes (default: 60 sec).
     pub autonat_timeout: Duration,
-    /// How often to publish identify info to connected nodes (default: 60 sec).
+    /// How often to publish identify info to connected nodes (default: 10 min).
     pub identify_interval: Duration,
     /// Timeout for kademlia DHT queries (default: 5 sec).
     pub kad_query_timeout: Duration,
@@ -85,7 +85,7 @@ impl BaseConfig {
         let onchain_update_interval =
             Duration::from_secs(parse_env_var("ONCHAIN_UPDATE_INTERVAL_SEC", 60));
         let autonat_timeout = Duration::from_secs(parse_env_var("AUTONAT_TIMEOUT_SEC", 60));
-        let identify_interval = Duration::from_secs(parse_env_var("IDENTIFY_INTERVAL_SEC", 60));
+        let identify_interval = Duration::from_secs(parse_env_var("IDENTIFY_INTERVAL_SEC", 600));
         let kad_query_timeout = Duration::from_secs(parse_env_var("KAD_QUERY_TIMEOUT_SEC", 5));
         #[cfg(feature = "pubsub")]
         let max_pubsub_msg_size = parse_env_var("MAX_PUBSUB_MSG_SIZE", MAX_PUBSUB_MSG_SIZE);
