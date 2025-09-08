@@ -7,7 +7,7 @@ mod reader;
 #[cfg(feature = "builder")]
 mod signatures;
 
-pub use common::WorkerStatus;
+pub use common::{NetworkAssignment, NetworkState, WorkerStatus};
 
 #[cfg(feature = "builder")]
 pub use builder::AssignmentBuilder;
