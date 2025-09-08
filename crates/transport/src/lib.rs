@@ -104,7 +104,7 @@ impl TransportConfig {
         let mtu_discovery_max = parse_env_var("MTU_DISCOVERY_MAX", 1452);
         let keep_alive_interval_ms = parse_env_var("KEEP_ALIVE_INTERVAL_MS", 5000);
         let max_idle_timeout_ms = parse_env_var("MAX_IDLE_TIMEOUT_MS", 60000);
-        let idle_connection_timeout_ms = parse_env_var("IDLE_CONNECTION_TIMEOUT_MS", 10000);
+        let idle_connection_timeout_ms = parse_env_var("IDLE_CONNECTION_TIMEOUT_MS", 120000);
         Self {
             mtu_discovery_max,
             keep_alive_interval_ms,

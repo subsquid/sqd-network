@@ -71,7 +71,7 @@ pub struct BaseConfig {
     pub autonat_timeout: Duration,
     /// How often to publish identify info to connected nodes (default: 60 sec).
     pub identify_interval: Duration,
-    /// Timeout for kademlia DHT queries (default: 10 sec).
+    /// Timeout for kademlia DHT queries (default: 5 sec).
     pub kad_query_timeout: Duration,
     /// Maximum size of gossipsub messages in bytes (default: `MAX_PUBSUB_MSG_SIZE`)
     #[cfg(feature = "pubsub")]
