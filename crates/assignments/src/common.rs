@@ -10,8 +10,7 @@ pub enum WorkerStatus {
 
 #[derive(Serialize, Deserialize)]
 pub struct NetworkAssignment {
-    // Deprecated:
-    // pub url: String,
+    pub url: Option<String>, // deprecated
     pub fb_url: Option<String>,
     pub fb_url_v1: Option<String>,
     pub id: String,
