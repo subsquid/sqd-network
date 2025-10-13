@@ -20,7 +20,7 @@ message BitString {
 // Worker -> Scheduler, Portal, Ping collector
 message Heartbeat {
   string version = 1;  // "1.0.0"
-  string assignment_id = 2;  // "20241008T141245_242da92f7d6c"
+  string assignment_id = 2;  // "2025-10-12T12:00:45_C1A955A7E13FABEC64DCA7965104FA0CBF98C063A6FCB4473E243348CADFAFAE"
   // Points to the chunks in this worker's assignment list referenced by `assignment_id`.
   BitString missing_chunks = 3;
   optional uint64 stored_bytes = 4;
