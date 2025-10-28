@@ -118,7 +118,8 @@ pub struct LogsCollectorBehaviour {
 }
 
 impl LogsCollectorBehaviour {
-    pub fn new(base: BaseBehaviour) -> Self {
+    pub fn new(mut base: BaseBehaviour) -> Self {
+        base.keep_all_connections_alive();
         Self { base: base.into() }
     }
 }

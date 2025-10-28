@@ -22,8 +22,8 @@ use crate::{
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     protocol::{
-        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY,
-        QUERY_PROTOCOL,
+        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V2,
+        PORTAL_LOGS_PROVIDER_KEY, QUERY_PROTOCOL,
     },
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
@@ -198,9 +198,7 @@ impl PortalTransportHandle {
 
     async fn publish_portal_logs(&self, portal_logs: Vec<QueryFinished>, listeners: &[PeerId]) {
         log::trace!("Sending logs: {portal_logs:?}");
-        let payload = PortalLogs {
-            portal_logs,
-        };
+        let payload = PortalLogs { portal_logs };
         let buffer = payload.encode_to_vec();
         let results = join_all(
             listeners
@@ -232,8 +230,10 @@ pub fn start_transport(
     config: PortalConfig,
 ) -> PortalTransportHandle {
     let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
-    let logs_handle =
-        swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL_V2, config.query_config);
+    let logs_handle = swarm
+        .behaviour()
+        .base
+        .request_handle(PORTAL_LOGS_PROTOCOL_V2, config.query_config);
     let (log_listeners_tx, log_listeners_rx) = new_queue(config.listeners_queue_size, "listeners");
 
     let transport = PortalTransport {
@@ -258,7 +258,8 @@ pub struct PortalBehaviour {
 }
 
 impl PortalBehaviour {
-    pub fn new(base: BaseBehaviour, _config: PortalConfig) -> Wrapped<Self> {
+    pub fn new(mut base: BaseBehaviour, _config: PortalConfig) -> Wrapped<Self> {
+        base.keep_all_connections_alive();
         Self {
             base: base.into(),
             provider_query: Default::default(),

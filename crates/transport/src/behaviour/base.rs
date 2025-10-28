@@ -36,6 +36,7 @@ use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_QUERIES};
 use crate::{
     behaviour::{
         addr_cache::AddressCache,
+        keep_alive::KeepAliveBehaviour,
         node_whitelist::{WhitelistBehavior, WhitelistConfig},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
@@ -61,6 +62,7 @@ pub struct InnerBehaviour {
     pubsub: Wrapped<PubsubBehaviour>,
     address_cache: AddressCache,
     stream: Wrapped<ClientBehaviour>,
+    keep_alive: KeepAliveBehaviour,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -158,6 +160,7 @@ impl BaseBehaviour {
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
             stream: ClientBehaviour::default().into(),
+            keep_alive: KeepAliveBehaviour::default(),
         };
 
         for boot_node in boot_nodes {
@@ -183,6 +186,10 @@ impl BaseBehaviour {
     // Prevents removing the address from the DHT even if AutoNAT check fails
     pub fn set_server_mode(&mut self) {
         self.inner.kademlia.set_mode(Some(kad::Mode::Server));
+    }
+
+    pub fn keep_all_connections_alive(&mut self) {
+        self.inner.keep_alive.keep_all_connections_alive();
     }
 
     pub fn request_handle(
