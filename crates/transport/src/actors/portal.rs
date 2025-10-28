@@ -7,6 +7,7 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
     PeerId, Swarm,
 };
+use libp2p_swarm_derive::NetworkBehaviour;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 
@@ -18,12 +19,13 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent},
+        keep_alive::KeepAliveBehaviour,
         stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     protocol::{
-        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY,
-        QUERY_PROTOCOL,
+        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V2,
+        PORTAL_LOGS_PROVIDER_KEY, QUERY_PROTOCOL,
     },
     record_event,
     util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
@@ -198,9 +200,7 @@ impl PortalTransportHandle {
 
     async fn publish_portal_logs(&self, portal_logs: Vec<QueryFinished>, listeners: &[PeerId]) {
         log::trace!("Sending logs: {portal_logs:?}");
-        let payload = PortalLogs {
-            portal_logs,
-        };
+        let payload = PortalLogs { portal_logs };
         let buffer = payload.encode_to_vec();
         let results = join_all(
             listeners
@@ -231,9 +231,12 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<PortalBehaviour>>,
     config: PortalConfig,
 ) -> PortalTransportHandle {
-    let query_handle = swarm.behaviour().base.request_handle(QUERY_PROTOCOL, config.query_config);
-    let logs_handle =
-        swarm.behaviour().base.request_handle(PORTAL_LOGS_PROTOCOL_V2, config.query_config);
+    let query_handle = swarm.behaviour().base().request_handle(QUERY_PROTOCOL, config.query_config);
+    let logs_handle = swarm
+        .behaviour()
+        .inner
+        .base
+        .request_handle(PORTAL_LOGS_PROTOCOL_V2, config.query_config);
     let (log_listeners_tx, log_listeners_rx) = new_queue(config.listeners_queue_size, "listeners");
 
     let transport = PortalTransport {
@@ -251,8 +254,14 @@ pub fn start_transport(
     )
 }
 
-pub struct PortalBehaviour {
+#[derive(NetworkBehaviour)]
+pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
+    keep_alive: KeepAliveBehaviour,
+}
+
+pub struct PortalBehaviour {
+    inner: InnerBehaviour,
     provider_query: Option<QueryId>,
     providers_list: HashSet<PeerId>,
 }
@@ -260,11 +269,18 @@ pub struct PortalBehaviour {
 impl PortalBehaviour {
     pub fn new(base: BaseBehaviour, _config: PortalConfig) -> Wrapped<Self> {
         Self {
-            base: base.into(),
+            inner: InnerBehaviour {
+                base: base.into(),
+                keep_alive: KeepAliveBehaviour::default(),
+            },
             provider_query: Default::default(),
             providers_list: Default::default(),
         }
         .into()
+    }
+
+    pub fn base(&self) -> &Wrapped<BaseBehaviour> {
+        &self.inner.base
     }
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<InternalPortalEvent> {
@@ -313,23 +329,27 @@ impl PortalBehaviour {
         if self.provider_query.is_some() {
             return;
         }
-        let query_id = self.base.get_kademlia_mut().get_providers(key);
+        let query_id = self.inner.base.get_kademlia_mut().get_providers(key);
         self.provider_query = Some(query_id);
     }
 }
 
 impl BehaviourWrapper for PortalBehaviour {
-    type Inner = Wrapped<BaseBehaviour>;
+    type Inner = InnerBehaviour;
     type Event = InternalPortalEvent;
 
     fn inner(&mut self) -> &mut Self::Inner {
-        &mut self.base
+        &mut self.inner
     }
 
     fn on_inner_event(
         &mut self,
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
+        let ev = match ev {
+            InnerBehaviourEvent::KeepAlive(_) => unreachable!(),
+            InnerBehaviourEvent::Base(ev) => ev,
+        };
         let out = self.on_base_event(ev);
         out.map(ToSwarm::GenerateEvent)
     }
