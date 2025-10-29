@@ -38,6 +38,13 @@ message Query {
   string chunk_id = 8;  // "0000000000/0000808640-0000816499-b0486318"
   uint64 timestamp_ms = 9;
   bytes signature = 10;  // covers all the above fields + worker's peer ID
+  Compression compression = 12;
+}
+
+enum Compression {
+  COMPRESSION_GZIP = 0;
+  COMPRESSION_NONE = 1;
+  COMPRESSION_ZSTD = 2;
 }
 
 // Worker -> Portal

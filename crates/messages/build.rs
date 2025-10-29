@@ -2,7 +2,12 @@
 fn main() -> std::io::Result<()> {
     println!("cargo:rerun-if-changed=proto/messages.proto");
     prost_build::Config::new()
-        .type_attribute(".", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
+        .message_attribute(".", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
+        // enum_attribute matches all enums and oneofs, but enums already have Eq implementation
+        .enum_attribute(".messages.QueryResult.result", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
+        .enum_attribute(".messages.QueryError.err", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
+        .enum_attribute(".messages.QueryFinished.result", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
+        .enum_attribute(".messages.QueryExecuted.result", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
         .type_attribute("messages.Range", "#[derive(Copy, Ord, PartialOrd)]")
         .skip_debug(["messages.QueryOk"])
         .field_attribute("messages.QueryOkSummary.data_hash", "#[serde(with = \"hex\")]")
