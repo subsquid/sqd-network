@@ -1,7 +1,6 @@
 pub mod addr_cache;
 #[cfg(feature = "actors")]
 pub mod base;
-#[cfg(feature = "actors")]
 pub mod keep_alive;
 pub mod node_whitelist;
 #[cfg(feature = "pubsub")]

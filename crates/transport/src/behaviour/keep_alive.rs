@@ -2,8 +2,8 @@ use futures::{AsyncReadExt, StreamExt};
 use libp2p::{
     core::{transport::PortUse, Endpoint},
     swarm::{
-        ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
+        behaviour::ConnectionEstablished, ConnectionDenied, ConnectionId, FromSwarm,
+        NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
     StreamProtocol,
 };
@@ -62,7 +62,7 @@ impl KeepAliveBehaviour {
                     log::debug!("Keep-alive stream to {peer} closed");
                 }
                 Err(e) => {
-                    log::info!("Failed to open keep-alive stream to {peer}: {e}");
+                    log::debug!("Failed to open keep-alive stream to {peer}: {e}");
                     return;
                 }
             };
@@ -91,14 +91,12 @@ impl NetworkBehaviour for KeepAliveBehaviour {
         local_addr: &Multiaddr,
         remote_addr: &Multiaddr,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        let result = self.stream.handle_established_inbound_connection(
+        self.stream.handle_established_inbound_connection(
             connection_id,
             peer,
             local_addr,
             remote_addr,
-        );
-        self.ensure_keep_alive(peer);
-        result
+        )
     }
 
     fn handle_pending_outbound_connection(
@@ -124,18 +122,22 @@ impl NetworkBehaviour for KeepAliveBehaviour {
         role_override: Endpoint,
         port_use: PortUse,
     ) -> Result<THandler<Self>, ConnectionDenied> {
-        let result = self.stream.handle_established_outbound_connection(
+        self.stream.handle_established_outbound_connection(
             connection_id,
             peer,
             addr,
             role_override,
             port_use,
-        );
-        self.ensure_keep_alive(peer);
-        result
+        )
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
+        match event {
+            FromSwarm::ConnectionEstablished(ConnectionEstablished { peer_id, .. }) => {
+                self.ensure_keep_alive(peer_id);
+            }
+            _ => {}
+        }
         self.stream.on_swarm_event(event);
     }
 

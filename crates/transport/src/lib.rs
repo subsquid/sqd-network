@@ -79,6 +79,7 @@ pub use behaviour::stream_client::{ClientConfig, Timeout as StreamClientTimeout}
 #[cfg(feature = "behaviour")]
 pub use behaviour::{
     addr_cache::AddressCache,
+    keep_alive::KeepAliveBehaviour,
     node_whitelist::{WhitelistBehavior, WhitelistConfig},
     wrapped::{BehaviourWrapper, Wrapped},
 };
