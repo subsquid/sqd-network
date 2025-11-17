@@ -45,6 +45,16 @@ impl Assignment {
         Ok((*worker.worker_id()).try_into()?)
     }
 
+    pub fn get_worker_by_index(&self, index: u16) -> Worker<'_> {
+        let workers = self.borrow_reader().workers();
+        let worker = workers.get(index as usize);
+        Worker {
+            assignment: *self.borrow_reader(),
+            reader: worker,
+            index,
+        }
+    }
+
     pub fn get_worker(&self, id: &PeerId) -> Option<Worker<'_>> {
         let workers = self.borrow_reader().workers();
         let index = lookup_index_by_key(&workers, |x| {
@@ -135,6 +145,10 @@ impl Worker<'_> {
                 .iter()
                 .filter(move |chunk| chunk.worker_indexes().iter().any(|i| self.index == i))
         })
+    }
+
+    pub fn peer_id(&self) -> Result<PeerId, anyhow::Error> {
+        Ok((*self.reader.worker_id()).try_into()?)
     }
 
     pub fn status(&self) -> WorkerStatus {
