@@ -3,6 +3,8 @@ pub mod addr_cache;
 pub mod base;
 pub mod keep_alive;
 pub mod node_whitelist;
+#[cfg(feature = "noise")]
+pub mod noise;
 #[cfg(feature = "pubsub")]
 pub mod pubsub;
 #[cfg(feature = "request-server")]
