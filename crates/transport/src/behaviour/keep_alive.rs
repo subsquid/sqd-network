@@ -156,8 +156,9 @@ impl NetworkBehaviour for KeepAliveBehaviour {
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         // Poll incoming streams
         loop {
-            match futures::ready!(self.incoming.poll_next_unpin(cx)) {
-                Some((peer, mut stream)) => {
+            match self.incoming.poll_next_unpin(cx) {
+                Poll::Pending => break,
+                Poll::Ready(Some((peer, mut stream))) => {
                     log::debug!("Accepted keep-alive request from {peer}");
                     tokio::spawn(async move {
                         use futures::AsyncReadExt;
@@ -179,7 +180,7 @@ impl NetworkBehaviour for KeepAliveBehaviour {
                         }
                     });
                 }
-                None => {
+                Poll::Ready(None) => {
                     log::warn!("Keep-alive incoming stream ended unexpectedly");
                     break;
                 }
