@@ -14,19 +14,12 @@ use tokio_util::sync::CancellationToken;
 use sqd_messages::{LogsRequest, Query, QueryLogs, QueryResult, WorkerStatus};
 
 use crate::{
-    behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent},
-        request_server::{Request, ServerBehaviour},
-        wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
-    },
-    codec::ProtoCodec,
-    protocol::{
+    QueueFull, behaviour::{
+        base::{BaseBehaviour, BaseBehaviourEvent}, noise::NoiseBehaviour, request_server::{Request, ServerBehaviour}, wrapped::{BehaviourWrapper, TToSwarm, Wrapped}
+    }, codec::ProtoCodec, protocol::{
         MAX_HEARTBEAT_SIZE, MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_MSG_SIZE,
         MAX_QUERY_RESULT_SIZE, QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL, WORKER_STATUS_PROTOCOL,
-    },
-    record_event,
-    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
-    QueueFull,
+    }, record_event, util::{DEFAULT_SHUTDOWN_TIMEOUT, Receiver, Sender, TaskManager, new_queue}
 };
 
 #[derive(Debug)]
@@ -61,6 +54,7 @@ pub struct InnerBehaviour {
     query: QueryBehaviour,
     logs: LogsBehaviour,
     status: StatusBehaviour,
+    noise: NoiseBehaviour,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +112,7 @@ impl WorkerBehaviour {
                     config.query_execution_timeout,
                 )
                 .into(),
+                noise: NoiseBehaviour::default(),
             },
         }
         .into()
