@@ -58,6 +58,16 @@ fn test_get_chunks() {
         assignment.find_chunk("s3://solana-mainnet-2", 221001550),
         Err(ChunkNotFound::AfterLast)
     );
+
+    assert_eq!(
+        assignment.find_chunk_by_timestamp("s3://dummy", 0),
+        Err(ChunkNotFound::UnknownDataset)
+    );
+    assert_eq!(
+        assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 2000000000),
+        Err(ChunkNotFound::AfterLast)
+    );
+
     let chunk1 = assignment.find_chunk("s3://solana-mainnet-2", 221000000).unwrap();
     let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
 
@@ -83,4 +93,12 @@ fn test_get_chunks() {
     assert_eq!(chunk2.first_block(), 221000650);
     assert_eq!(chunk2.last_block_hash(), None);
     assert_eq!(chunk2.last_block_timestamp(), None);
+
+    // Careful: these tests are unreliable right now, the fb contains a None last_block_timestamp
+    //          rendering binary searh unusable
+    let chunk3 = assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 1696192039).unwrap();
+    let chunk4 = assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 1695000000).unwrap();
+
+    assert_eq!(chunk1, chunk3);
+    assert_eq!(chunk1, chunk4);
 }
