@@ -2,7 +2,7 @@ use std::{cmp::Ordering, collections::BTreeMap};
 
 use anyhow::anyhow;
 use crypto_box::{aead::Aead, PublicKey, SalsaBox, SecretKey};
-use flatbuffers::Follow;
+use flatbuffers::{Follow, ForwardsUOffset, Vector};
 use libp2p_identity::{Keypair, PeerId};
 use sha2::{digest::generic_array::GenericArray, Digest, Sha512};
 
@@ -94,6 +94,12 @@ impl Assignment {
 
         // find last chunk with first_block <= block
         let chunks = dataset.chunks();
+        // let k = chunks.binary_search_by_key(&block, |chunk| chunk.first_block());
+
+        let left = binary_search_by(Chunks(&chunks), |itm: &assignment_fb::Chunk<'_>| {
+            itm.first_block().cmp(&block)
+        });
+
         // left is always either equal to -1 or points to the chunk with first_block <= block
         let mut left = -1;
         // right is always either equal to chunks.len() or points to the chunk with first_block > block
@@ -199,4 +205,148 @@ fn lookup_index_by_key<'a, T: Follow<'a> + 'a>(
     }
 
     None
+}
+
+// Needed for Generic
+trait IndexGet {
+    type Item;
+
+    fn len(&self) -> usize;
+    fn get(&self, idx: usize) -> Self::Item;
+}
+
+#[derive(Copy, Clone)]
+struct Chunks<'a>(&'a Vector<'a, ForwardsUOffset<assignment_fb::Chunk<'a>>>);
+
+impl<'a> IndexGet for Chunks<'a> {
+    type Item = assignment_fb::Chunk<'a>;
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn get(&self, idx: usize) -> Self::Item {
+        self.0.get(idx)
+    }
+}
+
+fn binary_search_by<'a, V, F>(v: V, mut cmp: F) -> Result<usize, Option<usize>>
+where
+    V: IndexGet,
+    F: FnMut(&V::Item) -> Ordering,
+{
+    let mut left = -1;
+    let mut right = v.len() as isize;
+
+    while left + 1 < right {
+        let mid = (left + right) / 2;
+        let item = v.get(mid as usize);
+
+        match cmp(&item) {
+            Ordering::Less => {
+                left = mid;
+            }
+            Ordering::Greater => {
+                right = mid;
+            }
+            Ordering::Equal => return Ok(mid as usize),
+        }
+    }
+
+    let result = if left == -1 {
+        None
+    } else {
+        Some(left as usize)
+    };
+
+    Err(result) // watch out what to return!
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    struct TestSlice<'a>(&'a [TestItem]);
+
+    #[derive(Clone, Copy, Debug)]
+    struct TestItem(u64);
+
+    impl<'a> IndexGet for TestSlice<'a> {
+        type Item = TestItem;
+
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+
+        fn get(&self, idx: usize) -> Self::Item {
+            *self.0.get(idx).unwrap()
+        }
+    }
+
+    fn make_test_vec() -> Vec<TestItem> {
+        vec![
+            TestItem(11),
+            TestItem(13),
+            TestItem(15),
+            TestItem(17),
+            TestItem(19),
+            TestItem(21),
+        ]
+    }
+
+    fn binary_search_g_le(k: u64, v: &[TestItem]) -> Result<usize, Option<usize>> {
+        binary_search_by(TestSlice(&v), |itm| itm.0.cmp(&k))
+    }
+
+    fn binary_search_l_ge(k: u64, v: &[TestItem]) -> Result<usize, Option<usize>> {
+        match binary_search_by(TestSlice(&v), |itm| itm.0.cmp(&k)) {
+            Ok(idx) => Ok(idx),
+            Err(None) if 0 < v.len() => Err(Some(0)),
+            Err(Some(idx)) if idx + 1 < v.len() => Err(Some(idx + 1)),
+            _ => Err(None),
+        }
+    }
+
+    #[test]
+    fn test_find_greatest_le() {
+        let v = make_test_vec();
+
+        assert_eq!(binary_search_g_le(11, &v), Ok(0));
+        assert_eq!(binary_search_g_le(13, &v), Ok(1));
+        assert_eq!(binary_search_g_le(15, &v), Ok(2));
+        assert_eq!(binary_search_g_le(17, &v), Ok(3));
+        assert_eq!(binary_search_g_le(19, &v), Ok(4));
+        assert_eq!(binary_search_g_le(21, &v), Ok(5));
+
+        assert_eq!(binary_search_g_le(10, &v), Err(None));
+
+        assert_eq!(binary_search_g_le(12, &v), Err(Some(0)));
+        assert_eq!(binary_search_g_le(14, &v), Err(Some(1)));
+        assert_eq!(binary_search_g_le(16, &v), Err(Some(2)));
+        assert_eq!(binary_search_g_le(18, &v), Err(Some(3)));
+        assert_eq!(binary_search_g_le(20, &v), Err(Some(4)));
+        assert_eq!(binary_search_g_le(22, &v), Err(Some(5)));
+    }
+
+    #[test]
+    fn test_find_least_ge() {
+        let v = make_test_vec();
+
+        assert_eq!(binary_search_l_ge(11, &v), Ok(0));
+        assert_eq!(binary_search_l_ge(13, &v), Ok(1));
+        assert_eq!(binary_search_l_ge(15, &v), Ok(2));
+        assert_eq!(binary_search_l_ge(17, &v), Ok(3));
+        assert_eq!(binary_search_l_ge(19, &v), Ok(4));
+        assert_eq!(binary_search_l_ge(21, &v), Ok(5));
+
+        assert_eq!(binary_search_l_ge(10, &v), Err(Some(0)));
+        assert_eq!(binary_search_l_ge(12, &v), Err(Some(1)));
+        assert_eq!(binary_search_l_ge(14, &v), Err(Some(2)));
+        assert_eq!(binary_search_l_ge(16, &v), Err(Some(3)));
+        assert_eq!(binary_search_l_ge(18, &v), Err(Some(4)));
+        assert_eq!(binary_search_l_ge(20, &v), Err(Some(5)));
+
+        assert_eq!(binary_search_l_ge(22, &v), Err(None));
+    }
 }
