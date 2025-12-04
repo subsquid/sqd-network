@@ -104,29 +104,39 @@ impl Assignment {
 
         // find last chunk with first_block <= block
         let chunks = dataset.chunks();
-        // let k = chunks.binary_search_by_key(&block, |chunk| chunk.first_block());
 
-        let left = binary_search_by(Chunks(&chunks), |itm: &assignment_fb::Chunk<'_>| {
+        binary_search_by(Chunks(&chunks), |itm: &assignment_fb::Chunk<'_>| {
             itm.first_block().cmp(&block)
-        });
+        })
+        .or_else(|e| match e {
+            Some(idx) => Ok(idx),
+            None => Err(ChunkNotFound::BeforeFirst),
+        })
+        .and_then(|idx| Ok(chunks.get(idx)))
+    }
 
-        // left is always either equal to -1 or points to the chunk with first_block <= block
-        let mut left = -1;
-        // right is always either equal to chunks.len() or points to the chunk with first_block > block
-        let mut right = chunks.len() as isize;
-        while left + 1 < right {
-            let mid = (left + right) / 2;
-            let chunk = chunks.get(mid as usize);
-            if chunk.first_block() <= block {
-                left = mid;
-            } else {
-                right = mid;
-            }
-        }
-        if left == -1 {
-            return Err(ChunkNotFound::BeforeFirst);
-        }
-        Ok(chunks.get(left as usize))
+    pub fn find_chunk_by_timestamp(
+        &self,
+        dataset: &str,
+        ts: u64,
+    ) -> Result<assignment_fb::Chunk<'_>, ChunkNotFound> {
+        let Some(dataset) = self.get_dataset(dataset) else {
+            return Err(ChunkNotFound::UnknownDataset);
+        };
+
+        // find first chunk with last_block_timestamp >= ts
+        let chunks = dataset.chunks();
+
+        binary_search_by(Chunks(&chunks), |itm: &assignment_fb::Chunk<'_>| {
+            itm.last_block_timestamp().unwrap_or(0).cmp(&ts) // must never be none!
+        })
+        .or_else(|e| match e {
+            Some(idx) if chunks.get(idx).last_block_timestamp() == Some(ts) => Ok(idx),
+            Some(idx) if idx + 1 < chunks.len() => Ok(idx + 1),
+            None if 0 < chunks.len() => Ok(0),
+            _ => Err(ChunkNotFound::AfterLast),
+        })
+        .and_then(|idx| Ok(chunks.get(idx)))
     }
 }
 
@@ -273,7 +283,7 @@ where
         Some(left as usize)
     };
 
-    Err(result) // watch out what to return!
+    Err(result)
 }
 
 #[cfg(test)]
@@ -354,6 +364,7 @@ mod test {
         assert_eq!(binary_search_l_ge(19, &v), Ok(4));
         assert_eq!(binary_search_l_ge(21, &v), Ok(5));
 
+        assert_eq!(binary_search_l_ge(0, &v), Err(Some(0)));
         assert_eq!(binary_search_l_ge(10, &v), Err(Some(0)));
         assert_eq!(binary_search_l_ge(12, &v), Err(Some(1)));
         assert_eq!(binary_search_l_ge(14, &v), Err(Some(2)));
