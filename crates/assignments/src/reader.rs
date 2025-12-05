@@ -92,17 +92,15 @@ impl Assignment {
             return Err(ChunkNotFound::AfterLast);
         }
 
-        // find last chunk with first_block <= block
         let chunks = dataset.chunks();
 
-        binary_search_by(Chunks(&chunks), |itm: &assignment_fb::Chunk<'_>| {
-            itm.first_block().cmp(&block)
-        })
-        .or_else(|e| match e {
-            Some(idx) => Ok(idx),
-            None => Err(ChunkNotFound::BeforeFirst),
-        })
-        .and_then(|idx| Ok(chunks.get(idx)))
+        // find last chunk with first_block <= block
+        binary_search_by(Chunks(&chunks), |itm| itm.first_block().cmp(&block))
+            .or_else(|e| match e {
+                Some(idx) => Ok(idx),
+                None => Err(ChunkNotFound::BeforeFirst),
+            })
+            .and_then(|idx| Ok(chunks.get(idx)))
     }
 
     pub fn find_chunk_by_timestamp(
@@ -114,16 +112,15 @@ impl Assignment {
             return Err(ChunkNotFound::UnknownDataset);
         };
 
-        // find first chunk with last_block_timestamp >= ts
         let chunks = dataset.chunks();
 
-        binary_search_by(Chunks(&chunks), |itm: &assignment_fb::Chunk<'_>| {
+        // find first chunk with last_block_timestamp >= ts
+        binary_search_by(Chunks(&chunks), |itm| {
             itm.last_block_timestamp().unwrap_or(0).cmp(&ts) // must never be none!
         })
         .or_else(|e| match e {
-            Some(idx) if chunks.get(idx).last_block_timestamp() == Some(ts) => Ok(idx),
             Some(idx) if idx + 1 < chunks.len() => Ok(idx + 1),
-            None if 0 < chunks.len() => Ok(0),
+            None if 0 < chunks.len() => Ok(0), // this is the case BeforeFirst
             _ => Err(ChunkNotFound::AfterLast),
         })
         .and_then(|idx| Ok(chunks.get(idx)))
@@ -217,7 +214,6 @@ fn lookup_index_by_key<'a, T: Follow<'a> + 'a>(
     None
 }
 
-// Needed for Generic
 trait IndexGet {
     type Item;
 
@@ -240,6 +236,11 @@ impl<'a> IndexGet for Chunks<'a> {
     }
 }
 
+/// Finds the greatest item for which cmp is less or equal. Result:
+/// Ok(i): cmp returned equal for the item at index i
+/// Err(Some(i)): No equal item was found and
+///               i is the index of the greatest item for which cmp returned less
+/// Err(None): No item was found for which cmp returns less or equal
 fn binary_search_by<'a, V, F>(v: V, mut cmp: F) -> Result<usize, Option<usize>>
 where
     V: IndexGet,
@@ -263,18 +264,15 @@ where
         }
     }
 
-    let result = if left == -1 {
+    Err(if left == -1 {
         None
     } else {
         Some(left as usize)
-    };
-
-    Err(result)
+    })
 }
 
 #[cfg(test)]
 mod test {
-
     use super::*;
 
     struct TestSlice<'a>(&'a [TestItem]);
@@ -299,7 +297,8 @@ mod test {
             TestItem(11),
             TestItem(13),
             TestItem(15),
-            TestItem(17),
+            TestItem(15),
+            TestItem(15),
             TestItem(19),
             TestItem(21),
         ]
@@ -324,19 +323,19 @@ mod test {
 
         assert_eq!(binary_search_g_le(11, &v), Ok(0));
         assert_eq!(binary_search_g_le(13, &v), Ok(1));
-        assert_eq!(binary_search_g_le(15, &v), Ok(2));
-        assert_eq!(binary_search_g_le(17, &v), Ok(3));
-        assert_eq!(binary_search_g_le(19, &v), Ok(4));
-        assert_eq!(binary_search_g_le(21, &v), Ok(5));
+        assert_eq!(binary_search_g_le(15, &v), Ok(3));
+        assert_eq!(binary_search_g_le(19, &v), Ok(5));
+        assert_eq!(binary_search_g_le(21, &v), Ok(6));
 
         assert_eq!(binary_search_g_le(10, &v), Err(None));
 
         assert_eq!(binary_search_g_le(12, &v), Err(Some(0)));
         assert_eq!(binary_search_g_le(14, &v), Err(Some(1)));
-        assert_eq!(binary_search_g_le(16, &v), Err(Some(2)));
-        assert_eq!(binary_search_g_le(18, &v), Err(Some(3)));
-        assert_eq!(binary_search_g_le(20, &v), Err(Some(4)));
-        assert_eq!(binary_search_g_le(22, &v), Err(Some(5)));
+        assert_eq!(binary_search_g_le(16, &v), Err(Some(4)));
+        assert_eq!(binary_search_g_le(17, &v), Err(Some(4)));
+        assert_eq!(binary_search_g_le(18, &v), Err(Some(4)));
+        assert_eq!(binary_search_g_le(20, &v), Err(Some(5)));
+        assert_eq!(binary_search_g_le(22, &v), Err(Some(6)));
     }
 
     #[test]
@@ -345,18 +344,18 @@ mod test {
 
         assert_eq!(binary_search_l_ge(11, &v), Ok(0));
         assert_eq!(binary_search_l_ge(13, &v), Ok(1));
-        assert_eq!(binary_search_l_ge(15, &v), Ok(2));
-        assert_eq!(binary_search_l_ge(17, &v), Ok(3));
-        assert_eq!(binary_search_l_ge(19, &v), Ok(4));
-        assert_eq!(binary_search_l_ge(21, &v), Ok(5));
+        assert_eq!(binary_search_l_ge(15, &v), Ok(3));
+        assert_eq!(binary_search_l_ge(19, &v), Ok(5));
+        assert_eq!(binary_search_l_ge(21, &v), Ok(6));
 
         assert_eq!(binary_search_l_ge(0, &v), Err(Some(0)));
         assert_eq!(binary_search_l_ge(10, &v), Err(Some(0)));
         assert_eq!(binary_search_l_ge(12, &v), Err(Some(1)));
         assert_eq!(binary_search_l_ge(14, &v), Err(Some(2)));
-        assert_eq!(binary_search_l_ge(16, &v), Err(Some(3)));
-        assert_eq!(binary_search_l_ge(18, &v), Err(Some(4)));
-        assert_eq!(binary_search_l_ge(20, &v), Err(Some(5)));
+        assert_eq!(binary_search_l_ge(17, &v), Err(Some(5)));
+        assert_eq!(binary_search_l_ge(16, &v), Err(Some(5)));
+        assert_eq!(binary_search_l_ge(18, &v), Err(Some(5)));
+        assert_eq!(binary_search_l_ge(20, &v), Err(Some(6)));
 
         assert_eq!(binary_search_l_ge(22, &v), Err(None));
     }
