@@ -34,6 +34,7 @@ fn test_building() {
         .block_range(221000650..=221001549)
         .size(1000000)
         .worker_indexes(&[0])
+        .last_block_timestamp(1696193050)
         .files(&[
             String::from("blocks.parquet"),
             String::from("transactions.parquet"),
