@@ -110,7 +110,7 @@ impl Assignment {
                 Some(idx) => Ok(idx),
                 None => Err(ChunkNotFound::BeforeFirst),
             })
-            .and_then(|idx| Ok(chunks.get(idx)))
+            .map(|idx| chunks.get(idx))
     }
 
     pub fn find_chunk_by_timestamp(
@@ -126,14 +126,27 @@ impl Assignment {
 
         // find first chunk with last_block_timestamp >= ts
         binary_search_by(Chunks(&chunks), |itm| {
-            itm.last_block_timestamp().unwrap_or(0).cmp(&ts) // must never be none!
+            itm.last_block_timestamp().unwrap_or(0).cmp(&ts) // 0-timestamps are problematic
         })
         .or_else(|e| match e {
             Some(idx) if idx + 1 < chunks.len() => Ok(idx + 1),
             None if 0 < chunks.len() => Ok(0), // this is the case BeforeFirst
             _ => Err(ChunkNotFound::AfterLast),
         })
-        .and_then(|idx| Ok(chunks.get(idx)))
+        .map(|idx| {
+            // for the case that the timestamps are equal,
+            // we walk to the first of the sequence; this is clumsy but safe.
+            if chunks.get(idx).last_block_timestamp() == Some(ts) {
+                for i in (0..idx + 1).rev() {
+                    if chunks.get(i).last_block_timestamp() != Some(ts) {
+                        return chunks.get(i + 1);
+                    } else if i == 0 {
+                        return chunks.get(0);
+                    }
+                }
+            }
+            chunks.get(idx)
+        })
     }
 }
 
@@ -324,7 +337,16 @@ mod test {
 
     fn binary_search_l_ge(k: u64, v: &[TestItem]) -> Result<usize, Option<usize>> {
         match binary_search_by(TestSlice(&v), |itm| itm.0.cmp(&k)) {
-            Ok(idx) => Ok(idx),
+            Ok(idx) => {
+                for i in (0..idx + 1).rev() {
+                    if v[i].0 != k {
+                        return Ok(i + 1);
+                    } else if i == 0 {
+                        return Ok(0);
+                    }
+                }
+                Ok(idx)
+            }
             Err(None) if 0 < v.len() => Err(Some(0)),
             Err(Some(idx)) if idx + 1 < v.len() => Err(Some(idx + 1)),
             _ => Err(None),
@@ -358,7 +380,7 @@ mod test {
 
         assert_eq!(binary_search_l_ge(11, &v), Ok(0));
         assert_eq!(binary_search_l_ge(13, &v), Ok(1));
-        assert_eq!(binary_search_l_ge(15, &v), Ok(3));
+        assert_eq!(binary_search_l_ge(15, &v), Ok(2));
         assert_eq!(binary_search_l_ge(19, &v), Ok(5));
         assert_eq!(binary_search_l_ge(21, &v), Ok(6));
 
@@ -372,5 +394,31 @@ mod test {
         assert_eq!(binary_search_l_ge(20, &v), Err(Some(6)));
 
         assert_eq!(binary_search_l_ge(22, &v), Err(None));
+    }
+
+    #[test]
+    fn test_find_least_ge_edge_cases() {
+        let v = vec![TestItem(15), TestItem(15), TestItem(15), TestItem(19), TestItem(21)];
+
+        assert_eq!(binary_search_l_ge(15, &v), Ok(0));
+        assert_eq!(binary_search_l_ge(19, &v), Ok(3));
+        assert_eq!(binary_search_l_ge(17, &v), Err(Some(3)));
+        assert_eq!(binary_search_l_ge(18, &v), Err(Some(3)));
+
+        let v = vec![TestItem(14), TestItem(15), TestItem(15), TestItem(15)];
+
+        assert_eq!(binary_search_l_ge(15, &v), Ok(1));
+        assert_eq!(binary_search_l_ge(14, &v), Ok(0));
+        assert_eq!(binary_search_l_ge(13, &v), Err(Some(0)));
+        assert_eq!(binary_search_l_ge(16, &v), Err(None));
+
+        let v = vec![TestItem(15), TestItem(15), TestItem(15)];
+
+        assert_eq!(binary_search_l_ge(15, &v), Ok(0));
+
+        let v = vec![TestItem(15)];
+        assert_eq!(binary_search_l_ge(15, &v), Ok(0));
+        assert_eq!(binary_search_l_ge(16, &v), Err(None));
+        assert_eq!(binary_search_l_ge(14, &v), Err(Some(0)));
     }
 }
