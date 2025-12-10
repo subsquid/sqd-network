@@ -58,6 +58,16 @@ fn test_get_chunks() {
         assignment.find_chunk("s3://solana-mainnet-2", 221001550),
         Err(ChunkNotFound::AfterLast)
     );
+
+    assert_eq!(
+        assignment.find_chunk_by_timestamp("s3://dummy", 0),
+        Err(ChunkNotFound::UnknownDataset)
+    );
+    assert_eq!(
+        assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 1696193051),
+        Err(ChunkNotFound::AfterLast)
+    );
+
     let chunk1 = assignment.find_chunk("s3://solana-mainnet-2", 221000000).unwrap();
     let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
 
@@ -82,5 +92,13 @@ fn test_get_chunks() {
 
     assert_eq!(chunk2.first_block(), 221000650);
     assert_eq!(chunk2.last_block_hash(), None);
-    assert_eq!(chunk2.last_block_timestamp(), None);
+    assert_eq!(chunk2.last_block_timestamp(), Some(1696193050));
+
+    let chunk3 = assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 1696192039).unwrap();
+    let chunk4 = assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 1695000000).unwrap();
+    let chunk5 = assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 1696192040).unwrap();
+
+    assert_eq!(chunk1, chunk3);
+    assert_eq!(chunk1, chunk4);
+    assert_eq!(chunk2, chunk5);
 }
