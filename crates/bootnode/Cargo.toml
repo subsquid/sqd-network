@@ -16,7 +16,7 @@ log = "0.4"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "signal"] }
 
 sqd-contract-client = { path = "../contract-client" }
-sqd-network-transport = { path = "../transport", features = ["behaviour"] }
+sqd-network-transport = { path = "../transport", features = ["behaviour", "pubsub"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "0.6" }

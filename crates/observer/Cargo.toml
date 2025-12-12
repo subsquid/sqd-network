@@ -15,7 +15,7 @@ lazy_static = { version = "1" }
 libp2p = { workspace = true, features = ["dns", "tokio", "identify", "kad", "ping", "quic", "metrics"] }
 libp2p-swarm-derive = { workspace = true }
 log = "0.4"
-prometheus-client = { version = "0.22.2" }
+prometheus-client = { version = "0.23" }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "signal"] }
 
 sqd-messages = { path = "../messages", features = ["bitstring"] }

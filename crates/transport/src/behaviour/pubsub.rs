@@ -243,7 +243,7 @@ impl PubsubBehaviour {
         };
 
         match self.inner.publish(topic_hash, msg) {
-            Err(PublishError::InsufficientPeers)
+            Err(PublishError::NoPeersSubscribedToTopic)
                 if topic.subscribed_at.elapsed() <= SUBSCRIPTION_TIMEOUT =>
             {
                 log::info!("Waiting for peers to be able to publish to {topic_name}")
