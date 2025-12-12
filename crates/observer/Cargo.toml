@@ -20,7 +20,7 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "signal"
 
 sqd-messages = { path = "../messages", features = ["bitstring"] }
 sqd-contract-client = { path = "../contract-client" }
-sqd-network-transport = { path = "../transport", features = [] }
+sqd-network-transport = { path = "../transport", features = ["pubsub"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = { version = "0.6" }
