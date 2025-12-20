@@ -70,6 +70,10 @@ pub use crate::actors::portal_logs_collector::{
 pub use crate::actors::worker::{
     WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
 };
+#[cfg(feature = "sql-client")]
+pub use crate::actors::sql_client::{
+    SQLClientBehaviour, SQLClientConfig, SQLClientTransport, SQLQueryFailure,
+};
 #[cfg(feature = "actors")]
 pub use behaviour::base::BaseConfig;
 #[cfg(feature = "pubsub")]
