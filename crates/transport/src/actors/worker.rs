@@ -31,7 +31,7 @@ pub enum WorkerEvent {
         resp_chan: ResponseChannel<QueryResult>,
     },
     /// SQLQuery received from a portal
-    SQLQuery {
+    SqlQuery {
         peer_id: PeerId,
         query: Query,
         /// If this channel is dropped, the connection will be closed
@@ -51,7 +51,7 @@ pub enum WorkerEvent {
 }
 
 type QueryBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Query, QueryResult>>>;
-type SQLQueryBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Query, QueryResult>>>;
+type SqlQueryBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Query, QueryResult>>>;
 type LogsBehaviour = Wrapped<ServerBehaviour<ProtoCodec<LogsRequest, QueryLogs>>>;
 type StatusBehaviour = Wrapped<ServerBehaviour<ProtoCodec<(), WorkerStatus>>>;
 
@@ -59,7 +59,7 @@ type StatusBehaviour = Wrapped<ServerBehaviour<ProtoCodec<(), WorkerStatus>>>;
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
     query: QueryBehaviour,
-    sql_query: SQLQueryBehaviour,
+    sql_query: SqlQueryBehaviour,
     logs: LogsBehaviour,
     status: StatusBehaviour,
     noise: NoiseBehaviour,
@@ -166,7 +166,7 @@ impl WorkerBehaviour {
         if query == Query::default() {
             None
         } else {
-            Some(WorkerEvent::SQLQuery {
+            Some(WorkerEvent::SqlQuery {
                 peer_id,
                 query,
                 resp_chan,
