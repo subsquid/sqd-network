@@ -39,6 +39,9 @@ use crate::actors::portal_logs_collector::{
 use crate::actors::worker::{
     self, WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
 };
+#[cfg(feature = "sql-client")]
+use crate::actors::sql_client::{self, SQLClientBehaviour, SQLClientConfig, SQLClientTransport};
+
 use crate::protocol::dht_protocol;
 
 pub struct P2PTransportBuilder {
@@ -232,5 +235,11 @@ impl P2PTransportBuilder {
         }
         let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, &config))?;
         Ok(worker::start_transport(swarm, &config))
+    }
+
+    #[cfg(feature = "sql-client")]
+    pub fn build_sql_client(self, config: SQLClientConfig) -> Result<SQLClientTransport, Error> {
+        let swarm = self.build_swarm(|base| SQLClientBehaviour::new(base))?;
+        Ok(sql_client::start_transport(swarm, config))
     }
 }

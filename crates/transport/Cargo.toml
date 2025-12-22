@@ -47,6 +47,7 @@ observer = ["actors"]
 pings-collector = ["actors"]
 worker = ["actors", "request-server", "proto", "noise"]
 metrics = ["libp2p/metrics", "prometheus-client"]
+sql-client = ["actors"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "time", "test-util"] }

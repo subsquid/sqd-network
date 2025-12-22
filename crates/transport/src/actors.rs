@@ -10,3 +10,5 @@ pub mod portal;
 pub mod portal_logs_collector;
 #[cfg(feature = "worker")]
 pub mod worker;
+#[cfg(feature = "sql-client")]
+pub mod sql_client;

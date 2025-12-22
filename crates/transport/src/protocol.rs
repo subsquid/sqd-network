@@ -27,6 +27,7 @@ pub const WORKER_LOGS_PROTOCOL: &str = "/sqd/worker_logs/1.1.0";
 pub const WORKER_STATUS_PROTOCOL: &str = "/sqd/worker_status/1.0.0";
 pub const PORTAL_LOGS_PROTOCOL_V1: &str = "/sqd/portal_logs/1.0.0";
 pub const PORTAL_LOGS_PROTOCOL_V2: &str = "/sqd/portal_logs/2.0.0";
+pub const SQL_QUERY_PROTOCOL: &str = "/sqd/sql_query/1.0.0";
 pub const KEEP_ALIVE_PROTOCOL: &str = "/sqd/keep_alive/0.0.1";
 pub const NOISE_PROTOCOL: &str = "/sqd/noise/0.0.1";
 
