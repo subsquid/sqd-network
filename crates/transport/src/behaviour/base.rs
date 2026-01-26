@@ -9,21 +9,11 @@ use std::{
 
 use bimap::BiHashMap;
 use libp2p::{
-    autonat::{self, NatStatus},
-    core::ConnectedPoint,
-    identify,
-    identity::Keypair,
-    kad::{
-        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersError,
-        GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats,
-    },
-    ping,
-    swarm::{
-        behaviour::ConnectionEstablished,
-        dial_opts::{DialOpts, PeerCondition},
-        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm,
-    },
-    StreamProtocol,
+    StreamProtocol, autonat::{self, NatStatus}, core::ConnectedPoint, identify, identity::Keypair, kad::{
+        self, GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats, store::MemoryStore
+    }, ping, swarm::{
+        ConnectionClosed, DialFailure, FromSwarm, NetworkBehaviour, ToSwarm, behaviour::ConnectionEstablished, dial_opts::{DialOpts, PeerCondition}
+    }
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use parking_lot::RwLock;
@@ -234,6 +224,10 @@ impl BaseBehaviour {
     pub fn allow_peer(&mut self, peer_id: PeerId) {
         self.inner.whitelist.allow_peer(peer_id);
     }
+
+    pub fn evict_from_cache(&mut self, peer_id: PeerId) {
+        self.inner.address_cache.evict(peer_id);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -258,6 +252,7 @@ impl BehaviourWrapper for BaseBehaviour {
         match ev {
             FromSwarm::ConnectionEstablished(conn) => self.on_connection_established(conn),
             FromSwarm::ConnectionClosed(conn) => self.on_connection_closed(conn),
+            FromSwarm::DialFailure(err) => self.on_dial_failure(err),
             _ => None,
         }
     }
@@ -316,6 +311,22 @@ impl BaseBehaviour {
             Some(x) => *x -= 1,
             None => log::error!("Closed connection not established before"),
         }
+        self.evict_from_cache(peer_id);
+        log::debug!("Disconnect: {conn:?}");
+        None
+    }
+
+    fn on_dial_failure(&mut self, err: DialFailure) -> Option<TToSwarm<Self>> {
+        log::debug!("Dial failure: {err:?}");
+        match err.error {
+            libp2p::swarm::DialError::WrongPeerId { obtained: _, address: _ } |
+            libp2p::swarm::DialError::Transport(_) => {
+                if let Some(peer_id) = err.peer_id {
+                    self.evict_from_cache(peer_id);
+                }
+            },
+            _ => {}
+        }
         None
     }
 
@@ -351,6 +362,13 @@ impl BaseBehaviour {
                 kad::Event::RoutablePeer { peer, address }
                 | kad::Event::PendingRoutablePeer { peer, address } => {
                     self.inner.address_cache.put(peer, Some(address));
+                }
+                libp2p::kad::Event::RoutingUpdated {
+                    peer, addresses, ..
+                } => {
+                    for address in addresses.into_vec() {
+                        self.inner.address_cache.put(peer, Some(address));
+                    }
                 }
                 kad::Event::OutboundQueryProgressed {
                     id,

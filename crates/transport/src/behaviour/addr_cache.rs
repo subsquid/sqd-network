@@ -42,6 +42,10 @@ impl AddressCache {
         self.cache.get_or_insert_mut(peer_id, Default::default).extend(addrs)
     }
 
+    pub fn evict(&mut self, peer_id: PeerId) {
+        self.cache.pop(&peer_id);
+    }
+
     pub fn contains(&self, peer_id: &PeerId) -> bool {
         self.cache.contains(peer_id)
     }
