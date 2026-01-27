@@ -1,0 +1,46 @@
+{
+  "current_epoch": 123,
+  "current_epoch_start": 1700000000,
+  "epoch_length_secs": 3600,
+  "workers": [
+    {
+      "peer_id": "12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF1q",
+      "onchain_id": "1",
+      "address": "0x0000000000000000000000000000000000000001",
+      "bond": "1000000000000000000",
+      "registered_at": 1690000000,
+      "deregistered_at": null
+    },
+    {
+      "peer_id": "12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF2q",
+      "onchain_id": "2",
+      "address": "0x0000000000000000000000000000000000000002",
+      "bond": "2000000000000000000",
+      "registered_at": 1691000000,
+      "deregistered_at": null
+    }
+  ],
+  "portals": [
+    "12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF3r"
+  ],
+  "portal_clusters": [
+    {
+      "operator_addr": "0x0000000000000000000000000000000000000003",
+      "portal_ids": ["12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF3r"],
+      "allocated_computation_units": "1000"
+    }
+  ],
+  "worker_ids": {
+    "12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF1q": "1",
+    "12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF2q": "2"
+  },
+  "portal_compute_units": {
+    "12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF3r": 1000
+  },
+  "portal_uses_default_strategy": {
+    "12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF3r": true
+  },
+  "portal_sqd_locked": {
+    "12D3KooWLvpm96E3zW6223aD2wVEE3Wz2ZvKNq5vBxU7J4bJrF3r": ["0x0000000000000000000000000000000000000003", 500000000000000000.0]
+  }
+}

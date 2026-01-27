@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    fs,
     iter::zip,
     pin::Pin,
     sync::Arc,
@@ -14,6 +15,7 @@ use ethers::{
 use libp2p::futures::Stream;
 use num_rational::Ratio;
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use serde::Deserialize;
 
 use crate::{
     contracts,
@@ -172,6 +174,15 @@ pub trait Client: Send + Sync + 'static {
 }
 
 pub async fn get_client(rpc_args: &RpcArgs) -> Result<Box<dyn Client>, ClientError> {
+    // Check if dummy client file path is set
+    if let Some(dummy_file_path) = &rpc_args.dummy_client_file_path {
+        log::info!("Using dummy client from file: {}", dummy_file_path);
+        let data = fs::read(dummy_file_path)?;
+        let dummy_data: DummyData = serde_json::from_slice(&data)?;
+        let client: Box<dyn Client> = Box::new(DummyClient::new(dummy_data));
+        return Ok(client);
+    }
+
     log::info!(
         "Initializing contract client. network={:?} rpc_url={} l1_rpc_url={}",
         rpc_args.network,
@@ -182,6 +193,192 @@ pub async fn get_client(rpc_args: &RpcArgs) -> Result<Box<dyn Client>, ClientErr
     let l1_client = Transport::connect(&rpc_args.l1_rpc_url).await?;
     let client: Box<dyn Client> = EthersClient::new(l1_client, l2_client, rpc_args).await?;
     Ok(client)
+}
+
+/// Dummy data structure loaded from JSON file
+#[derive(Debug, Clone, Deserialize)]
+pub struct DummyData {
+    pub current_epoch: u32,
+    pub current_epoch_start: u64,
+    pub epoch_length_secs: u64,
+    pub workers: Vec<DummyWorker>,
+    pub portals: Vec<String>,
+    pub portal_clusters: Vec<DummyPortalCluster>,
+    pub worker_ids: HashMap<String, String>,
+    pub portal_compute_units: HashMap<String, u64>,
+    pub portal_uses_default_strategy: HashMap<String, bool>,
+    pub portal_sqd_locked: HashMap<String, Option<(String, f64)>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DummyWorker {
+    pub peer_id: String,
+    pub onchain_id: String,
+    pub address: String,
+    pub bond: String,
+    pub registered_at: u128,
+    pub deregistered_at: Option<u128>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct DummyPortalCluster {
+    pub operator_addr: String,
+    pub portal_ids: Vec<String>,
+    pub allocated_computation_units: String,
+}
+
+#[derive(Clone)]
+struct DummyClient {
+    data: DummyData,
+}
+
+impl DummyClient {
+    pub fn new(data: DummyData) -> Self {
+        Self { data }
+    }
+
+    fn parse_peer_id(peer_id_str: &str) -> Result<PeerId, ClientError> {
+        peer_id_str.parse().map_err(ClientError::from)
+    }
+
+    fn parse_u256(u256_str: &str) -> Result<U256, ClientError> {
+        Ok(u256_str.parse().map_err(|_| ClientError::Contract(format!("Invalid U256: {}", u256_str)))?)
+    }
+
+    fn parse_address(addr_str: &str) -> Result<Address, ClientError> {
+        Ok(addr_str.parse().map_err(|_| ClientError::Contract(format!("Invalid Address: {}", addr_str)))?)
+    }
+}
+
+#[async_trait]
+impl Client for DummyClient {
+    fn clone_client(&self) -> Box<dyn Client> {
+        Box::new(self.clone())
+    }
+
+    async fn current_epoch(&self) -> Result<u32, ClientError> {
+        Ok(self.data.current_epoch)
+    }
+
+    async fn current_epoch_start(&self) -> Result<SystemTime, ClientError> {
+        Ok(UNIX_EPOCH + Duration::from_secs(self.data.current_epoch_start))
+    }
+
+    async fn epoch_length(&self) -> Result<Duration, ClientError> {
+        Ok(Duration::from_secs(self.data.epoch_length_secs))
+    }
+
+    async fn worker_id(&self, peer_id: PeerId) -> Result<U256, ClientError> {
+        let peer_id_str = peer_id.to_string();
+        if let Some(id_str) = self.data.worker_ids.get(&peer_id_str) {
+            Self::parse_u256(id_str)
+        } else {
+            Ok(U256::zero())
+        }
+    }
+
+    async fn active_workers(&self) -> Result<Vec<Worker>, ClientError> {
+        self.data.workers.iter().map(|w| {
+            Ok(Worker {
+                peer_id: Self::parse_peer_id(&w.peer_id)?,
+                onchain_id: Self::parse_u256(&w.onchain_id)?,
+                address: Self::parse_address(&w.address)?,
+                bond: Self::parse_u256(&w.bond)?,
+                registered_at: w.registered_at,
+                deregistered_at: w.deregistered_at,
+            })
+        }).collect()
+    }
+
+    async fn is_portal_registered(&self, portal_id: PeerId) -> Result<bool, ClientError> {
+        Ok(self.data.portals.contains(&portal_id.to_string()))
+    }
+
+    async fn worker_registration_time(
+        &self,
+        peer_id: PeerId,
+    ) -> Result<Option<SystemTime>, ClientError> {
+        let peer_id_str = peer_id.to_string();
+        if let Some(worker) = self.data.workers.iter().find(|w| w.peer_id == peer_id_str) {
+            if worker.registered_at > 0 {
+                return Ok(Some(UNIX_EPOCH + Duration::from_secs(worker.registered_at as u64)));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn active_portals(&self) -> Result<Vec<PeerId>, ClientError> {
+        self.data.portals.iter()
+            .map(|s| Self::parse_peer_id(s))
+            .collect()
+    }
+
+    async fn current_allocations(
+        &self,
+        portal_id: PeerId,
+        workers: Option<Vec<Worker>>,
+    ) -> Result<Vec<Allocation>, ClientError> {
+        let workers = match workers {
+            Some(workers) => workers,
+            None => self.active_workers().await?,
+        };
+        if workers.is_empty() {
+            return Ok(vec![]);
+        }
+        let portal_id_str = portal_id.to_string();
+        let cus_per_epoch = self.data.portal_compute_units
+            .get(&portal_id_str)
+            .copied()
+            .unwrap_or(0);
+        Ok(workers.into_iter().map(|w| Allocation {
+            worker_peer_id: w.peer_id,
+            worker_onchain_id: w.onchain_id,
+            computation_units: U256::from(cus_per_epoch),
+        }).collect())
+    }
+
+    async fn portal_compute_units_per_epoch(&self, portal_id: PeerId) -> Result<u64, ClientError> {
+        let portal_id_str = portal_id.to_string();
+        Ok(self.data.portal_compute_units
+            .get(&portal_id_str)
+            .copied()
+            .unwrap_or(0))
+    }
+
+    async fn portal_uses_default_strategy(&self, portal_id: PeerId) -> Result<bool, ClientError> {
+        let portal_id_str = portal_id.to_string();
+        Ok(self.data.portal_uses_default_strategy
+            .get(&portal_id_str)
+            .copied()
+            .unwrap_or(true))
+    }
+
+    async fn portal_clusters(&self, _worker_id: U256) -> Result<Vec<PortalCluster>, ClientError> {
+        self.data.portal_clusters.iter().map(|c| {
+            Ok(PortalCluster {
+                operator_addr: Self::parse_address(&c.operator_addr)?,
+                portal_ids: c.portal_ids.iter()
+                    .map(|s| Self::parse_peer_id(s))
+                    .collect::<Result<Vec<_>, _>>()?,
+                allocated_computation_units: Self::parse_u256(&c.allocated_computation_units)?,
+            })
+        }).collect()
+    }
+
+    async fn portal_sqd_locked(
+        &self,
+        portal_id: PeerId,
+    ) -> Result<Option<(String, Ratio<u128>)>, ClientError> {
+        let portal_id_str = portal_id.to_string();
+        if let Some(data) = self.data.portal_sqd_locked.get(&portal_id_str) {
+            match data {
+                Some((addr, ratio)) => Ok(Some((addr.clone(), Ratio::new_raw(*ratio as u128, 1)))),
+                None => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[derive(Clone)]
