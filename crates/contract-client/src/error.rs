@@ -48,6 +48,18 @@ impl From<AbiError> for ClientError {
     }
 }
 
+impl From<serde_json::Error> for ClientError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Contract(err.to_string())
+    }
+}
+
+impl From<std::io::Error> for ClientError {
+    fn from(err: std::io::Error) -> Self {
+        Self::Contract(err.to_string())
+    }
+}
+
 fn decode_error(msg: &[u8]) -> Option<String> {
     if msg.len() < 64 {
         return None;

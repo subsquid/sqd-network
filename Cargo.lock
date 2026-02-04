@@ -5048,6 +5048,7 @@ dependencies = [
  "log",
  "num-rational",
  "serde",
+ "serde_json",
  "simple_logger",
  "thiserror 1.0.61",
  "tokio",

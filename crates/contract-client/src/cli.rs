@@ -24,6 +24,10 @@ pub struct RpcArgs {
 
     #[arg(long, env, hide(true), default_value_t = 5)]
     pub contract_portals_per_page: usize,
+
+    /// Path to dummy client data file (if set, use dummy client instead of EthersClient)
+    #[arg(long, env)]
+    pub dummy_client_file_path: Option<String>,
 }
 
 impl RpcArgs {
