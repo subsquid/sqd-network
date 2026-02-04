@@ -159,8 +159,9 @@ impl P2PTransportBuilder {
 
         // Connect to boot nodes
         for BootNode { peer_id, address } in self.boot_nodes {
-            log::info!("Connecting to boot node {peer_id} at {address}");
-            swarm.dial(DialOpts::peer_id(peer_id).addresses(vec![address]).build())?;
+            let dial_opts = DialOpts::peer_id(peer_id).addresses(vec![address]).build();
+            log::info!("Connecting to boot node {peer_id} with {dial_opts:?}");
+            swarm.dial(dial_opts)?;
         }
 
         Ok(swarm)
