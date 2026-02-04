@@ -44,10 +44,15 @@ pub fn parse_env_var<T: FromStr>(var: &str, default: T) -> T {
 
 pub fn addr_is_reachable(addr: &Multiaddr) -> bool {
     match addr.iter().next() {
+        // We need to allow private/loopback addresses for testing in local environment
+
         Some(Protocol::Ip4(addr)) => {
-            !(addr.is_loopback() || addr.is_link_local())
-                // We need to allow private addresses for testing in local environment
-                && (!addr.is_private() || std::env::var("PRIVATE_NETWORK").is_ok())
+            if addr.is_loopback() {
+                std::env::var("LOOPBACK_ALLOWED").is_ok()
+            } else {
+                !(addr.is_link_local())
+                    && (!addr.is_private() || std::env::var("PRIVATE_NETWORK").is_ok())
+            }
         }
         Some(Protocol::Ip6(addr)) => !addr.is_loopback(),
         Some(Protocol::Dns(_) | Protocol::Dns4(_) | Protocol::Dns6(_) | Protocol::Dnsaddr(_)) => {
