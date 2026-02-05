@@ -47,7 +47,7 @@ pub fn addr_is_reachable(addr: &Multiaddr) -> bool {
         // We need to allow private/loopback addresses for testing in local environment
         Some(Protocol::Ip4(addr)) => {
             if addr.is_loopback() {
-                std::env::var("LOOPBACK_ALLOWED").is_ok()
+                std::env::var("PRIVATE_NETWORK").is_ok()
             } else {
                 !(addr.is_link_local())
                     && (!addr.is_private() || std::env::var("PRIVATE_NETWORK").is_ok())
@@ -77,11 +77,7 @@ mod test {
 
         std::env::set_var("PRIVATE_NETWORK", "1");
 
-        assert!(!addr_is_reachable(&multiaddr!(Ip4([127, 0, 0, 1]), Tcp(12345u16))));
-
-        std::env::set_var("LOOPBACK_ALLOWED", "1");
         assert!(addr_is_reachable(&multiaddr!(Ip4([127, 0, 0, 1]), Tcp(12345u16))));
-
         assert!(!addr_is_reachable(&multiaddr!(Ip4([169, 254, 0, 1]), Tcp(12345u16))));
         assert!(!addr_is_reachable(&multiaddr!(Ip6([0, 0, 0, 0, 0, 0, 0, 1]), Tcp(12345u16))));
 
