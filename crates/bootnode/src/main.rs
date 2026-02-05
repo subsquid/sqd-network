@@ -63,12 +63,18 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Local peer ID: {local_peer_id}");
 
     let contract_client = sqd_contract_client::get_client(&cli.transport.rpc).await?;
-
+    let only_global_ips = if std::env::var("PRIVATE_NETWORK").is_ok() {
+       false 
+    } else {
+        true
+    };
+    
     // Prepare behaviour & transport
     let autonat_config = autonat::Config {
         timeout: Duration::from_secs(60),
         throttle_clients_global_max: 64,
         throttle_clients_peer_max: 16,
+        only_global_ips,
         ..Default::default()
     };
     let mut kad_config = kad::Config::new(dht_protocol(cli.transport.rpc.network));
