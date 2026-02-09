@@ -129,6 +129,12 @@ impl BaseBehaviour {
         let mut kad_config = kad::Config::new(dht_protocol);
         kad_config.set_query_timeout(config.kad_query_timeout);
         kad_config.set_publication_interval(Some(Duration::from_secs(10 * 60)));
+        let only_global_ips = if std::env::var("PRIVATE_NETWORK").is_ok() {
+            false
+        } else {
+            true
+        };
+
         let mut inner = InnerBehaviour {
             identify: identify::Behaviour::new(
                 identify::Config::new(ID_PROTOCOL.to_string(), keypair.public())
@@ -148,6 +154,7 @@ impl BaseBehaviour {
                 autonat::Config {
                     timeout: config.autonat_timeout,
                     use_connected: false,
+                    only_global_ips,
                     ..Default::default()
                 },
             ),
@@ -200,7 +207,6 @@ impl BaseBehaviour {
         self.inner.stream.new_handle(protocol, config)
     }
 
-
     pub fn get_kademlia_mut(&mut self) -> &mut kad::Behaviour<MemoryStore> {
         &mut self.inner.kademlia
     }
@@ -229,7 +235,6 @@ impl BaseBehaviour {
         self.inner.whitelist.allow_peer(peer_id);
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub enum BaseBehaviourEvent {
