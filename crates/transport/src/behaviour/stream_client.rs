@@ -112,13 +112,28 @@ impl StreamClientHandle {
             stream.write_all(request).await?;
             stream.close().await?;
             log::debug!("Sent {} bytes to {peer}", request.len());
+            let sent_time = tokio::time::Instant::now();
 
-            let mut buf = Vec::new();
+            let mut buf = Vec::with_capacity(4 * 1024 * 1024);
+            buf.resize(1, 0);
+            stream.read_exact(buf.as_mut_slice()).await?;
+
+            let first_byte_time = tokio::time::Instant::now();
+            log::debug!(
+                "Read first byte from {peer} in {}s",
+                (first_byte_time - sent_time).as_secs_f32()
+            );
             stream.take(self.config.max_response_size + 1).read_to_end(&mut buf).await?;
             if buf.len() as u64 > self.config.max_response_size {
                 return Err(RequestError::ResponseTooLarge);
             }
-            log::debug!("Read {} bytes from {peer}", buf.len());
+            let elapsed = first_byte_time.elapsed().as_secs_f32();
+            log::debug!(
+                "Read {} bytes from {peer}, in {}s, speed: {} MB/s",
+                buf.len(),
+                elapsed,
+                buf.len() as f32 / elapsed / 1024.0 / 1024.0
+            );
             Ok(buf)
         };
         tokio::time::timeout(self.config.request_timeout, fut)
