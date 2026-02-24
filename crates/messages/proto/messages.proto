@@ -102,11 +102,20 @@ message QueryLogs {
   bool has_more = 2;
 }
 
+message TimeReport {
+  uint32 parsing_time_micros = 1;
+  uint32 execution_time_micros = 2;
+  uint32 serialization_time_micros = 3;
+  uint32 compression_time_micros = 4;
+  uint32 signing_time_micros = 5;
+}
+
 message QueryExecuted {
   string client_id = 1;
   Query query = 3;
 
   uint32 exec_time_micros = 6;
+  TimeReport exec_time_report = 16;
   uint64 timestamp_ms = 11;
   string worker_version = 15;
   oneof result {
