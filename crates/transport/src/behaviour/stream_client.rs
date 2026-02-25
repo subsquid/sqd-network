@@ -58,7 +58,7 @@ pub enum Timeout {
 
 pub struct StreamClientHandle {
     protocol: &'static str,
-    config: ClientConfig,
+    pub(crate) config: ClientConfig,
     control: libp2p_stream::Control,
     semaphores: parking_lot::Mutex<HashMap<PeerId, Arc<tokio::sync::Semaphore>>>,
 }
