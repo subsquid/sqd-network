@@ -60,7 +60,7 @@ pub use crate::actors::pings_collector::{
 #[cfg(feature = "portal")]
 pub use crate::actors::portal::{
     PortalBehaviour, PortalConfig, PortalTransport, PortalTransportHandle, QueryFailure,
-    QueryResponseReader,
+    QUERY_RESULT_MAX_SIZE,
 };
 #[cfg(feature = "portal-logs-collector")]
 pub use crate::actors::portal_logs_collector::{
