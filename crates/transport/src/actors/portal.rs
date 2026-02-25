@@ -183,6 +183,32 @@ impl PortalTransportHandle {
         Ok(result)
     }
 
+    pub async fn send_query_request(
+        &self,
+        peer_id: PeerId,
+        query: Query,
+    ) -> Result<Box<dyn futures::AsyncRead + Unpin + Send>, QueryFailure> {
+        let query_size = query.encoded_len() as u64;
+        if query_size > MAX_QUERY_MSG_SIZE {
+            return Err(QueryFailure::InvalidRequest(format!(
+                "Query size too large: {query_size}"
+            )));
+        }
+
+        let buf = query.encode_to_vec();
+        let mut stream = self.query_handle.get_raw_stream(peer_id).await?;
+        stream
+            .write_all(&buf)
+            .await
+            .map_err(|e| QueryFailure::from(RequestError::from(e)))?;
+        stream
+            .close()
+            .await
+            .map_err(|e| QueryFailure::from(RequestError::from(e)))?;
+
+        Ok(Box::new(stream))
+    }
+
     async fn send_logs_to_listener(&self, listener: PeerId, buf: &[u8]) -> Result<(), Error> {
         let fut = async {
             let mut stream = self.logs_handle.get_raw_stream(listener).await?;
@@ -335,6 +361,8 @@ impl BehaviourWrapper for PortalBehaviour {
         out.map(ToSwarm::GenerateEvent)
     }
 }
+
+pub const QUERY_RESULT_MAX_SIZE: u64 = MAX_QUERY_RESULT_SIZE;
 
 impl From<RequestError> for QueryFailure {
     fn from(e: RequestError) -> Self {
