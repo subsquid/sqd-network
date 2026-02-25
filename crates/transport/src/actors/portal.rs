@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use anyhow::Error;
-use futures::{future::join_all, AsyncWriteExt, StreamExt};
+use futures::{future::join_all, AsyncReadExt, AsyncWriteExt, StreamExt};
 use libp2p::{
     kad::{GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryStats, RecordKey},
     swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
@@ -183,6 +183,37 @@ impl PortalTransportHandle {
         Ok(result)
     }
 
+    pub async fn send_query_request(
+        &self,
+        peer_id: PeerId,
+        query: Query,
+    ) -> Result<QueryResponseReader, QueryFailure> {
+        let query_size = query.encoded_len() as u64;
+        if query_size > MAX_QUERY_MSG_SIZE {
+            return Err(QueryFailure::InvalidRequest(format!(
+                "Query size too large: {query_size}"
+            )));
+        }
+
+        let buf = query.encode_to_vec();
+        let mut stream = self.query_handle.get_raw_stream(peer_id).await?;
+        stream
+            .write_all(&buf)
+            .await
+            .map_err(|e| QueryFailure::from(RequestError::from(e)))?;
+        stream
+            .close()
+            .await
+            .map_err(|e| QueryFailure::from(RequestError::from(e)))?;
+
+        Ok(QueryResponseReader {
+            stream: Box::new(stream),
+            buf: Vec::with_capacity(1024 * 1024),
+            max_response_size: self.query_handle.config.max_response_size,
+            request_timeout: self.query_handle.config.request_timeout,
+        })
+    }
+
     async fn send_logs_to_listener(&self, listener: PeerId, buf: &[u8]) -> Result<(), Error> {
         let fut = async {
             let mut stream = self.logs_handle.get_raw_stream(listener).await?;
@@ -334,6 +365,61 @@ impl BehaviourWrapper for PortalBehaviour {
         let out = self.on_base_event(ev);
         out.map(ToSwarm::GenerateEvent)
     }
+}
+
+pub struct QueryResponseReader {
+    stream: Box<dyn futures::AsyncRead + Unpin + Send>,
+    buf: Vec<u8>,
+    max_response_size: u64,
+    request_timeout: Duration,
+}
+
+impl QueryResponseReader {
+    pub async fn wait_for_response(&mut self) -> Result<(), QueryFailure> {
+        if !self.buf.is_empty() {
+            return Ok(());
+        }
+        let fut = async {
+            let mut byte = [0u8; 1];
+            let n = self
+                .stream
+                .read(&mut byte)
+                .await
+                .map_err(|e| QueryFailure::TransportError(e.to_string()))?;
+            if n == 0 {
+                return Err(QueryFailure::InvalidResponse("Empty response".into()));
+            }
+            self.buf.push(byte[0]);
+            Ok(())
+        };
+        tokio::time::timeout(self.request_timeout, fut)
+            .await
+            .unwrap_or_else(|_| Err(QueryFailure::Timeout(Timeout::Request)))
+    }
+
+    pub async fn read_response(mut self) -> Result<QueryResult, QueryFailure> {
+        let remaining = self.max_response_size + 1 - self.buf.len() as u64;
+        let fut = async {
+            self.stream
+                .take(remaining)
+                .read_to_end(&mut self.buf)
+                .await
+                .map_err(|e| QueryFailure::TransportError(e.to_string()))?;
+            if self.buf.len() as u64 > self.max_response_size {
+                return Err(QueryFailure::TransportError("response too large".into()));
+            }
+            if self.buf.is_empty() {
+                return Err(QueryFailure::InvalidResponse("Empty response".into()));
+            }
+            QueryResult::decode(self.buf.as_slice())
+                .map_err(|e| QueryFailure::InvalidResponse(e.to_string()))
+        };
+        tokio::time::timeout(self.request_timeout, fut)
+            .await
+            .unwrap_or_else(|_| Err(QueryFailure::Timeout(Timeout::Request)))
+    }
+
+
 }
 
 impl From<RequestError> for QueryFailure {
