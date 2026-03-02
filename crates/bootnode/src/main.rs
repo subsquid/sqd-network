@@ -161,6 +161,7 @@ async fn main() -> anyhow::Result<()> {
         })) = event
         {
             listen_addrs.into_iter().filter(addr_is_reachable).for_each(|addr| {
+                log::debug!("Address added to Kademlia: {peer_id:?} -> {addr:?}");
                 swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
             });
         }
