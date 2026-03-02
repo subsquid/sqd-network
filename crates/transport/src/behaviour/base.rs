@@ -9,21 +9,11 @@ use std::{
 
 use bimap::BiHashMap;
 use libp2p::{
-    autonat::{self, NatStatus},
-    core::ConnectedPoint,
-    identify,
-    identity::Keypair,
-    kad::{
-        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersError,
-        GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats,
-    },
-    ping,
-    swarm::{
-        behaviour::ConnectionEstablished,
-        dial_opts::{DialOpts, PeerCondition},
-        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm,
-    },
-    StreamProtocol,
+    StreamProtocol, autonat::{self, NatStatus}, core::ConnectedPoint, identify, identity::Keypair, kad::{
+        self, GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats, store::MemoryStore
+    }, ping, swarm::{
+        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm, behaviour::ConnectionEstablished, dial_opts::{DialOpts, PeerCondition}
+    }
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use parking_lot::RwLock;
@@ -234,6 +224,7 @@ impl BaseBehaviour {
     pub fn allow_peer(&mut self, peer_id: PeerId) {
         self.inner.whitelist.allow_peer(peer_id);
     }
+
 }
 
 #[derive(Debug, Clone)]
@@ -319,6 +310,7 @@ impl BaseBehaviour {
         None
     }
 
+
     fn on_identify_event(&mut self, ev: identify::Event) -> Option<TToSwarm<Self>> {
         log::debug!("Identify event received: {ev:?}");
         record_event(&ev);
@@ -351,6 +343,13 @@ impl BaseBehaviour {
                 kad::Event::RoutablePeer { peer, address }
                 | kad::Event::PendingRoutablePeer { peer, address } => {
                     self.inner.address_cache.put(peer, Some(address));
+                }
+                libp2p::kad::Event::RoutingUpdated {
+                    peer, addresses, ..
+                } => {
+                    for address in addresses.into_vec() {
+                        self.inner.address_cache.put(peer, Some(address));
+                    }
                 }
                 kad::Event::OutboundQueryProgressed {
                     id,
