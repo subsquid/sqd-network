@@ -6,12 +6,9 @@ use std::{
 };
 
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
-    swarm::{
-        dummy::ConnectionHandler, ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour,
-        THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
-    },
-    Multiaddr, PeerId,
+    Multiaddr, PeerId, core::{Endpoint, transport::PortUse}, swarm::{
+        ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm, dummy::ConnectionHandler
+    }
 };
 use lru::LruCache;
 
@@ -48,6 +45,19 @@ impl AddressCache {
 
     pub fn contains(&self, peer_id: &PeerId) -> bool {
         self.cache.contains(peer_id)
+    }
+
+    fn on_dial_failure(&mut self, err: DialFailure) {
+        log::debug!("Dial failure: {err:?}");
+        match err.error {
+            libp2p::swarm::DialError::WrongPeerId { .. } |
+            libp2p::swarm::DialError::Transport(_) => {
+                if let Some(peer_id) = err.peer_id {
+                    self.evict(peer_id);
+                }
+            },
+            _ => {}
+        };
     }
 }
 
@@ -96,9 +106,11 @@ impl NetworkBehaviour for AddressCache {
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        if let FromSwarm::NewExternalAddrOfPeer(e) = event {
-            self.put(e.peer_id, iter::once(e.addr.clone()))
-        }
+        match event {
+            FromSwarm::NewExternalAddrOfPeer(e) => self.put(e.peer_id, iter::once(e.addr.clone())),
+            FromSwarm::DialFailure(err) => self.on_dial_failure(err),
+            _ => {}
+        };
     }
 
     fn on_connection_handler_event(

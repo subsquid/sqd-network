@@ -12,7 +12,7 @@ use libp2p::{
     StreamProtocol, autonat::{self, NatStatus}, core::ConnectedPoint, identify, identity::Keypair, kad::{
         self, GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats, store::MemoryStore
     }, ping, swarm::{
-        ConnectionClosed, DialFailure, FromSwarm, NetworkBehaviour, ToSwarm, behaviour::ConnectionEstablished, dial_opts::{DialOpts, PeerCondition}
+        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm, behaviour::ConnectionEstablished, dial_opts::{DialOpts, PeerCondition}
     }
 };
 use libp2p_swarm_derive::NetworkBehaviour;
@@ -225,9 +225,6 @@ impl BaseBehaviour {
         self.inner.whitelist.allow_peer(peer_id);
     }
 
-    pub fn evict_from_cache(&mut self, peer_id: PeerId) {
-        self.inner.address_cache.evict(peer_id);
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -311,24 +308,9 @@ impl BaseBehaviour {
             Some(x) => *x -= 1,
             None => log::error!("Closed connection not established before"),
         }
-        self.evict_from_cache(peer_id);
-        log::debug!("Disconnect: {conn:?}");
         None
     }
 
-    fn on_dial_failure(&mut self, err: DialFailure) -> Option<TToSwarm<Self>> {
-        log::debug!("Dial failure: {err:?}");
-        match err.error {
-            libp2p::swarm::DialError::WrongPeerId { obtained: _, address: _ } |
-            libp2p::swarm::DialError::Transport(_) => {
-                if let Some(peer_id) = err.peer_id {
-                    self.evict_from_cache(peer_id);
-                }
-            },
-            _ => {}
-        }
-        None
-    }
 
     fn on_identify_event(&mut self, ev: identify::Event) -> Option<TToSwarm<Self>> {
         log::debug!("Identify event received: {ev:?}");
