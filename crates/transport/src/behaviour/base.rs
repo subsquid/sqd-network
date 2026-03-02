@@ -249,7 +249,6 @@ impl BehaviourWrapper for BaseBehaviour {
         match ev {
             FromSwarm::ConnectionEstablished(conn) => self.on_connection_established(conn),
             FromSwarm::ConnectionClosed(conn) => self.on_connection_closed(conn),
-            FromSwarm::DialFailure(err) => self.on_dial_failure(err),
             _ => None,
         }
     }
