@@ -9,10 +9,10 @@ use libp2p::{
     identify,
     kad::{self, store::MemoryStore, Mode},
     ping, relay,
-    swarm::SwarmEvent,
+    swarm::{DialError, ListenError, SwarmEvent},
     PeerId, SwarmBuilder,
 };
-use libp2p_connection_limits::ConnectionLimits;
+use libp2p_connection_limits::{ConnectionLimits, Exceeded};
 use libp2p_swarm_derive::NetworkBehaviour;
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -63,12 +63,8 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Local peer ID: {local_peer_id}");
 
     let contract_client = sqd_contract_client::get_client(&cli.transport.rpc).await?;
-    let only_global_ips = if std::env::var("PRIVATE_NETWORK").is_ok() {
-       false 
-    } else {
-        true
-    };
-    
+    let only_global_ips = !std::env::var("PRIVATE_NETWORK").is_ok();
+
     // Prepare behaviour & transport
     let autonat_config = autonat::Config {
         timeout: Duration::from_secs(60),
@@ -154,16 +150,36 @@ async fn main() -> anyhow::Result<()> {
             _ = sigterm.recv() => break,
         };
         log::trace!("Swarm event: {event:?}");
-        if let SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
-            peer_id,
-            info: identify::Info { listen_addrs, .. },
-            ..
-        })) = event
-        {
-            listen_addrs.into_iter().filter(addr_is_reachable).for_each(|addr| {
-                log::debug!("Address added to Kademlia: {peer_id:?} -> {addr:?}");
-                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
-            });
+        match event {
+            SwarmEvent::Behaviour(BehaviourEvent::Identify(identify::Event::Received {
+                peer_id,
+                info: identify::Info { listen_addrs, .. },
+                ..
+            })) => {
+                listen_addrs.into_iter().filter(addr_is_reachable).for_each(|addr| {
+                    log::debug!("Address added to Kademlia: {peer_id:?} -> {addr:?}");
+                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                });
+            }
+            SwarmEvent::OutgoingConnectionError {
+                peer_id,
+                error: DialError::Denied { cause },
+                ..
+            } => {
+                if let Ok(exceeded) = cause.downcast::<Exceeded>() {
+                    log::error!("Connection limit {exceeded:?} was exceeded while connectiong to {peer_id:?}");
+                }
+            }
+            SwarmEvent::IncomingConnectionError {
+                error: ListenError::Denied { cause },
+                peer_id,
+                ..
+            } => {
+                if let Ok(exceeded) = cause.downcast::<Exceeded>() {
+                    log::error!("Connection limit {exceeded:?} was exceeded by {peer_id:?}");
+                }
+            }
+            _ => {}
         }
     }
 
