@@ -101,7 +101,7 @@ async fn main() -> anyhow::Result<()> {
         ping: ping::Behaviour::new(Default::default()),
         autonat: autonat::Behaviour::new(local_peer_id, autonat_config),
         conn_limits: libp2p_connection_limits::Behaviour::new(
-            ConnectionLimits::default().with_max_established_per_peer(Some(3)),
+            ConnectionLimits::default().with_max_established_per_peer(Some(10)),
         ),
         whitelist: WhitelistBehavior::new(contract_client, Default::default()).into(),
     };
