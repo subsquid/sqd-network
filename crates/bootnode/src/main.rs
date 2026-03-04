@@ -167,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
                 ..
             } => {
                 if let Ok(exceeded) = cause.downcast::<Exceeded>() {
-                    log::error!("Connection limit {exceeded:?} was exceeded while connectiong to {peer_id:?}");
+                    log::error!("Connection limit {exceeded:?} was exceeded while connecting to {peer_id:?}");
                 }
             }
             SwarmEvent::IncomingConnectionError {
