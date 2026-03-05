@@ -118,7 +118,9 @@ impl BaseBehaviour {
         let local_peer_id = keypair.public().to_peer_id();
         let mut kad_config = kad::Config::new(dht_protocol);
         kad_config.set_query_timeout(config.kad_query_timeout);
-        kad_config.set_publication_interval(Some(Duration::from_secs(10 * 60)));
+        kad_config.set_replication_interval(Some(Duration::from_secs(10 * 60)));
+        kad_config.set_publication_interval(Some(Duration::from_secs(60 * 60)));
+        kad_config.set_provider_publication_interval(Some(Duration::from_secs(10 * 60)));
         let only_global_ips = if std::env::var("PRIVATE_NETWORK").is_ok() {
             false
         } else {
