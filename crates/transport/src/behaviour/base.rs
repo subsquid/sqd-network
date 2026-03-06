@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
 
 #[cfg(feature = "metrics")]
-use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_QUERIES};
+use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_LOOKUPS};
 use crate::{
     behaviour::{
         addr_cache::AddressCache,
@@ -109,7 +109,7 @@ pub struct BaseBehaviour {
     inner: InnerBehaviour,
     keypair: Keypair,
     pending_events: VecDeque<TToSwarm<Self>>,
-    ongoing_queries: BiHashMap<PeerId, QueryId>,
+    ongoing_lookups: BiHashMap<PeerId, QueryId>,
     outbound_conns: HashMap<PeerId, u32>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     whitelist_initialized: bool,
@@ -179,7 +179,7 @@ impl BaseBehaviour {
             inner,
             keypair: keypair.clone(),
             pending_events: Default::default(),
-            ongoing_queries: Default::default(),
+            ongoing_lookups: Default::default(),
             outbound_conns: Default::default(),
             registered_workers: Arc::new(RwLock::new(Default::default())),
             whitelist_initialized: false,
@@ -212,14 +212,14 @@ impl BaseBehaviour {
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
-        if self.ongoing_queries.contains_left(&peer_id) {
+        if self.ongoing_lookups.contains_left(&peer_id) {
             log::debug!("Query for peer {peer_id} already ongoing");
         } else {
             log::debug!("Starting query for peer {peer_id}");
             let query_id = self.inner.kademlia.get_closest_peers(peer_id);
-            self.ongoing_queries.insert(peer_id, query_id);
+            self.ongoing_lookups.insert(peer_id, query_id);
             #[cfg(feature = "metrics")]
-            ONGOING_QUERIES.inc();
+            ONGOING_LOOKUPS.inc();
         }
     }
 
@@ -370,7 +370,7 @@ impl BaseBehaviour {
             return None;
         };
 
-        let peer_id = self.ongoing_queries.get_by_right(&query_id)?.to_owned();
+        let peer_id = self.ongoing_lookups.get_by_right(&query_id)?.to_owned();
         let peer_info = match result {
             Ok(GetClosestPeersOk { peers, .. })
             | Err(GetClosestPeersError::Timeout { peers, .. }) => {
@@ -382,9 +382,9 @@ impl BaseBehaviour {
         // Query finished
         if query_finished {
             log::debug!("Query for peer {peer_id} finished.");
-            self.ongoing_queries.remove_by_right(&query_id);
+            self.ongoing_lookups.remove_by_right(&query_id);
             #[cfg(feature = "metrics")]
-            ONGOING_QUERIES.dec();
+            ONGOING_LOOKUPS.dec();
         }
 
         if let Some(peer_info) = peer_info {

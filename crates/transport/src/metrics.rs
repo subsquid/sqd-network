@@ -10,7 +10,7 @@ use tokio::sync::OnceCell;
 
 lazy_static! {
     pub static ref ACTIVE_CONNECTIONS: Gauge<u32, AtomicU32> = Default::default();
-    pub static ref ONGOING_QUERIES: Gauge<u32, AtomicU32> = Default::default();
+    pub static ref ONGOING_LOOKUPS: Gauge<u32, AtomicU32> = Default::default();
     pub static ref QUEUE_SIZE: Family<Vec<(&'static str, &'static str)>, Gauge<u32, AtomicU32>> =
         Default::default();
     pub static ref DROPPED: Family<Vec<(&'static str, &'static str)>, Counter<u64, AtomicU64>> =
@@ -33,7 +33,7 @@ pub fn register_metrics(registry: &mut Registry) {
     registry.register(
         "ongoing_queries",
         "The number of ongoing kademlia DHT queries",
-        ONGOING_QUERIES.clone(),
+        ONGOING_LOOKUPS.clone(),
     );
     registry.register(
         "queue_size",
