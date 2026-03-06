@@ -245,6 +245,11 @@ impl PortalTransportHandle {
         }
     }
 
+    #[cfg(feature = "metrics")]
+    pub fn active_connections(&self) -> u32 {
+        crate::metrics::ACTIVE_CONNECTIONS.get()
+    }
+
     pub async fn send_logs(&self, logs: Vec<QueryFinished>) {
         let listeners = self.log_listeners.lock().clone();
         self.publish_portal_logs(logs, &listeners).await;
