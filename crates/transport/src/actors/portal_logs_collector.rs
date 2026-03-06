@@ -92,13 +92,16 @@ impl PortalLogsCollectorBehaviour {
 
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
         match ev {
-            BaseBehaviourEvent::NetworkConnected {  } => {
-                let _ = self
-                    .inner
-                    .base
-                    .get_kademlia_mut()
-                    .start_providing(RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
-                log::info!("Start providing: {:?}", PORTAL_LOGS_PROVIDER_KEY);
+            BaseBehaviourEvent::NetworkConnected { confidence } => {
+                log::info!("Network connected with confidence {confidence:.1}");
+                if confidence >= 0.3 {
+                    let _ = self
+                        .inner
+                        .base
+                        .get_kademlia_mut()
+                        .start_providing(RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
+                    log::info!("Start providing: {:?}", PORTAL_LOGS_PROVIDER_KEY);
+                }
                 None
             },
             _ => None

@@ -276,6 +276,7 @@ impl PortalBehaviour {
                 stats,
                 step,
             } => self.on_provider_record(id, result, &stats, &step),
+            _ => None,
         }
     }
 
