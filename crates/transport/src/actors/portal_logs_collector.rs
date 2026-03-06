@@ -65,6 +65,7 @@ pub struct InnerBehaviour {
 
 pub struct PortalLogsCollectorBehaviour {
     inner: InnerBehaviour,
+    advertisement_started: bool,
 }
 
 impl PortalLogsCollectorBehaviour {
@@ -86,6 +87,7 @@ impl PortalLogsCollectorBehaviour {
                 )
                 .into(),
             },
+            advertisement_started: false,
         }
         .into()
     }
@@ -93,14 +95,21 @@ impl PortalLogsCollectorBehaviour {
     fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
         match ev {
             BaseBehaviourEvent::NetworkConnected { confidence } => {
-                log::info!("Network connected with confidence {confidence:.1}");
-                if confidence >= 0.3 {
-                    let _ = self
+                if confidence >= 0.3 && !self.advertisement_started {
+                    let res = self
                         .inner
                         .base
                         .get_kademlia_mut()
                         .start_providing(RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
-                    log::info!("Start providing: {:?}", PORTAL_LOGS_PROVIDER_KEY);
+                    match res {
+                        Ok(query_id) => {
+                            log::info!("Start providing: {PORTAL_LOGS_PROVIDER_KEY:?} by {query_id:?}");
+                            self.advertisement_started = true;
+                        },
+                        Err(err) => {
+                            log::error!("Advertisement error: {err:?}")
+                        }
+                    }
                 }
                 None
             },
