@@ -213,7 +213,11 @@ impl BaseBehaviour {
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
-        if self.ongoing_lookups.contains_left(&peer_id) {
+        if self.inner.address_cache.contains(&peer_id) {
+            log::debug!("Dialing peer {peer_id} using cached address");
+            self.pending_events
+                .push_back(ToSwarm::Dial { opts: peer_id.into() });
+        } else if self.ongoing_lookups.contains_left(&peer_id) {
             log::debug!("Query for peer {peer_id} already ongoing");
         } else {
             log::debug!("Starting query for peer {peer_id}");
