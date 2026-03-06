@@ -103,6 +103,7 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     whitelist_initialized: bool,
+    first_identification_received: bool,
 }
 
 #[allow(dead_code)]
@@ -175,6 +176,7 @@ impl BaseBehaviour {
             outbound_conns: Default::default(),
             registered_workers: Arc::new(RwLock::new(Default::default())),
             whitelist_initialized: false,
+            first_identification_received: false,
         }
     }
 
@@ -237,6 +239,8 @@ pub enum BaseBehaviourEvent {
         stats: QueryStats,
         step: ProgressStep,
     },
+    NetworkConnected {
+    }
 }
 
 impl BehaviourWrapper for BaseBehaviour {
@@ -328,7 +332,13 @@ impl BaseBehaviour {
             self.inner.kademlia.add_address(&peer_id, addr);
         });
 
-        None
+        if self.first_identification_received {
+            None
+        } else {
+            Some(
+                ToSwarm::GenerateEvent(BaseBehaviourEvent::NetworkConnected {})
+            )
+        }
     }
 
     fn on_kademlia_event(&mut self, ev: kad::Event) -> Option<TToSwarm<Self>> {
