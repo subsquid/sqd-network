@@ -141,7 +141,7 @@ pub struct SQLClientBehaviour {
 
 impl SQLClientBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
-        base.keep_all_connections_alive();
+        base.maintain_worker_connections();
         Self {
             inner: InnerBehaviour { base: base.into() },
         }
