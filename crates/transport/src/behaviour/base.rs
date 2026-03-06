@@ -335,6 +335,7 @@ impl BaseBehaviour {
         if self.first_identification_received {
             None
         } else {
+            self.first_identification_received = true;
             Some(
                 ToSwarm::GenerateEvent(BaseBehaviourEvent::NetworkConnected {})
             )
