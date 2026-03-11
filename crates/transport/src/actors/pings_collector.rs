@@ -52,7 +52,7 @@ pub struct PingsCollectorBehaviour {
 
 impl PingsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour, _config: PingsCollectorConfig) -> Wrapped<Self> {
-        base.keep_all_connections_alive();
+        base.maintain_worker_connections();
         Self { base: base.into() }.into()
     }
 }

@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     num::NonZeroUsize,
-    sync::Arc,
     task::{Context, Poll},
     time::Duration,
     vec,
@@ -16,13 +15,12 @@ use libp2p::{
     }
 };
 use libp2p_swarm_derive::NetworkBehaviour;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
 
 #[cfg(feature = "metrics")]
-use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_QUERIES};
+use crate::metrics::{ACTIVE_CONNECTIONS, ONGOING_LOOKUPS};
 use crate::{
     behaviour::{
         addr_cache::AddressCache,
@@ -39,7 +37,7 @@ use crate::{
 #[cfg(feature = "pubsub")]
 use crate::{protocol::MAX_PUBSUB_MSG_SIZE, PubsubBehaviour, PubsubMsg};
 
-use super::stream_client::{self, ClientBehaviour, ClientConfig, StreamClientHandle};
+use super::stream_client::{ClientBehaviour, ClientConfig, StreamClientHandle};
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
@@ -70,6 +68,8 @@ pub struct BaseConfig {
     pub max_pubsub_msg_size: usize,
     /// Maximum number of peers to keep in the address cache (default: 1024)
     pub addr_cache_size: NonZeroUsize,
+    /// Maximum number of concurrent Kademlia lookups for worker discovery (default: 20)
+    pub max_concurrent_lookups: usize,
 }
 
 impl BaseConfig {
@@ -83,6 +83,7 @@ impl BaseConfig {
         let max_pubsub_msg_size = parse_env_var("MAX_PUBSUB_MSG_SIZE", MAX_PUBSUB_MSG_SIZE);
         let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
             .expect("addr_cache_size should be > 0");
+        let max_concurrent_lookups = parse_env_var("MAX_CONCURRENT_LOOKUPS", 20);
         Self {
             onchain_update_interval,
             autonat_timeout,
@@ -91,6 +92,7 @@ impl BaseConfig {
             #[cfg(feature = "pubsub")]
             max_pubsub_msg_size,
             addr_cache_size,
+            max_concurrent_lookups,
         }
     }
 }
@@ -99,10 +101,13 @@ pub struct BaseBehaviour {
     inner: InnerBehaviour,
     keypair: Keypair,
     pending_events: VecDeque<TToSwarm<Self>>,
-    ongoing_queries: BiHashMap<PeerId, QueryId>,
+    ongoing_lookups: BiHashMap<PeerId, QueryId>,
     outbound_conns: HashMap<PeerId, u32>,
-    registered_workers: Arc<RwLock<HashSet<PeerId>>>,
+    registered_workers: HashSet<PeerId>,
     whitelist_initialized: bool,
+    maintain_worker_connections: bool,
+    pending_lookups: VecDeque<PeerId>,
+    max_concurrent_lookups: usize,
 }
 
 #[allow(dead_code)]
@@ -171,10 +176,13 @@ impl BaseBehaviour {
             inner,
             keypair: keypair.clone(),
             pending_events: Default::default(),
-            ongoing_queries: Default::default(),
+            ongoing_lookups: Default::default(),
             outbound_conns: Default::default(),
-            registered_workers: Arc::new(RwLock::new(Default::default())),
+            registered_workers: Default::default(),
             whitelist_initialized: false,
+            maintain_worker_connections: false,
+            pending_lookups: Default::default(),
+            max_concurrent_lookups: config.max_concurrent_lookups,
         }
     }
 
@@ -187,8 +195,9 @@ impl BaseBehaviour {
         self.inner.kademlia.set_mode(Some(kad::Mode::Server));
     }
 
-    pub fn keep_all_connections_alive(&mut self) {
+    pub fn maintain_worker_connections(&mut self) {
         self.inner.keep_alive.keep_all_connections_alive();
+        self.maintain_worker_connections = true;
     }
 
     pub fn request_handle(
@@ -204,23 +213,23 @@ impl BaseBehaviour {
     }
 
     pub fn find_and_dial(&mut self, peer_id: PeerId) {
-        if self.ongoing_queries.contains_left(&peer_id) {
+        if self.inner.address_cache.contains(&peer_id) {
+            log::debug!("Dialing peer {peer_id} using cached address");
+            self.pending_events
+                .push_back(ToSwarm::Dial { opts: peer_id.into() });
+        } else if self.ongoing_lookups.contains_left(&peer_id) {
             log::debug!("Query for peer {peer_id} already ongoing");
         } else {
             log::debug!("Starting query for peer {peer_id}");
             let query_id = self.inner.kademlia.get_closest_peers(peer_id);
-            self.ongoing_queries.insert(peer_id, query_id);
+            self.ongoing_lookups.insert(peer_id, query_id);
             #[cfg(feature = "metrics")]
-            ONGOING_QUERIES.inc();
+            ONGOING_LOOKUPS.inc();
         }
     }
 
     pub fn outbound_conn_exists(&self, peer_id: &PeerId) -> bool {
         self.outbound_conns.get(peer_id).is_some_and(|x| *x > 0)
-    }
-
-    pub fn can_be_dialed(&self, peer_id: &PeerId) -> bool {
-        self.outbound_conn_exists(peer_id) || self.inner.address_cache.contains(peer_id)
     }
 
     pub fn allow_peer(&mut self, peer_id: PeerId) {
@@ -270,7 +279,6 @@ impl BehaviourWrapper for BaseBehaviour {
                 None
             }
             InnerBehaviourEvent::Whitelist(nodes) => self.on_nodes_update(nodes),
-            InnerBehaviourEvent::Stream(ev) => self.on_stream_event(ev),
             _ => None,
         }
     }
@@ -278,6 +286,15 @@ impl BehaviourWrapper for BaseBehaviour {
     fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
         if let Some(ev) = self.pending_events.pop_front() {
             return Poll::Ready(Some(ev));
+        }
+
+        while self.ongoing_lookups.len() < self.max_concurrent_lookups {
+            let Some(peer_id) = self.pending_lookups.pop_front() else {
+                break;
+            };
+            if !self.outbound_conn_exists(&peer_id) {
+                self.find_and_dial(peer_id);
+            }
         }
 
         Poll::Pending
@@ -308,6 +325,13 @@ impl BaseBehaviour {
         match self.outbound_conns.get_mut(&peer_id) {
             Some(x) => *x -= 1,
             None => log::error!("Closed connection not established before"),
+        }
+        if self.maintain_worker_connections
+            && !self.outbound_conn_exists(&peer_id)
+            && self.registered_workers.contains(&peer_id)
+        {
+            log::debug!("Worker {peer_id} disconnected, scheduling reconnection");
+            self.pending_lookups.push_back(peer_id);
         }
         None
     }
@@ -371,7 +395,7 @@ impl BaseBehaviour {
             return None;
         };
 
-        let peer_id = self.ongoing_queries.get_by_right(&query_id)?.to_owned();
+        let peer_id = self.ongoing_lookups.get_by_right(&query_id)?.to_owned();
         let peer_info = match result {
             Ok(GetClosestPeersOk { peers, .. })
             | Err(GetClosestPeersError::Timeout { peers, .. }) => {
@@ -383,9 +407,9 @@ impl BaseBehaviour {
         // Query finished
         if query_finished {
             log::debug!("Query for peer {peer_id} finished.");
-            self.ongoing_queries.remove_by_right(&query_id);
+            self.ongoing_lookups.remove_by_right(&query_id);
             #[cfg(feature = "metrics")]
-            ONGOING_QUERIES.dec();
+            ONGOING_LOOKUPS.dec();
         }
 
         if let Some(peer_info) = peer_info {
@@ -425,24 +449,9 @@ impl BaseBehaviour {
         None
     }
 
-    // TODO: consider capturing all dial requests, not only from the stream behaviour
-    fn on_stream_event(&mut self, ev: stream_client::Event) -> Option<TToSwarm<Self>> {
-        // When trying to dial an unknown peer, try to find it on DHT first
-        let stream_client::Event::Dial(opts) = ev;
-        match opts.get_peer_id() {
-            Some(peer_id) if !self.can_be_dialed(&peer_id) => {
-                // The ConnectionId will not correspond to the requested one,
-                // but it's not used by the stream behaviour anyway
-                self.find_and_dial(peer_id);
-                None
-            }
-            _ => Some(ToSwarm::Dial { opts }),
-        }
-    }
-
     fn on_nodes_update(&mut self, nodes: NetworkNodes) -> Option<TToSwarm<Self>> {
         log::debug!("Updating registered workers");
-        *self.registered_workers.write() = nodes.workers;
+        self.registered_workers = nodes.workers;
 
         if !self.whitelist_initialized {
             self.whitelist_initialized = true;
@@ -454,6 +463,14 @@ impl BaseBehaviour {
                 log::debug!("Whitelist initialized, running Kademlia bootstrap");
                 if let Err(kad::NoKnownPeers()) = self.get_kademlia_mut().bootstrap() {
                     log::warn!("Failed to trigger bootstrap: no known peers");
+                }
+            }
+        }
+
+        if self.maintain_worker_connections {
+            for peer_id in &self.registered_workers {
+                if !self.outbound_conn_exists(peer_id) {
+                    self.pending_lookups.push_back(*peer_id);
                 }
             }
         }

@@ -1,15 +1,10 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use libp2p::{
-    swarm::{dial_opts::DialOpts, NetworkBehaviour, THandlerInEvent, ToSwarm},
-    PeerId, StreamProtocol,
-};
+use libp2p::{PeerId, StreamProtocol};
 use libp2p_stream::OpenStreamError;
 
 use crate::{util::StreamWithPayload, BehaviourWrapper};
-
-use super::wrapped::TToSwarm;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ClientConfig {
@@ -165,28 +160,12 @@ impl ClientBehaviour {
     }
 }
 
-#[derive(Debug)]
-pub enum Event {
-    Dial(DialOpts),
-}
-
 impl BehaviourWrapper for ClientBehaviour {
-    type Event = Event;
+    type Event = ();
     type Inner = libp2p_stream::Behaviour;
 
     fn inner(&mut self) -> &mut Self::Inner {
         &mut self.inner
-    }
-
-    fn on_inner_command(
-        &mut self,
-        ev: ToSwarm<<Self::Inner as NetworkBehaviour>::ToSwarm, THandlerInEvent<Self::Inner>>,
-    ) -> impl IntoIterator<Item = TToSwarm<Self>> {
-        match ev {
-            // Capture an attempt to dial a peer to be handled by the BaseBehaviour
-            ToSwarm::Dial { opts } => Some(ToSwarm::GenerateEvent(Event::Dial(opts))),
-            e => Some(e.map_out(|()| unreachable!("Stream behaviour doesn't produce events"))),
-        }
     }
 }
 
