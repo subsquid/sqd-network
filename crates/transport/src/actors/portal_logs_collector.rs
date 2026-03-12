@@ -65,15 +65,12 @@ pub struct InnerBehaviour {
 
 pub struct PortalLogsCollectorBehaviour {
     inner: InnerBehaviour,
+    advertisement_started: bool,
 }
 
 impl PortalLogsCollectorBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.set_server_mode();
-        let _ = base
-            .get_kademlia_mut()
-            .start_providing(RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
-        log::info!("Start providing: {:?}", PORTAL_LOGS_PROVIDER_KEY);
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
@@ -90,12 +87,34 @@ impl PortalLogsCollectorBehaviour {
                 )
                 .into(),
             },
+            advertisement_started: false,
         }
         .into()
     }
 
-    fn on_base_event(&mut self, _ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
-        None
+    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
+        match ev {
+            BaseBehaviourEvent::NetworkConnected { confidence } => {
+                if confidence >= 0.3 && !self.advertisement_started {
+                    let res = self
+                        .inner
+                        .base
+                        .get_kademlia_mut()
+                        .start_providing(RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
+                    match res {
+                        Ok(query_id) => {
+                            log::info!("Start providing: {PORTAL_LOGS_PROVIDER_KEY:?} by {query_id:?}");
+                            self.advertisement_started = true;
+                        },
+                        Err(err) => {
+                            log::error!("Advertisement error: {err:?}")
+                        }
+                    }
+                }
+                None
+            },
+            _ => None
+        }
     }
 
     fn on_collector_v1_request(

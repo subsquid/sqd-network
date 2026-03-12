@@ -103,6 +103,9 @@ pub struct BaseBehaviour {
     outbound_conns: HashMap<PeerId, u32>,
     registered_workers: Arc<RwLock<HashSet<PeerId>>>,
     whitelist_initialized: bool,
+    identified_peers: HashSet<PeerId>,
+    /// Last confidence value sent, in tenths (0–10). None means nothing sent yet.
+    last_sent_confidence_step: Option<u8>,
 }
 
 #[allow(dead_code)]
@@ -175,6 +178,8 @@ impl BaseBehaviour {
             outbound_conns: Default::default(),
             registered_workers: Arc::new(RwLock::new(Default::default())),
             whitelist_initialized: false,
+            identified_peers: HashSet::new(),
+            last_sent_confidence_step: None,
         }
     }
 
@@ -236,6 +241,11 @@ pub enum BaseBehaviourEvent {
         result: Result<GetProvidersOk, GetProvidersError>,
         stats: QueryStats,
         step: ProgressStep,
+    },
+    NetworkConnected {
+        /// Connection confidence in range [0.1, 1.0], sent in steps of 0.1.
+        /// Reaches 1.0 when identified peers ≥ 75% of whitelist size.
+        confidence: f32,
     },
 }
 
@@ -328,7 +338,44 @@ impl BaseBehaviour {
             self.inner.kademlia.add_address(&peer_id, addr);
         });
 
-        None
+        self.identified_peers.insert(peer_id);
+        self.emit_confidence()
+    }
+
+    /// Compute current confidence and emit a `NetworkConnected` event if a new 0.1-step
+    /// threshold has been crossed for the first time. Returns `None` if the whitelist is
+    /// not yet initialised, if the computed step has already been sent, or if the step
+    /// would be 0 (first message must carry confidence ≥ 0.1).
+    fn emit_confidence(&mut self) -> Option<TToSwarm<Self>> {
+        if !self.whitelist_initialized {
+            return None;
+        }
+        let whitelist_size = self.inner.whitelist.whitelist_size();
+        if whitelist_size == 0 {
+            return None;
+        }
+
+        // threshold = 75% of whitelist peers
+        let threshold = 0.75_f32 * whitelist_size as f32;
+        let raw = (self.identified_peers.len() as f32 / threshold).min(1.0_f32);
+
+        // Round down to the nearest 0.1 step (1–10 in tenths)
+        let step = (raw * 10.0_f32).floor() as u8;
+
+        // First message must have confidence >= 0.1 (step >= 1)
+        if step == 0 {
+            return None;
+        }
+
+        // Only emit when confidence increases; never send the same or lower value twice
+        if self.last_sent_confidence_step.is_some_and(|last| step <= last) {
+            return None;
+        }
+
+        self.last_sent_confidence_step = Some(step);
+        let confidence = step as f32 / 10.0_f32;
+        log::info!("Network confidence updated: {confidence:.1}");
+        Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::NetworkConnected { confidence }))
     }
 
     fn on_kademlia_event(&mut self, ev: kad::Event) -> Option<TToSwarm<Self>> {
