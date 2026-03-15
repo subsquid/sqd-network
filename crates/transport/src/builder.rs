@@ -215,7 +215,17 @@ impl P2PTransportBuilder {
     pub async fn build_worker(
         self,
         config: WorkerConfig,
-    ) -> Result<(impl Stream<Item = WorkerEvent>, WorkerTransportHandle), Error> {
+    ) -> Result<
+        (
+            impl Stream<Item = WorkerEvent>,
+            WorkerTransportHandle,
+            libp2p_stream::IncomingStreams,
+            libp2p_stream::IncomingStreams,
+        ),
+        Error,
+    > {
+        use crate::protocol::{QUERY_PROTOCOL, SQL_QUERY_PROTOCOL};
+
         let local_peer_id = self.local_peer_id();
         // Wait for the worker to be registered on chain
         loop {
@@ -233,8 +243,22 @@ impl P2PTransportBuilder {
             }
             break;
         }
-        let swarm = self.build_swarm(|base| WorkerBehaviour::new(base, &config))?;
-        Ok(worker::start_transport(swarm, &config))
+
+        // Create stream behaviour for query protocols.
+        // IncomingStreams are returned to the caller for direct handling.
+        let query_stream_behaviour = libp2p_stream::Behaviour::new();
+        let mut control = query_stream_behaviour.new_control();
+        let query_streams = control
+            .accept(StreamProtocol::new(QUERY_PROTOCOL))
+            .expect("Query protocol should not already be registered");
+        let sql_query_streams = control
+            .accept(StreamProtocol::new(SQL_QUERY_PROTOCOL))
+            .expect("SQL query protocol should not already be registered");
+
+        let swarm =
+            self.build_swarm(|base| WorkerBehaviour::new(base, &config, query_stream_behaviour))?;
+        let (events, handle) = worker::start_transport(swarm, &config);
+        Ok((events, handle, query_streams, sql_query_streams))
     }
 
     #[cfg(feature = "sql-client")]

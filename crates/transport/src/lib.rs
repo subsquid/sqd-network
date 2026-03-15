@@ -23,7 +23,7 @@ use tokio::sync::mpsc;
 pub use libp2p::{
     identity::{Keypair, ParseError as IdParseError, PublicKey},
     request_response::ResponseChannel,
-    Multiaddr, PeerId,
+    Multiaddr, PeerId, Stream,
 };
 
 #[cfg(feature = "metrics")]
@@ -71,6 +71,8 @@ pub use crate::actors::portal_logs_collector::{
 pub use crate::actors::worker::{
     WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
 };
+#[cfg(feature = "worker")]
+pub use libp2p_stream::IncomingStreams;
 #[cfg(feature = "sql-client")]
 pub use crate::actors::sql_client::{
     SQLClientBehaviour, SQLClientConfig, SQLClientTransport, SQLQueryFailure,
