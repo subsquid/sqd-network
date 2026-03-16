@@ -50,6 +50,10 @@ impl WhitelistBehavior {
         }
     }
 
+    pub fn whitelist_size(&self) -> usize {
+        self.registered_nodes.len()
+    }
+
     pub fn allow_peer(&mut self, peer_id: PeerId) {
         log::debug!("Allowing peer {peer_id}");
         self.allow.allow_peer(peer_id);
