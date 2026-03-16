@@ -339,14 +339,14 @@ impl BaseBehaviour {
         });
 
         self.identified_peers.insert(peer_id);
-        self.emit_confidence()
+        self.try_emit_confidence()
     }
 
     /// Compute current confidence and emit a `NetworkConnected` event if a new 0.1-step
     /// threshold has been crossed for the first time. Returns `None` if the whitelist is
     /// not yet initialised, if the computed step has already been sent, or if the step
     /// would be 0 (first message must carry confidence ≥ 0.1).
-    fn emit_confidence(&mut self) -> Option<TToSwarm<Self>> {
+    fn try_emit_confidence(&mut self) -> Option<TToSwarm<Self>> {
         if !self.whitelist_initialized {
             return None;
         }
@@ -374,7 +374,7 @@ impl BaseBehaviour {
 
         self.last_sent_confidence_step = Some(step);
         let confidence = step as f32 / 10.0_f32;
-        log::info!("Network confidence updated: {confidence:.1}");
+        log::debug!("Network confidence updated: {confidence:.1}");
         Some(ToSwarm::GenerateEvent(BaseBehaviourEvent::NetworkConnected { confidence }))
     }
 
