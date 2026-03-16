@@ -164,6 +164,7 @@ impl BaseBehaviour {
 
         for boot_node in boot_nodes {
             inner.whitelist.allow_peer(boot_node.peer_id);
+            inner.kademlia.add_address(&boot_node.peer_id, boot_node.address.clone());
             inner.autonat.add_server(boot_node.peer_id, Some(boot_node.address));
         }
 
