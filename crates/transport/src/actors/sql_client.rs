@@ -1,12 +1,14 @@
 use std::time::Duration;
 
 use futures::StreamExt;
-use libp2p::{PeerId, Swarm};
+use libp2p::{PeerId, Swarm, swarm::{NetworkBehaviour, SwarmEvent, ToSwarm}};
 use libp2p_swarm_derive::NetworkBehaviour;
 use prost::Message;
 use serde::{Deserialize, Serialize};
+use crate::{BehaviourWrapper, behaviour::base::BaseBehaviourEvent};
+use crate::behaviour::wrapped::TToSwarm;
+use tokio::sync::broadcast::{self, Receiver, Sender};
 
-//use sqd_messages::{LogsRequest, QueryLogs};
 use sqd_messages::{Query, QueryResult};
 
 use crate::{
@@ -52,6 +54,7 @@ impl Default for SQLClientConfig {
 pub struct SQLClientTransport {
     _task_manager: TaskManager,
     query_handle: StreamClientHandle,
+    tx: Sender<f32>,
 }
 
 impl SQLClientTransport {
@@ -81,17 +84,24 @@ impl SQLClientTransport {
         log::debug!("Got sql query result from {peer_id}");
         Ok(result)
     }
+
+    pub fn get_connected_to_network(&self) -> Receiver<f32> {
+        self.tx.subscribe()
+    }
 }
 
 pub fn start_transport(
-    swarm: Swarm<SQLClientBehaviour>,
+    swarm: Swarm<Wrapped<SQLClientBehaviour>>,
     config: SQLClientConfig,
 ) -> SQLClientTransport {
     let query_handle = swarm
         .behaviour()
+        .inner
         .base
         .request_handle(SQL_QUERY_PROTOCOL, config.query_config);
 
+    let (tx, _) = broadcast::channel(16);
+    let local_tx = tx.clone();
     let mut task_manager = TaskManager::new(config.shutdown_timeout);
     task_manager.spawn(|cancel_token| async move {
         log::info!("Starting SQL Client P2P transport");
@@ -100,6 +110,13 @@ pub fn start_transport(
         while let Some(ev) = stream.next().await {
             log::trace!("Swarm event: {ev:?}");
             record_event(&ev);
+            match ev {
+                SwarmEvent::Behaviour(SQLClientEvent::Connect { confidence })=> {
+                    log::debug!("Connect confidence: {confidence}");
+                    let _ = local_tx.send(confidence);
+                },
+                _ => {}
+            }
         }
         log::info!("Shutting down SQL Client P2P transport");
     });
@@ -107,18 +124,60 @@ pub fn start_transport(
     SQLClientTransport {
         _task_manager: task_manager,
         query_handle,
+        tx
     }
 }
 
+
 #[derive(NetworkBehaviour)]
-pub struct SQLClientBehaviour {
+pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
 }
 
+pub struct SQLClientBehaviour {
+    inner: InnerBehaviour,
+
+}
+
 impl SQLClientBehaviour {
-    pub fn new(mut base: BaseBehaviour) -> Self {
+    pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.keep_all_connections_alive();
-        Self { base: base.into() }
+        Self { 
+            inner: InnerBehaviour {
+                base: base.into(),
+            }
+        }.into()
+    }
+}
+
+#[derive(Debug)]
+pub enum SQLClientEvent {
+    Connect {
+        confidence: f32
+    }
+}
+
+impl BehaviourWrapper for SQLClientBehaviour {
+    type Inner = InnerBehaviour;
+    type Event = SQLClientEvent;
+
+    fn inner(&mut self) -> &mut Self::Inner {
+        &mut self.inner
+    }
+
+    fn on_inner_event(
+        &mut self,
+        ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
+    ) -> impl IntoIterator<Item = TToSwarm<Self>> {
+        let ev = match ev {
+            InnerBehaviourEvent::Base(base) => {
+                match base {
+                    BaseBehaviourEvent::NetworkConnected { confidence } => vec![SQLClientEvent::Connect { confidence }],
+                    _ => vec![]
+                }
+            }
+        };
+        ev.into_iter().map(ToSwarm::GenerateEvent)
     }
 }
 
