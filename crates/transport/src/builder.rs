@@ -239,7 +239,7 @@ impl P2PTransportBuilder {
 
     #[cfg(feature = "sql-client")]
     pub fn build_sql_client(self, config: SQLClientConfig) -> Result<SQLClientTransport, Error> {
-        let swarm = self.build_swarm(|base| SQLClientBehaviour::new(base))?;
+        let swarm = self.build_swarm(SQLClientBehaviour::new)?;
         Ok(sql_client::start_transport(swarm, config))
     }
 }
