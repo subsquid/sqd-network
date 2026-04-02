@@ -41,6 +41,11 @@ pub const MAX_LOGS_REQUEST_SIZE: u64 = 100;
 pub const MAX_LOGS_RESPONSE_SIZE: u64 = 10 * 1024 * 1024;
 pub const MAX_PUBSUB_MSG_SIZE: usize = 65536;
 pub const MAX_HEARTBEAT_SIZE: u64 = 10 * 1024 * 1024;
+pub const MAX_LOG_MSG_SIZE: u64 = 257 * 1024;
+pub const MAX_LOG_RESULT_SIZE: u64 = 0;
+pub const MAX_LOGS_MSG_SIZE: u64 = 25 * 1024 * 1024;
+pub const MAX_LOGS_RESULT_SIZE: u64 = 0;
+
 
 pub const APPROX_EPOCH_LEN: Duration = Duration::from_secs(1200);
 pub const MAX_TIME_LAG: Duration = Duration::from_secs(60);

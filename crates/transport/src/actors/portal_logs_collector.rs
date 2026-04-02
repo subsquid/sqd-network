@@ -19,13 +19,9 @@ use crate::{
         base::{BaseBehaviour, BaseBehaviourEvent},
         request_server::{Request, ServerBehaviour},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
-    },
-    protocol::{
-        MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V1, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY,
-    },
-    record_event,
-    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
-    codec::ProtoCodec,
+    }, codec::ProtoCodec, protocol::{
+        MAX_LOG_MSG_SIZE, MAX_LOG_RESULT_SIZE, MAX_LOGS_MSG_SIZE, MAX_LOGS_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V1, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY
+    }, record_event, util::{DEFAULT_SHUTDOWN_TIMEOUT, Sender, TaskManager, new_queue}
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -75,13 +71,13 @@ impl PortalLogsCollectorBehaviour {
             inner: InnerBehaviour {
                 base: base.into(),
                 collector_v1: ServerBehaviour::new(
-                    ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
+                    ProtoCodec::new(MAX_LOG_MSG_SIZE, MAX_LOG_RESULT_SIZE),
                     PORTAL_LOGS_PROTOCOL_V1,
                     REQUEST_TIMEOUT,
                 )
                 .into(),
                 collector_v2: ServerBehaviour::new(
-                    ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
+                    ProtoCodec::new(MAX_LOGS_MSG_SIZE, MAX_LOGS_RESULT_SIZE),
                     PORTAL_LOGS_PROTOCOL_V2,
                     REQUEST_TIMEOUT,
                 )
