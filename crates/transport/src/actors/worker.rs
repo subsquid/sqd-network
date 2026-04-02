@@ -14,11 +14,21 @@ use tokio_util::sync::CancellationToken;
 use sqd_messages::{LogsRequest, Query, QueryLogs, QueryResult, WorkerStatus};
 
 use crate::{
-    QueueFull, behaviour::{
-        base::{BaseBehaviour, BaseBehaviourEvent}, noise::NoiseBehaviour, request_server::{Request, ServerBehaviour}, wrapped::{BehaviourWrapper, TToSwarm, Wrapped}
-    }, codec::ProtoCodec, protocol::{
-        MAX_HEARTBEAT_SIZE, MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, QUERY_PROTOCOL, SQL_QUERY_PROTOCOL, WORKER_LOGS_PROTOCOL, WORKER_STATUS_PROTOCOL
-    }, record_event, util::{DEFAULT_SHUTDOWN_TIMEOUT, Receiver, Sender, TaskManager, new_queue}
+    behaviour::{
+        base::{BaseBehaviour, BaseBehaviourEvent},
+        noise::NoiseBehaviour,
+        request_server::{Request, ServerBehaviour},
+        wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
+    },
+    codec::ProtoCodec,
+    protocol::{
+        MAX_HEARTBEAT_SIZE, MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_MSG_SIZE,
+        MAX_QUERY_RESULT_SIZE, MAX_SQL_QUERY_MSG_SIZE, QUERY_PROTOCOL, SQL_QUERY_PROTOCOL,
+        WORKER_LOGS_PROTOCOL, WORKER_STATUS_PROTOCOL,
+    },
+    record_event,
+    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
+    QueueFull,
 };
 
 #[derive(Debug)]
@@ -111,7 +121,7 @@ impl WorkerBehaviour {
                 )
                 .into(),
                 sql_query: ServerBehaviour::new(
-                    ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
+                    ProtoCodec::new(MAX_SQL_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
                     SQL_QUERY_PROTOCOL,
                     config.query_execution_timeout,
                 )
@@ -391,7 +401,7 @@ pub fn start_transport(
     let transport = WorkerTransport {
         swarm,
         query_results_rx,
-        sql_query_results_rx,        
+        sql_query_results_rx,
         logs_rx,
         status_rx,
         events_tx,

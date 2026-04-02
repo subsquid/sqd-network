@@ -34,7 +34,8 @@ pub const NOISE_PROTOCOL: &str = "/sqd/noise/0.0.1";
 pub const PORTAL_LOGS_PROVIDER_KEY: &[u8; 22] = b"/sqd/portal_logs/1.0.0";
 
 pub const MAX_RAW_QUERY_SIZE: u64 = 256 * 1024;
-pub const MAX_QUERY_MSG_SIZE: u64 = 257 * 1024;
+pub const MAX_QUERY_MSG_SIZE: u64 = 2 * 1024 * 1024 + 1024;
+pub const MAX_SQL_QUERY_MSG_SIZE: u64 = 257 * 1024;
 pub const MAX_QUERY_RESULT_SIZE: u64 = 100 * 1024 * 1024;
 pub const MAX_LOGS_REQUEST_SIZE: u64 = 100;
 pub const MAX_LOGS_RESPONSE_SIZE: u64 = 10 * 1024 * 1024;

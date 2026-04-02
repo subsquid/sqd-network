@@ -17,7 +17,7 @@ use crate::{
         stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::Wrapped,
     },
-    protocol::{MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, SQL_QUERY_PROTOCOL},
+    protocol::{MAX_SQL_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, SQL_QUERY_PROTOCOL},
     record_event,
     util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
@@ -64,7 +64,7 @@ impl SQLClientTransport {
         query: Query,
     ) -> Result<QueryResult, SQLQueryFailure> {
         let query_len = query.encoded_len() as u64;
-        if query_len > MAX_QUERY_MSG_SIZE {
+        if query_len > MAX_SQL_QUERY_MSG_SIZE {
             return Err(SQLQueryFailure::InvalidRequest(format!(
                 "SQLQuery message too large ({query_len} bytes)"
             )));
