@@ -30,6 +30,7 @@ pub const PORTAL_LOGS_PROTOCOL_V2: &str = "/sqd/portal_logs/2.0.0";
 pub const SQL_QUERY_PROTOCOL: &str = "/sqd/sql_query/1.0.0";
 pub const KEEP_ALIVE_PROTOCOL: &str = "/sqd/keep_alive/0.0.1";
 pub const NOISE_PROTOCOL: &str = "/sqd/noise/0.0.1";
+pub const FILE_PROTOCOL: &str = "/sqd/file/0.0.1";
 
 pub const PORTAL_LOGS_PROVIDER_KEY: &[u8; 22] = b"/sqd/portal_logs/1.0.0";
 
@@ -45,7 +46,8 @@ pub const MAX_LOG_MSG_SIZE: u64 = 257 * 1024;
 pub const MAX_LOG_RESULT_SIZE: u64 = 0;
 pub const MAX_LOGS_MSG_SIZE: u64 = 25 * 1024 * 1024;
 pub const MAX_LOGS_RESULT_SIZE: u64 = 0;
-
+pub const MAX_FILE_REQUEST_SIZE: u64 = 100 * 1024;
+pub const MAX_FILE_RESPONSE_SIZE: u64 = 100 * 1024 * 1024;
 
 pub const APPROX_EPOCH_LEN: Duration = Duration::from_secs(1200);
 pub const MAX_TIME_LAG: Duration = Duration::from_secs(60);
