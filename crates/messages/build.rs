@@ -14,6 +14,8 @@ fn main() -> std::io::Result<()> {
         .field_attribute("messages.Pong.ping_hash", "#[serde(with = \"hex\")]")
         .field_attribute("messages.OldPing.signature","#[serde(with = \"hex\")]")
         .field_attribute("messages.Query.signature", "#[serde(with = \"hex\")]")
+        .enum_attribute(".messages.FileResponse.result", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
+        .enum_attribute(".messages.FileError.err", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
         .protoc_arg("--experimental_allow_proto3_optional")
         .compile_protos(&["proto/messages.proto"], &["proto/"])?;
     Ok(())

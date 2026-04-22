@@ -129,3 +129,26 @@ message QueryOkSummary {
   bytes data_hash = 2;  // sha3_256
   uint64 last_block = 3;
 }
+
+message FileRequest {
+  string file_id = 1;
+  uint64 offset = 2;
+  uint64 len = 3;
+}
+
+message FileResponse {
+  oneof result {
+    bytes data = 1;
+    FileError error = 2;
+  };
+}
+
+message FileError {
+  oneof err {
+    string bad_request = 1;
+    string not_found = 2;
+    string server_error = 3;
+    google.protobuf.Empty too_many_requests = 4;
+    google.protobuf.Empty server_overloaded = 5;
+  }
+}
