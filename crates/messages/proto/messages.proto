@@ -24,6 +24,7 @@ message Heartbeat {
   // Points to the chunks in this worker's assignment list referenced by `assignment_id`.
   BitString missing_chunks = 3;
   optional uint64 stored_bytes = 4;
+  optional string assignment_applied = 5; // "2025-10-12T12:00:45_C1A955A7E13FABEC64DCA7965104FA0CBF98C063A6FCB4473E243348CADFAFAE"
 }
 
 // Portal -> Worker
