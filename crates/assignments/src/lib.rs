@@ -13,4 +13,4 @@ pub use common::{NetworkAssignment, NetworkState, WorkerStatus};
 pub use builder::AssignmentBuilder;
 
 #[cfg(feature = "reader")]
-pub use reader::{Assignment, ChunkNotFound, Worker};
+pub use reader::{Assignment, ChunkNotFound, ChunkRef, Worker};
