@@ -89,6 +89,18 @@ impl Assignment {
             .lookup_by_key(dataset, |ds, key| ds.key_compare_with_value(key))
     }
 
+    pub fn get_chunk(&self, r: ChunkRef) -> Option<assignment_fb::Chunk<'_>> {
+        let datasets = self.borrow_reader().datasets();
+        if (r.dataset_index as usize) >= datasets.len() {
+            return None;
+        }
+        let chunks = datasets.get(r.dataset_index as usize).chunks();
+        if (r.chunk_index as usize) >= chunks.len() {
+            return None;
+        }
+        Some(chunks.get(r.chunk_index as usize))
+    }
+
     pub fn find_chunk(
         &self,
         dataset: &str,
@@ -157,6 +169,12 @@ pub enum ChunkNotFound {
     AfterLast,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChunkRef {
+    dataset_index: u32,
+    chunk_index: u32,
+}
+
 pub struct Worker<'f> {
     assignment: assignment_fb::Assignment<'f>,
     reader: assignment_fb::WorkerAssignment<'f>,
@@ -170,6 +188,27 @@ impl Worker<'_> {
                 .chunks()
                 .iter()
                 .filter(move |chunk| chunk.worker_indexes().iter().any(|i| self.index == i))
+        })
+    }
+
+    pub fn iter_chunks_with_ref(
+        &self,
+    ) -> impl Iterator<Item = (ChunkRef, assignment_fb::Chunk<'_>)> + '_ {
+        self.assignment.datasets().iter().enumerate().flat_map(move |(d, dataset)| {
+            dataset
+                .chunks()
+                .iter()
+                .enumerate()
+                .filter(move |(_, chunk)| chunk.worker_indexes().iter().any(|i| self.index == i))
+                .map(move |(c, chunk)| {
+                    (
+                        ChunkRef {
+                            dataset_index: d as u32,
+                            chunk_index: c as u32,
+                        },
+                        chunk,
+                    )
+                })
         })
     }
 
