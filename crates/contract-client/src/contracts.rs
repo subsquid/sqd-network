@@ -15,8 +15,15 @@ abigen!(NetworkController, "abi/NetworkController.json");
 abigen!(Strategy, "abi/Strategy.json");
 abigen!(WorkerRegistration, "abi/WorkerRegistration.json");
 abigen!(AllocationsViewer, "abi/AllocationsViewer.json");
+abigen!(PortalRegistry, "abi/PortalRegistry.json");
 
 impl<T: Middleware> GatewayRegistry<T> {
+    pub fn get(client: Arc<T>, addr: Address) -> Self {
+        Self::new(addr, client)
+    }
+}
+
+impl<T: Middleware> PortalRegistry<T> {
     pub fn get(client: Arc<T>, addr: Address) -> Self {
         Self::new(addr, client)
     }
