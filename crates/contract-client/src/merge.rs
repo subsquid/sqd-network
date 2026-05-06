@@ -271,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn clusters_per_worker_cu_pass_through_single() {
+    fn clusters_portal_registry_cu_passes_through() {
         let op = addr(1);
         let new = vec![cluster(op, vec![pid(1)], 42)];
         let out = merge_portal_clusters(new, vec![]);

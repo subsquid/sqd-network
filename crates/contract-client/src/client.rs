@@ -10,7 +10,7 @@ use std::{
 use async_trait::async_trait;
 use ethers::{
     prelude::{BlockId, Bytes, Middleware, Multicall, Provider},
-    types::{BlockNumber, H160, U64},
+    types::{BlockNumber, H160},
 };
 use libp2p::futures::Stream;
 use num_rational::Ratio;
@@ -484,42 +484,6 @@ impl EthersClient {
     async fn multicall(&self) -> Result<Multicall<Provider<Transport>>, ClientError> {
         Ok(contracts::multicall(self.l2_client.clone(), self.multicall_contract_addr).await?)
     }
-
-    async fn active_workers_at(&self, latest_block: U64) -> Result<Vec<Worker>, ClientError> {
-        // A single getActiveWorkers call should be used instead but it lacks pagination and runs out of gas
-
-        let onchain_ids: Vec<U256> = self
-            .worker_registration
-            .get_active_worker_ids()
-            .block(latest_block)
-            .call()
-            .await?;
-        let calls = onchain_ids.chunks(self.active_workers_per_page).map(|ids| async move {
-            let mut multicall = self.multicall().await?.block(latest_block);
-            for id in ids {
-                multicall.add_call::<contracts::Worker>(
-                    self.worker_registration.method("getWorker", *id)?,
-                    false,
-                );
-            }
-            let workers: Vec<contracts::Worker> = multicall.call_array().await?;
-            Result::<_, ClientError>::Ok(workers)
-        });
-
-        let workers = futures::future::try_join_all(calls).await?.into_iter().flatten();
-
-        let workers = workers
-            .zip(onchain_ids)
-            .filter_map(|(worker, onchain_id)| match Worker::new(&worker, onchain_id) {
-                Ok(worker) => Some(worker),
-                Err(e) => {
-                    log::debug!("Error reading worker from chain: {e:?}");
-                    None
-                }
-            })
-            .collect();
-        Ok(workers)
-    }
 }
 
 #[async_trait]
@@ -586,26 +550,48 @@ impl Client for EthersClient {
     }
 
     async fn active_workers(&self) -> Result<Vec<Worker>, ClientError> {
-        let latest_block = self.l2_client.get_block_number().await?;
-        self.active_workers_at(latest_block).await
+        // A single getActiveWorkers call should be used instead but it lacks pagination and runs out of gas
+
+        let onchain_ids: Vec<U256> =
+            self.worker_registration.get_active_worker_ids().call().await?;
+        let calls = onchain_ids.chunks(self.active_workers_per_page).map(|ids| async move {
+            let mut multicall = self.multicall().await?;
+            for id in ids {
+                multicall.add_call::<contracts::Worker>(
+                    self.worker_registration.method("getWorker", *id)?,
+                    false,
+                );
+            }
+            let workers: Vec<contracts::Worker> = multicall.call_array().await?;
+            Result::<_, ClientError>::Ok(workers)
+        });
+
+        let workers = futures::future::try_join_all(calls).await?.into_iter().flatten();
+
+        let workers = workers
+            .zip(onchain_ids)
+            .filter_map(|(worker, onchain_id)| match Worker::new(&worker, onchain_id) {
+                Ok(worker) => Some(worker),
+                Err(e) => {
+                    log::debug!("Error reading worker from chain: {e:?}");
+                    None
+                }
+            })
+            .collect();
+        Ok(workers)
     }
 
     async fn is_portal_registered(&self, portal_id: PeerId) -> Result<bool, ClientError> {
         let id_bytes: Bytes = portal_id.to_bytes().into();
-        let latest_block = self.l2_client.get_block_number().await?;
         if let Some(pr) = &self.portal_registry {
-            let cluster_id = pr
-                .get_cluster_id_by_peer_id(id_bytes.clone())
-                .block(latest_block)
-                .call()
-                .await?;
+            let cluster_id = pr.get_cluster_id_by_peer_id(id_bytes.clone()).call().await?;
             if cluster_id != ZERO_CLUSTER_ID {
                 log::debug!("portal {portal_id} resolved via PortalRegistry");
                 return Ok(true);
             }
         }
         let portal_info: contracts::Gateway =
-            self.gateway_registry.get_gateway(id_bytes).block(latest_block).call().await?;
+            self.gateway_registry.get_gateway(id_bytes).call().await?;
         let registered = portal_info.operator != Address::zero();
         if registered {
             log::debug!("portal {portal_id} resolved via GatewayRegistry");
@@ -636,8 +622,6 @@ impl Client for EthersClient {
     }
 
     async fn active_portals(&self) -> Result<Vec<PeerId>, ClientError> {
-        let latest_block = self.l2_client.get_block_number().await?;
-
         // PortalRegistry: enumerate active clusters and flatten their portal lists.
         let mut new_portals: Vec<PeerId> = Vec::new();
         if let Some(pr) = &self.portal_registry {
@@ -645,7 +629,7 @@ impl Client for EthersClient {
             let limit = self.portals_per_page;
             loop {
                 let (_cluster_ids, clusters, total_active) =
-                    pr.get_active_clusters(offset, limit).block(latest_block).call().await?;
+                    pr.get_active_clusters(offset, limit).call().await?;
                 let page_len = clusters.len();
                 for c in &clusters {
                     for p in &c.portals {
@@ -667,7 +651,6 @@ impl Client for EthersClient {
             let portal_ids = self
                 .gateway_registry
                 .get_active_gateways(page.into(), self.portals_per_page)
-                .block(latest_block)
                 .call()
                 .await?;
             let page_size = U256::from(portal_ids.len());
@@ -685,10 +668,9 @@ impl Client for EthersClient {
         portal_id: PeerId,
         workers: Option<Vec<Worker>>,
     ) -> Result<Vec<Allocation>, ClientError> {
-        let latest_block = self.l2_client.get_block_number().await?;
         let workers = match workers {
             Some(workers) => workers,
-            None => self.active_workers_at(latest_block).await?,
+            None => self.active_workers().await?,
         };
         if workers.is_empty() {
             return Ok(vec![]);
@@ -696,34 +678,18 @@ impl Client for EthersClient {
 
         let id_bytes: Bytes = portal_id.to_bytes().into();
 
-        // PortalRegistry path: equal-split the cluster's CUs across all active workers, then
-        // project that per-worker value onto the caller's requested worker set.
+        // PortalRegistry path: the contract returns the final CU value for each worker.
         if let Some(pr) = &self.portal_registry {
-            let cluster_id = pr
-                .get_cluster_id_by_peer_id(id_bytes.clone())
-                .block(latest_block)
-                .call()
-                .await?;
+            let cluster_id = pr.get_cluster_id_by_peer_id(id_bytes.clone()).call().await?;
             if cluster_id != ZERO_CLUSTER_ID {
                 log::debug!("portal {portal_id} resolved via PortalRegistry");
-                let cus_total =
-                    pr.get_computation_units(cluster_id).block(latest_block).call().await?;
-                let active_worker_count: U256 = self
-                    .worker_registration
-                    .get_active_worker_count()
-                    .block(latest_block)
-                    .call()
-                    .await?;
-                if active_worker_count.is_zero() {
-                    return Ok(vec![]);
-                }
-                let per_worker = cus_total / active_worker_count;
+                let computation_units = pr.get_computation_units(cluster_id).call().await?;
                 return Ok(workers
                     .into_iter()
                     .map(|w| Allocation {
                         worker_peer_id: w.peer_id,
                         worker_onchain_id: w.onchain_id,
-                        computation_units: per_worker,
+                        computation_units,
                     })
                     .collect());
             }
@@ -731,23 +697,16 @@ impl Client for EthersClient {
 
         // Legacy GatewayRegistry strategy path.
         log::debug!("portal {portal_id} resolved via GatewayRegistry");
-        let strategy_addr = self
-            .gateway_registry
-            .get_used_strategy(id_bytes.clone())
-            .block(latest_block)
-            .call()
-            .await?;
+        let strategy_addr =
+            self.gateway_registry.get_used_strategy(id_bytes.clone()).call().await?;
         let strategy = Strategy::get(strategy_addr, self.l2_client.clone());
 
         // A little hack to make less requests: default strategy distributes CUs evenly,
         // so we can just query for one worker and return the same number for all.
         if strategy_addr == self.default_strategy_addr {
             let first_worker_id = workers.first().expect("non empty").onchain_id;
-            let cus_per_epoch = strategy
-                .computation_units_per_epoch(id_bytes, first_worker_id)
-                .block(latest_block)
-                .call()
-                .await?;
+            let cus_per_epoch =
+                strategy.computation_units_per_epoch(id_bytes, first_worker_id).call().await?;
             return Ok(workers
                 .into_iter()
                 .map(|w| Allocation {
@@ -758,7 +717,7 @@ impl Client for EthersClient {
                 .collect());
         }
 
-        let mut multicall = self.multicall().await?.block(latest_block);
+        let mut multicall = self.multicall().await?;
         for worker in &workers {
             multicall.add_call::<U256>(
                 strategy
@@ -778,109 +737,78 @@ impl Client for EthersClient {
 
     async fn portal_compute_units_per_epoch(&self, portal_id: PeerId) -> Result<u64, ClientError> {
         let id_bytes: Bytes = portal_id.to_bytes().into();
-        let latest_block = self.l2_client.get_block_number().await?;
         if let Some(pr) = &self.portal_registry {
-            let cluster_id = pr
-                .get_cluster_id_by_peer_id(id_bytes.clone())
-                .block(latest_block)
-                .call()
-                .await?;
+            let cluster_id = pr.get_cluster_id_by_peer_id(id_bytes.clone()).call().await?;
             if cluster_id != ZERO_CLUSTER_ID {
                 log::debug!("portal {portal_id} resolved via PortalRegistry");
-                let cus = pr.get_computation_units(cluster_id).block(latest_block).call().await?;
+                let cus = pr.get_computation_units(cluster_id).call().await?;
                 return Ok(cus.try_into().expect("Computation units should not exceed u64 range"));
             }
         }
         log::debug!("portal {portal_id} resolved via GatewayRegistry");
-        let cus = self
-            .gateway_registry
-            .computation_units_available(id_bytes)
-            .block(latest_block)
-            .call()
-            .await?;
+        let cus = self.gateway_registry.computation_units_available(id_bytes).call().await?;
         Ok(cus.try_into().expect("Computation units should not exceed u64 range"))
     }
 
     async fn portal_uses_default_strategy(&self, portal_id: PeerId) -> Result<bool, ClientError> {
         let id_bytes: Bytes = portal_id.to_bytes().into();
-        let latest_block = self.l2_client.get_block_number().await?;
         // PortalRegistry has no strategy concept — every cluster behaves like an equal-split
         // default strategy. If the peer is registered there, return true unconditionally.
         if let Some(pr) = &self.portal_registry {
-            let cluster_id = pr
-                .get_cluster_id_by_peer_id(id_bytes.clone())
-                .block(latest_block)
-                .call()
-                .await?;
+            let cluster_id = pr.get_cluster_id_by_peer_id(id_bytes.clone()).call().await?;
             if cluster_id != ZERO_CLUSTER_ID {
                 log::debug!("portal {portal_id} resolved via PortalRegistry");
                 return Ok(true);
             }
         }
         log::debug!("portal {portal_id} resolved via GatewayRegistry");
-        let strategy_addr = self
-            .gateway_registry
-            .get_used_strategy(id_bytes)
-            .block(latest_block)
-            .call()
-            .await?;
+        let strategy_addr = self.gateway_registry.get_used_strategy(id_bytes).call().await?;
         Ok(strategy_addr == self.default_strategy_addr)
     }
 
     async fn portal_clusters(&self, worker_id: U256) -> Result<Vec<PortalCluster>, ClientError> {
-        let latest_block = self.l2_client.get_block_number().await?;
-
-        // PortalRegistry: equal-split each active cluster's CUs across the active worker set.
+        // PortalRegistry: the contract returns the final CU value for each worker.
         let mut new_clusters: Vec<PortalCluster> = Vec::new();
         if let Some(pr) = &self.portal_registry {
-            let active_worker_count: U256 = self
-                .worker_registration
-                .get_active_worker_count()
-                .block(latest_block)
-                .call()
-                .await?;
-            if !active_worker_count.is_zero() {
-                let mut offset = U256::zero();
-                let limit = self.portals_per_page;
-                loop {
-                    let (cluster_ids, clusters, total_active) =
-                        pr.get_active_clusters(offset, limit).block(latest_block).call().await?;
-                    let page_len = clusters.len();
+            let mut offset = U256::zero();
+            let limit = self.portals_per_page;
+            loop {
+                let (cluster_ids, clusters, total_active) =
+                    pr.get_active_clusters(offset, limit).call().await?;
+                let page_len = clusters.len();
 
-                    let cluster_cus: Vec<U256> = if cluster_ids.is_empty() {
-                        Vec::new()
-                    } else {
-                        let mut mc = self.multicall().await?.block(latest_block);
-                        for cid in &cluster_ids {
-                            mc.add_call::<U256>(pr.method("getComputationUnits", *cid)?, false);
-                        }
-                        mc.call_array().await?
-                    };
-
-                    for (cluster, cus_total) in clusters.iter().zip(cluster_cus) {
-                        let per_worker = cus_total / active_worker_count;
-                        if per_worker.is_zero() {
-                            continue;
-                        }
-                        let portal_ids: Vec<PeerId> = cluster
-                            .portals
-                            .iter()
-                            .filter_map(|p| PeerId::from_bytes(&p.peer_id).ok())
-                            .collect();
-                        if portal_ids.is_empty() {
-                            continue;
-                        }
-                        new_clusters.push(PortalCluster {
-                            operator_addr: cluster.operator,
-                            portal_ids,
-                            allocated_computation_units: per_worker,
-                        });
+                let cluster_cus: Vec<U256> = if cluster_ids.is_empty() {
+                    Vec::new()
+                } else {
+                    let mut mc = self.multicall().await?;
+                    for cid in &cluster_ids {
+                        mc.add_call::<U256>(pr.method("getComputationUnits", *cid)?, false);
                     }
+                    mc.call_array().await?
+                };
 
-                    offset += U256::from(page_len);
-                    if page_len == 0 || offset >= total_active {
-                        break;
+                for (cluster, cus_total) in clusters.iter().zip(cluster_cus) {
+                    if cus_total.is_zero() {
+                        continue;
                     }
+                    let portal_ids: Vec<PeerId> = cluster
+                        .portals
+                        .iter()
+                        .filter_map(|p| PeerId::from_bytes(&p.peer_id).ok())
+                        .collect();
+                    if portal_ids.is_empty() {
+                        continue;
+                    }
+                    new_clusters.push(PortalCluster {
+                        operator_addr: cluster.operator,
+                        portal_ids,
+                        allocated_computation_units: cus_total,
+                    });
+                }
+
+                offset += U256::from(page_len);
+                if page_len == 0 || offset >= total_active {
+                    break;
                 }
             }
         }
@@ -892,7 +820,6 @@ impl Client for EthersClient {
             let allocations = self
                 .allocations_viewer
                 .get_allocations(worker_id, page.into(), self.portals_per_page)
-                .block(latest_block)
                 .call()
                 .await?;
             let page_size = U256::from(allocations.len());
@@ -910,17 +837,12 @@ impl Client for EthersClient {
         portal_id: PeerId,
     ) -> Result<Option<(String, Ratio<u128>)>, ClientError> {
         let id_bytes: Bytes = portal_id.to_bytes().into();
-        let latest_block = self.l2_client.get_block_number().await?;
 
         if let Some(pr) = &self.portal_registry {
-            let cluster_id = pr
-                .get_cluster_id_by_peer_id(id_bytes.clone())
-                .block(latest_block)
-                .call()
-                .await?;
+            let cluster_id = pr.get_cluster_id_by_peer_id(id_bytes.clone()).call().await?;
             if cluster_id != ZERO_CLUSTER_ID {
                 log::debug!("portal {portal_id} resolved via PortalRegistry");
-                let cluster = pr.get_cluster(cluster_id).block(latest_block).call().await?;
+                let cluster = pr.get_cluster(cluster_id).call().await?;
                 if !cluster.operator.is_zero() {
                     return Ok(Some((
                         cluster.operator.to_string(),
@@ -931,12 +853,12 @@ impl Client for EthersClient {
         }
 
         log::debug!("portal {portal_id} resolved via GatewayRegistry");
-        let portal = self.gateway_registry.get_gateway(id_bytes).block(latest_block).call().await?;
+        let portal = self.gateway_registry.get_gateway(id_bytes).call().await?;
         let operator: H160 = portal.operator;
         if operator.is_zero() {
             return Ok(None);
         }
-        let stake = self.gateway_registry.get_stake(operator).block(latest_block).call().await?;
+        let stake = self.gateway_registry.get_stake(operator).call().await?;
         Ok(Some((
             operator.to_string(),
             Ratio::new(stake.amount.as_u128(), SQD_DECIMALS_DENOM),
