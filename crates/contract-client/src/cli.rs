@@ -28,6 +28,11 @@ pub struct RpcArgs {
     /// Path to dummy client data file (if set, use dummy client instead of EthersClient)
     #[arg(long, env)]
     pub dummy_client_file_path: Option<String>,
+
+    /// Disable the new PortalRegistry path entirely (fall back to legacy GatewayRegistry only).
+    /// Useful as a rollback switch during the PortalRegistry migration.
+    #[arg(long, env, default_value_t = false)]
+    pub disable_portal_registry: bool,
 }
 
 impl RpcArgs {
@@ -60,6 +65,15 @@ impl RpcArgs {
             .multicall_contract_addr
             .unwrap_or_else(|| self.network.multicall_default_addr())
     }
+
+    /// Returns the configured PortalRegistry address, falling back to the network default.
+    /// May be `None` (e.g. on Tethys, which is opt-in only) — callers must handle that case
+    /// to keep the legacy-only code path operational.
+    pub fn portal_registry_addr(&self) -> Option<Address> {
+        self.contract_addrs
+            .portal_registry_contract_addr
+            .or_else(|| self.network.portal_registry_default_addr())
+    }
 }
 
 #[derive(Args, Clone)]
@@ -74,6 +88,10 @@ pub struct ContractAddrs {
     pub allocations_viewer_contract_addr: Option<Address>,
     #[arg(long, env)]
     pub multicall_contract_addr: Option<Address>,
+    /// New PortalRegistry contract address. On mainnet this defaults to the deployed proxy;
+    /// on Tethys it defaults to `None` and operators must opt in via this env var.
+    #[arg(long, env)]
+    pub portal_registry_contract_addr: Option<Address>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -118,6 +136,15 @@ impl Network {
             Self::Tethys | Self::Mainnet => {
                 "0xcA11bde05977b3631167028862bE2a173976CA11".parse().unwrap()
             }
+        }
+    }
+
+    /// Default PortalRegistry proxy address per network. `None` on Tethys keeps the new code
+    /// path opt-in for staging until operators export `PORTAL_REGISTRY_CONTRACT_ADDR`.
+    pub fn portal_registry_default_addr(&self) -> Option<Address> {
+        match self {
+            Self::Tethys => None,
+            Self::Mainnet => Some("0x29edE9EB0ad3C02B6A98B0E41bF99Cd709812850".parse().unwrap()),
         }
     }
 }
