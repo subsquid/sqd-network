@@ -318,7 +318,9 @@ impl Client for DummyClient {
         let peer_id_str = peer_id.to_string();
         if let Some(worker) = self.data.workers.iter().find(|w| w.peer_id == peer_id_str) {
             if worker.registered_at > 0 {
-                return Ok(Some(UNIX_EPOCH + Duration::from_secs(worker.registered_at as u64)));
+                let registered_at = u64::try_from(worker.registered_at)
+                    .expect("registered_at unix timestamp fits in u64");
+                return Ok(Some(UNIX_EPOCH + Duration::from_secs(registered_at)));
             }
         }
         Ok(None)
@@ -393,6 +395,8 @@ impl Client for DummyClient {
         let portal_id_str = portal_id.to_string();
         if let Some(data) = self.data.portal_sqd_locked.get(&portal_id_str) {
             match data {
+                // Domain values are bounded; fractional precision is intentionally dropped here.
+                #[allow(clippy::cast_possible_truncation)]
                 Some((addr, ratio)) => Ok(Some((addr.clone(), Ratio::new_raw(*ratio as u128, 1)))),
                 None => Ok(None),
             }
@@ -530,9 +534,11 @@ impl Client for EthersClient {
         let epoch_length_blocks = epoch_length_blocks_res?;
 
         let latest_block = latest_block_res?.ok_or(ClientError::BlockNotFound)?;
+        let epoch_length_blocks =
+            u64::try_from(epoch_length_blocks).expect("epoch length in blocks fits in u64");
         let hist_block = self
             .l1_client
-            .get_block(latest_block.number.unwrap() - epoch_length_blocks as u64)
+            .get_block(latest_block.number.unwrap() - epoch_length_blocks)
             .await?
             .ok_or(ClientError::BlockNotFound)?;
 

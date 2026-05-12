@@ -364,7 +364,9 @@ impl BaseBehaviour {
         let threshold = 0.75_f32 * whitelist_size as f32;
         let raw = (self.identified_peers.len() as f32 / threshold).min(1.0_f32);
 
-        // Round down to the nearest 0.1 step (1–10 in tenths)
+        // Round down to the nearest 0.1 step (1–10 in tenths).
+        // `raw` is clamped to [0.0, 1.0] above, so `raw * 10.0 ∈ [0.0, 10.0]` fits in u8.
+        #[allow(clippy::cast_possible_truncation)]
         let step = (raw * 10.0_f32).floor() as u8;
 
         // First message must have confidence >= 0.1 (step >= 1)

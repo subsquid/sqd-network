@@ -307,7 +307,7 @@ impl<'a> IndexGet for Chunks<'a> {
 /// Err(Some(i)): No equal item was found and
 ///               i is the index of the greatest item for which cmp returned less
 /// Err(None): No item was found for which cmp returns less or equal
-fn binary_search_by<'a, V, F>(v: V, mut cmp: F) -> Result<usize, Option<usize>>
+fn binary_search_by<V, F>(v: V, mut cmp: F) -> Result<usize, Option<usize>>
 where
     V: IndexGet,
     F: FnMut(&V::Item) -> Ordering,

@@ -93,10 +93,10 @@ impl PortalLogsCollectorBehaviour {
         .into()
     }
 
-    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
+    fn on_base_event(&mut self, ev: &BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
         match ev {
             BaseBehaviourEvent::NetworkConnected { confidence } => {
-                if confidence >= 0.3 && !self.advertisement_started {
+                if *confidence >= 0.3 && !self.advertisement_started {
                     let res = self
                         .inner
                         .base
@@ -169,7 +169,7 @@ impl BehaviourWrapper for PortalLogsCollectorBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
-            InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
+            InnerBehaviourEvent::Base(ev) => self.on_base_event(&ev),
             InnerBehaviourEvent::CollectorV1(Request {
                 peer_id,
                 request,
