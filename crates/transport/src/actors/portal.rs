@@ -201,10 +201,7 @@ impl PortalTransportHandle {
             .write_all(&buf)
             .await
             .map_err(|e| QueryFailure::from(RequestError::from(e)))?;
-        stream
-            .close()
-            .await
-            .map_err(|e| QueryFailure::from(RequestError::from(e)))?;
+        stream.close().await.map_err(|e| QueryFailure::from(RequestError::from(e)))?;
 
         Ok(Box::new(stream))
     }

@@ -60,11 +60,11 @@ impl Query {
                 + worker_id_bytes.len()
                 + size_of_val(&self.timestamp_ms)
                 + size_of::<u32>()
-                + self.dataset.as_bytes().len()
+                + self.dataset.len()
                 + size_of::<u32>()
-                + self.query.as_bytes().len()
+                + self.query.len()
                 + size_of::<u32>()
-                + self.chunk_id.as_bytes().len()
+                + self.chunk_id.len()
                 + size_of::<u64>() * 2,
         );
         msg.extend_from_slice(self.query_id.as_bytes());

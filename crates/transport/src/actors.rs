@@ -8,7 +8,7 @@ pub mod pings_collector;
 pub mod portal;
 #[cfg(feature = "portal-logs-collector")]
 pub mod portal_logs_collector;
-#[cfg(feature = "worker")]
-pub mod worker;
 #[cfg(feature = "sql-client")]
 pub mod sql_client;
+#[cfg(feature = "worker")]
+pub mod worker;

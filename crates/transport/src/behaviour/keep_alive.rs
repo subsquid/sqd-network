@@ -63,9 +63,8 @@ impl KeepAliveBehaviour {
                 }
                 Err(e) => {
                     log::debug!("Failed to open keep-alive stream to {peer}: {e}");
-                    return;
                 }
-            };
+            }
         });
     }
 }
@@ -132,11 +131,8 @@ impl NetworkBehaviour for KeepAliveBehaviour {
     }
 
     fn on_swarm_event(&mut self, event: FromSwarm) {
-        match event {
-            FromSwarm::ConnectionEstablished(ConnectionEstablished { peer_id, .. }) => {
-                self.ensure_keep_alive(peer_id);
-            }
-            _ => {}
+        if let FromSwarm::ConnectionEstablished(ConnectionEstablished { peer_id, .. }) = event {
+            self.ensure_keep_alive(peer_id);
         }
         self.stream.on_swarm_event(event);
     }

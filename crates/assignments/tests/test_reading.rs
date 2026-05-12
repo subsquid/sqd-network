@@ -81,7 +81,7 @@ fn test_get_chunks() {
     chunk1
         .files()
         .iter()
-        .zip(["blocks.parquet", "transactions.parquet", "logs.parquet"].into_iter())
+        .zip(["blocks.parquet", "transactions.parquet", "logs.parquet"])
         .for_each(|(file, expected)| {
             assert_eq!(file.filename(), expected);
             assert_eq!(file.url(), expected);

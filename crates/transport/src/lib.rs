@@ -67,13 +67,13 @@ pub use crate::actors::portal_logs_collector::{
     PortalLogsCollectorBehaviour, PortalLogsCollectorConfig, PortalLogsCollectorEvent,
     PortalLogsCollectorTransportHandle,
 };
-#[cfg(feature = "worker")]
-pub use crate::actors::worker::{
-    WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
-};
 #[cfg(feature = "sql-client")]
 pub use crate::actors::sql_client::{
     SQLClientBehaviour, SQLClientConfig, SQLClientTransport, SQLQueryFailure,
+};
+#[cfg(feature = "worker")]
+pub use crate::actors::worker::{
+    WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
 };
 #[cfg(feature = "actors")]
 pub use behaviour::base::BaseConfig;
@@ -137,14 +137,26 @@ pub enum Error {
     #[error("Listening failed: {0:?}")]
     Listen(#[from] TransportError<std::io::Error>),
     #[error("Dialing failed: {0:?}")]
-    Dial(#[from] DialError),
+    Dial(Box<DialError>),
     #[error("{0}")]
-    Contract(#[from] sqd_contract_client::ClientError),
+    Contract(Box<sqd_contract_client::ClientError>),
 }
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Self::Transport(e.to_string())
+    }
+}
+
+impl From<DialError> for Error {
+    fn from(e: DialError) -> Self {
+        Self::Dial(Box::new(e))
+    }
+}
+
+impl From<sqd_contract_client::ClientError> for Error {
+    fn from(e: sqd_contract_client::ClientError) -> Self {
+        Self::Contract(Box::new(e))
     }
 }
 

@@ -9,11 +9,21 @@ use std::{
 
 use bimap::BiHashMap;
 use libp2p::{
-    StreamProtocol, autonat::{self, NatStatus}, core::ConnectedPoint, identify, identity::Keypair, kad::{
-        self, GetClosestPeersError, GetClosestPeersOk, GetProvidersError, GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats, store::MemoryStore
-    }, ping, swarm::{
-        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm, behaviour::ConnectionEstablished, dial_opts::{DialOpts, PeerCondition}
-    }
+    autonat::{self, NatStatus},
+    core::ConnectedPoint,
+    identify,
+    identity::Keypair,
+    kad::{
+        self, store::MemoryStore, GetClosestPeersError, GetClosestPeersOk, GetProvidersError,
+        GetProvidersOk, ProgressStep, QueryId, QueryResult, QueryStats,
+    },
+    ping,
+    swarm::{
+        behaviour::ConnectionEstablished,
+        dial_opts::{DialOpts, PeerCondition},
+        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm,
+    },
+    StreamProtocol,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use parking_lot::RwLock;
@@ -124,11 +134,7 @@ impl BaseBehaviour {
         kad_config.set_replication_interval(Some(Duration::from_secs(10 * 60)));
         kad_config.set_publication_interval(Some(Duration::from_secs(60 * 60)));
         kad_config.set_provider_publication_interval(Some(Duration::from_secs(10 * 60)));
-        let only_global_ips = if std::env::var("PRIVATE_NETWORK").is_ok() {
-            false
-        } else {
-            true
-        };
+        let only_global_ips = std::env::var("PRIVATE_NETWORK").is_err();
 
         let mut inner = InnerBehaviour {
             identify: identify::Behaviour::new(
@@ -232,7 +238,6 @@ impl BaseBehaviour {
     pub fn allow_peer(&mut self, peer_id: PeerId) {
         self.inner.whitelist.allow_peer(peer_id);
     }
-
 }
 
 #[derive(Debug, Clone)]
@@ -322,7 +327,6 @@ impl BaseBehaviour {
         }
         None
     }
-
 
     fn on_identify_event(&mut self, ev: identify::Event) -> Option<TToSwarm<Self>> {
         log::debug!("Identify event received: {ev:?}");

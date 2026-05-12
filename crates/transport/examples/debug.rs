@@ -85,7 +85,7 @@ impl Behaviour {
             .unwrap();
 
         Self {
-            ping: ping_enabled.then(|| Default::default()).into(),
+            ping: ping_enabled.then(Default::default).into(),
             identify: identify_enabled
                 .then(|| {
                     libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
@@ -171,7 +171,7 @@ async fn main() -> anyhow::Result<()> {
                 BehaviourEvent::Autonat(e) => log::info!("AutoNAT event: {e:?}"),
                 BehaviourEvent::Gossipsub(libp2p::gossipsub::Event::Message {
                     message, ..
-                }) => on_gossipsub_message(message),
+                }) => on_gossipsub_message(&message),
                 BehaviourEvent::Gossipsub(e) => {
                     log::info!("Gossipsub event: {e:?}");
                 }
@@ -230,7 +230,7 @@ fn bootnodes(network: Network) -> impl Iterator<Item = (Multiaddr, PeerId)> {
     }
 }
 
-fn on_gossipsub_message(message: libp2p::gossipsub::Message) {
+fn on_gossipsub_message(message: &libp2p::gossipsub::Message) {
     lazy_static! {
         static ref TOPIC_BY_HASH: BTreeMap<TopicHash, &'static str> = BTreeMap::from_iter(
             protocol::KNOWN_TOPICS.iter().map(|&topic| (topic_hash(topic), topic))
@@ -243,7 +243,6 @@ fn on_gossipsub_message(message: libp2p::gossipsub::Message) {
     };
 
     log::info!("Gossipsub legacy message ({topic}): {message:?}");
-    return;
 }
 
 fn topic_hash(topic: &str) -> TopicHash {

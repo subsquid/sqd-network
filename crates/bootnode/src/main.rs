@@ -63,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Local peer ID: {local_peer_id}");
 
     let contract_client = sqd_contract_client::get_client(&cli.transport.rpc).await?;
-    let only_global_ips = !std::env::var("PRIVATE_NETWORK").is_ok();
+    let only_global_ips = std::env::var("PRIVATE_NETWORK").is_err();
 
     // Prepare behaviour & transport
     let autonat_config = autonat::Config {
