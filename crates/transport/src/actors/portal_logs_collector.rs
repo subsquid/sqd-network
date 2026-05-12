@@ -19,9 +19,14 @@ use crate::{
         base::{BaseBehaviour, BaseBehaviourEvent},
         request_server::{Request, ServerBehaviour},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
-    }, codec::ProtoCodec, protocol::{
-        MAX_LOG_MSG_SIZE, MAX_LOG_RESULT_SIZE, MAX_LOGS_MSG_SIZE, MAX_LOGS_RESULT_SIZE, PORTAL_LOGS_PROTOCOL_V1, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY
-    }, record_event, util::{DEFAULT_SHUTDOWN_TIMEOUT, Sender, TaskManager, new_queue}
+    },
+    codec::ProtoCodec,
+    protocol::{
+        MAX_LOGS_MSG_SIZE, MAX_LOGS_RESULT_SIZE, MAX_LOG_MSG_SIZE, MAX_LOG_RESULT_SIZE,
+        PORTAL_LOGS_PROTOCOL_V1, PORTAL_LOGS_PROTOCOL_V2, PORTAL_LOGS_PROVIDER_KEY,
+    },
+    record_event,
+    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -88,10 +93,10 @@ impl PortalLogsCollectorBehaviour {
         .into()
     }
 
-    fn on_base_event(&mut self, ev: BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
+    fn on_base_event(&mut self, ev: &BaseBehaviourEvent) -> Option<PortalLogsCollectorEvent> {
         match ev {
             BaseBehaviourEvent::NetworkConnected { confidence } => {
-                if confidence >= 0.3 && !self.advertisement_started {
+                if *confidence >= 0.3 && !self.advertisement_started {
                     let res = self
                         .inner
                         .base
@@ -99,17 +104,19 @@ impl PortalLogsCollectorBehaviour {
                         .start_providing(RecordKey::new(PORTAL_LOGS_PROVIDER_KEY));
                     match res {
                         Ok(query_id) => {
-                            log::info!("Start providing: {PORTAL_LOGS_PROVIDER_KEY:?} by {query_id:?}");
+                            log::info!(
+                                "Start providing: {PORTAL_LOGS_PROVIDER_KEY:?} by {query_id:?}"
+                            );
                             self.advertisement_started = true;
-                        },
+                        }
                         Err(err) => {
                             log::error!("Advertisement error: {err:?}")
                         }
                     }
                 }
                 None
-            },
-            _ => None
+            }
+            _ => None,
         }
     }
 
@@ -162,7 +169,7 @@ impl BehaviourWrapper for PortalLogsCollectorBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
-            InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
+            InnerBehaviourEvent::Base(ev) => self.on_base_event(&ev),
             InnerBehaviourEvent::CollectorV1(Request {
                 peer_id,
                 request,

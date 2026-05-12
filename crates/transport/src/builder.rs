@@ -35,12 +35,12 @@ use crate::actors::portal_logs_collector::{
     self, PortalLogsCollectorBehaviour, PortalLogsCollectorConfig, PortalLogsCollectorEvent,
     PortalLogsCollectorTransportHandle,
 };
+#[cfg(feature = "sql-client")]
+use crate::actors::sql_client::{self, SQLClientBehaviour, SQLClientConfig, SQLClientTransport};
 #[cfg(feature = "worker")]
 use crate::actors::worker::{
     self, WorkerBehaviour, WorkerConfig, WorkerEvent, WorkerTransportHandle,
 };
-#[cfg(feature = "sql-client")]
-use crate::actors::sql_client::{self, SQLClientBehaviour, SQLClientConfig, SQLClientTransport};
 
 use crate::protocol::dht_protocol;
 

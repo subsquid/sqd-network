@@ -9,8 +9,7 @@ use std::collections::{BTreeMap, HashSet};
 use ethers::types::{Address, U256};
 use libp2p::PeerId;
 
-use crate::contracts;
-use crate::PortalCluster;
+use crate::{contracts, PortalCluster};
 
 /// Concatenate active portals from the new PortalRegistry and the legacy GatewayRegistry,
 /// preserving order within each source and de-duping by `PeerId`. New-source occurrences win

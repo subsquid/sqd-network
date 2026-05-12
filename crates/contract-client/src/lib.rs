@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+// ClientError carries large variants from ethers; downstream callers (e.g. sqd-network-transport)
+// box it to keep their own error enums small.
+#![allow(clippy::result_large_err)]
+
 mod cli;
 mod client;
 mod contracts;

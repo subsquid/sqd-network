@@ -27,7 +27,11 @@ pub mod signatures;
 #[cfg(feature = "semver")]
 mod versions;
 
-include!(concat!(env!("OUT_DIR"), "/messages.rs"));
+#[allow(clippy::use_self)]
+mod proto {
+    include!(concat!(env!("OUT_DIR"), "/messages.rs"));
+}
+pub use proto::*;
 
 pub type WorkerStatus = Heartbeat;
 

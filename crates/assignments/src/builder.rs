@@ -221,7 +221,7 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
             format!(r#"{{"worker-id":"{}","worker-signature":"{}"}}"#, id, worker_signature);
 
         let (ciphertext, nonce) = encrypt_with_rng(
-            &peer_id,
+            peer_id,
             &self.common_secret_key,
             plaintext.as_bytes(),
             &mut self.rng,

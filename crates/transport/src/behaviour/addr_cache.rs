@@ -6,9 +6,12 @@ use std::{
 };
 
 use libp2p::{
-    Multiaddr, PeerId, core::{Endpoint, transport::PortUse}, swarm::{
-        ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm, dummy::ConnectionHandler
-    }
+    core::{transport::PortUse, Endpoint},
+    swarm::{
+        dummy::ConnectionHandler, ConnectionDenied, ConnectionId, DialFailure, FromSwarm,
+        NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+    },
+    Multiaddr, PeerId,
 };
 use lru::LruCache;
 
@@ -50,12 +53,12 @@ impl AddressCache {
     fn on_dial_failure(&mut self, err: DialFailure) {
         log::debug!("Dial failure: {err:?}");
         match err.error {
-            libp2p::swarm::DialError::WrongPeerId { .. } |
-            libp2p::swarm::DialError::Transport(_) => {
+            libp2p::swarm::DialError::WrongPeerId { .. }
+            | libp2p::swarm::DialError::Transport(_) => {
                 if let Some(peer_id) = err.peer_id {
                     self.evict(peer_id);
                 }
-            },
+            }
             _ => {}
         };
     }

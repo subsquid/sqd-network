@@ -60,21 +60,24 @@ impl Query {
                 + worker_id_bytes.len()
                 + size_of_val(&self.timestamp_ms)
                 + size_of::<u32>()
-                + self.dataset.as_bytes().len()
+                + self.dataset.len()
                 + size_of::<u32>()
-                + self.query.as_bytes().len()
+                + self.query.len()
                 + size_of::<u32>()
-                + self.chunk_id.as_bytes().len()
+                + self.chunk_id.len()
                 + size_of::<u64>() * 2,
         );
+        let dataset_len = u32::try_from(self.dataset.len()).expect("dataset length fits in u32");
+        let query_len = u32::try_from(self.query.len()).expect("query length fits in u32");
+        let chunk_id_len = u32::try_from(self.chunk_id.len()).expect("chunk_id length fits in u32");
         msg.extend_from_slice(self.query_id.as_bytes());
         msg.extend_from_slice(&worker_id_bytes);
         msg.extend_from_slice(&self.timestamp_ms.to_le_bytes());
-        msg.extend_from_slice(&(self.dataset.len() as u32).to_le_bytes());
+        msg.extend_from_slice(&dataset_len.to_le_bytes());
         msg.extend_from_slice(self.dataset.as_bytes());
-        msg.extend_from_slice(&(self.query.len() as u32).to_le_bytes());
+        msg.extend_from_slice(&query_len.to_le_bytes());
         msg.extend_from_slice(self.query.as_bytes());
-        msg.extend_from_slice(&(self.chunk_id.len() as u32).to_le_bytes());
+        msg.extend_from_slice(&chunk_id_len.to_le_bytes());
         msg.extend_from_slice(self.chunk_id.as_bytes());
         if let Some(range) = self.block_range {
             msg.extend_from_slice(&range.begin.to_le_bytes());

@@ -1,4 +1,10 @@
-#![allow(dead_code, unused_imports, unsafe_op_in_unsafe_fn, clippy::all)]
+#![allow(
+    dead_code,
+    unused_imports,
+    unsafe_op_in_unsafe_fn,
+    mismatched_lifetime_syntaxes,
+    clippy::all
+)]
 
 use libp2p_identity::PeerId;
 

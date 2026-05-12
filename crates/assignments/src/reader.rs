@@ -61,7 +61,7 @@ impl Assignment {
             let parsed: PeerId = (*x.worker_id()).try_into().unwrap_or_else(|e| {
                 panic!("Couldn't parse peer id '{:?}': {}", x.worker_id().peer_id(), e);
             });
-            parsed.cmp(&id)
+            parsed.cmp(id)
         })?;
         Some(Worker {
             assignment: *self.borrow_reader(),
@@ -142,7 +142,7 @@ impl Assignment {
         })
         .or_else(|e| match e {
             Some(idx) if idx + 1 < chunks.len() => Ok(idx + 1),
-            None if 0 < chunks.len() => Ok(0), // this is the case BeforeFirst
+            None if !chunks.is_empty() => Ok(0), // this is the case BeforeFirst
             _ => Err(ChunkNotFound::AfterLast),
         })
         .map(|idx| {
@@ -307,7 +307,7 @@ impl<'a> IndexGet for Chunks<'a> {
 /// Err(Some(i)): No equal item was found and
 ///               i is the index of the greatest item for which cmp returned less
 /// Err(None): No item was found for which cmp returns less or equal
-fn binary_search_by<'a, V, F>(v: V, mut cmp: F) -> Result<usize, Option<usize>>
+fn binary_search_by<V, F>(v: V, mut cmp: F) -> Result<usize, Option<usize>>
 where
     V: IndexGet,
     F: FnMut(&V::Item) -> Ordering,
@@ -371,11 +371,11 @@ mod test {
     }
 
     fn binary_search_g_le(k: u64, v: &[TestItem]) -> Result<usize, Option<usize>> {
-        binary_search_by(TestSlice(&v), |itm| itm.0.cmp(&k))
+        binary_search_by(TestSlice(v), |itm| itm.0.cmp(&k))
     }
 
     fn binary_search_l_ge(k: u64, v: &[TestItem]) -> Result<usize, Option<usize>> {
-        match binary_search_by(TestSlice(&v), |itm| itm.0.cmp(&k)) {
+        match binary_search_by(TestSlice(v), |itm| itm.0.cmp(&k)) {
             Ok(idx) => {
                 for i in (0..idx + 1).rev() {
                     if v[i].0 != k {
@@ -386,7 +386,7 @@ mod test {
                 }
                 Ok(idx)
             }
-            Err(None) if 0 < v.len() => Err(Some(0)),
+            Err(None) if !v.is_empty() => Err(Some(0)),
             Err(Some(idx)) if idx + 1 < v.len() => Err(Some(idx + 1)),
             _ => Err(None),
         }

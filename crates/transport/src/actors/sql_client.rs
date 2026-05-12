@@ -1,12 +1,17 @@
 use std::time::Duration;
 
+use crate::{
+    behaviour::{base::BaseBehaviourEvent, wrapped::TToSwarm},
+    BehaviourWrapper,
+};
 use futures::StreamExt;
-use libp2p::{PeerId, Swarm, swarm::{NetworkBehaviour, SwarmEvent, ToSwarm}};
+use libp2p::{
+    swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
+    PeerId, Swarm,
+};
 use libp2p_swarm_derive::NetworkBehaviour;
 use prost::Message;
 use serde::{Deserialize, Serialize};
-use crate::{BehaviourWrapper, behaviour::base::BaseBehaviourEvent};
-use crate::behaviour::wrapped::TToSwarm;
 use tokio::sync::broadcast::{self, Receiver, Sender};
 
 use sqd_messages::{Query, QueryResult};
@@ -17,7 +22,7 @@ use crate::{
         stream_client::{ClientConfig, RequestError, StreamClientHandle, Timeout},
         wrapped::Wrapped,
     },
-    protocol::{MAX_SQL_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE, SQL_QUERY_PROTOCOL},
+    protocol::{MAX_QUERY_RESULT_SIZE, MAX_SQL_QUERY_MSG_SIZE, SQL_QUERY_PROTOCOL},
     record_event,
     util::{TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
@@ -110,12 +115,9 @@ pub fn start_transport(
         while let Some(ev) = stream.next().await {
             log::trace!("Swarm event: {ev:?}");
             record_event(&ev);
-            match ev {
-                SwarmEvent::Behaviour(SQLClientEvent::Connect { confidence })=> {
-                    log::debug!("Connect confidence: {confidence}");
-                    let _ = local_tx.send(confidence);
-                },
-                _ => {}
+            if let SwarmEvent::Behaviour(SQLClientEvent::Connect { confidence }) = ev {
+                log::debug!("Connect confidence: {confidence}");
+                let _ = local_tx.send(confidence);
             }
         }
         log::info!("Shutting down SQL Client P2P transport");
@@ -124,10 +126,9 @@ pub fn start_transport(
     SQLClientTransport {
         _task_manager: task_manager,
         query_handle,
-        tx
+        tx,
     }
 }
-
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
@@ -136,25 +137,21 @@ pub struct InnerBehaviour {
 
 pub struct SQLClientBehaviour {
     inner: InnerBehaviour,
-
 }
 
 impl SQLClientBehaviour {
     pub fn new(mut base: BaseBehaviour) -> Wrapped<Self> {
         base.keep_all_connections_alive();
-        Self { 
-            inner: InnerBehaviour {
-                base: base.into(),
-            }
-        }.into()
+        Self {
+            inner: InnerBehaviour { base: base.into() },
+        }
+        .into()
     }
 }
 
 #[derive(Debug)]
 pub enum SQLClientEvent {
-    Connect {
-        confidence: f32
-    }
+    Connect { confidence: f32 },
 }
 
 impl BehaviourWrapper for SQLClientBehaviour {
@@ -170,12 +167,12 @@ impl BehaviourWrapper for SQLClientBehaviour {
         ev: <Self::Inner as NetworkBehaviour>::ToSwarm,
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
-            InnerBehaviourEvent::Base(base) => {
-                match base {
-                    BaseBehaviourEvent::NetworkConnected { confidence } => vec![SQLClientEvent::Connect { confidence }],
-                    _ => vec![]
+            InnerBehaviourEvent::Base(base) => match base {
+                BaseBehaviourEvent::NetworkConnected { confidence } => {
+                    vec![SQLClientEvent::Connect { confidence }]
                 }
-            }
+                _ => vec![],
+            },
         };
         ev.into_iter().map(ToSwarm::GenerateEvent)
     }

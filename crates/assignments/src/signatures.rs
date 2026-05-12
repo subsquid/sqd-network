@@ -1,8 +1,9 @@
 use anyhow::anyhow;
 use base64::{engine::general_purpose::STANDARD as base64, Engine};
-use crypto_box::aead::rand_core::CryptoRngCore;
-use crypto_box::aead::{AeadCore, OsRng};
-use crypto_box::{aead::Aead, PublicKey, SalsaBox, SecretKey};
+use crypto_box::{
+    aead::{rand_core::CryptoRngCore, Aead, AeadCore, OsRng},
+    PublicKey, SalsaBox, SecretKey,
+};
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use hmac::{Hmac, Mac};
 use libp2p_identity::PeerId;

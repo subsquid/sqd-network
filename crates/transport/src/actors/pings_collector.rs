@@ -76,15 +76,15 @@ impl PingsCollectorTransport {
         loop {
             tokio::select! {
                 _ = cancel_token.cancelled() => break,
-                ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
+                ev = self.swarm.select_next_some() => self.on_swarm_event(&ev),
             }
         }
         log::info!("Shutting down pings collector P2P transport");
     }
 
-    fn on_swarm_event(&mut self, ev: SwarmEvent<()>) {
+    fn on_swarm_event(&mut self, ev: &SwarmEvent<()>) {
         log::trace!("Swarm event: {ev:?}");
-        record_event(&ev);
+        record_event(ev);
     }
 }
 
@@ -137,7 +137,6 @@ pub fn start_transport(
             max_response_size: MAX_HEARTBEAT_SIZE,
             request_timeout: config.request_timeout,
             connect_timeout: config.connect_timeout,
-            ..Default::default()
         },
     );
     let transport = PingsCollectorTransport { swarm };
