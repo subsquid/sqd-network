@@ -309,6 +309,8 @@ impl BehaviourWrapper for BaseBehaviour {
                 break;
             };
             if !self.outbound_conn_exists(&peer_id) {
+                // find_and_dial inserts into ongoing_lookups only for actual DHT queries;
+                // cached-address dials don't count toward the max_concurrent_lookups cap.
                 self.find_and_dial(peer_id);
             }
         }
