@@ -21,4 +21,12 @@ pub struct NetworkAssignment {
 pub struct NetworkState {
     pub network: String,
     pub assignment: NetworkAssignment,
+
+    #[cfg(feature = "mvcc-chunks")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_assignment: Option<NetworkAssignment>,
+
+    #[cfg(feature = "mvcc-chunks")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portal_assignment: Option<NetworkAssignment>,
 }
