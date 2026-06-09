@@ -25,6 +25,28 @@ fn legacy_network_state_deserializes() {
     }
 }
 
+#[allow(deprecated)]
+#[test]
+fn deprecated_assignment_url_defaults_and_skips_when_absent() {
+    let state: NetworkState = serde_json::from_str(
+        r#"{
+          "network": "testnet",
+          "assignment": {
+            "fb_url": "https://example.test/legacy.fb.0.gz",
+            "fb_url_v1": "https://example.test/legacy.fb.1.gz",
+            "id": "legacy",
+            "effective_from": 1781000000
+          }
+        }"#,
+    )
+    .unwrap();
+
+    assert!(state.assignment.url.is_none());
+
+    let serialized = serde_json::to_value(state).unwrap();
+    assert!(serialized["assignment"].get("url").is_none());
+}
+
 #[cfg(feature = "mvcc-chunks")]
 #[test]
 fn split_network_state_deserializes() {
@@ -63,12 +85,14 @@ fn split_network_state_deserializes() {
 
 #[cfg(feature = "mvcc-chunks")]
 #[test]
-fn absent_split_assignments_are_skipped_when_serializing() {
+fn absent_split_assignments_stay_omitted_after_json_round_trip() {
     let state: NetworkState = serde_json::from_str(LEGACY_STATE).unwrap();
 
-    let serialized = serde_json::to_value(state).unwrap();
+    let serialized = serde_json::to_string(&state).unwrap();
+    let round_tripped: NetworkState = serde_json::from_str(&serialized).unwrap();
+    let value = serde_json::to_value(round_tripped).unwrap();
 
-    assert!(serialized.get("assignment").is_some());
-    assert!(serialized.get("worker_assignment").is_none());
-    assert!(serialized.get("portal_assignment").is_none());
+    assert!(value.get("assignment").is_some());
+    assert!(value.get("worker_assignment").is_none());
+    assert!(value.get("portal_assignment").is_none());
 }
