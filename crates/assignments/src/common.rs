@@ -10,10 +10,13 @@ pub enum WorkerStatus {
 
 #[derive(Serialize, Deserialize)]
 pub struct NetworkAssignment {
-    /// Deprecated: use `fb_url` or `fb_url_v1` instead.
-    #[deprecated(note = "use fb_url or fb_url_v1 instead")]
+    /// Deprecated: use `fb_url_v1` instead.
+    #[deprecated(note = "use fb_url_v1 instead")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Deprecated: use `fb_url_v1` instead.
+    #[deprecated(note = "use fb_url_v1 instead")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fb_url: Option<String>,
     pub fb_url_v1: Option<String>,
     pub id: String,

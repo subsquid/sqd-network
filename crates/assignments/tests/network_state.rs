@@ -27,12 +27,11 @@ fn legacy_network_state_deserializes() {
 
 #[allow(deprecated)]
 #[test]
-fn deprecated_assignment_url_defaults_and_skips_when_absent() {
+fn deprecated_assignment_urls_default_and_skip_when_absent() {
     let state: NetworkState = serde_json::from_str(
         r#"{
           "network": "testnet",
           "assignment": {
-            "fb_url": "https://example.test/legacy.fb.0.gz",
             "fb_url_v1": "https://example.test/legacy.fb.1.gz",
             "id": "legacy",
             "effective_from": 1781000000
@@ -42,9 +41,11 @@ fn deprecated_assignment_url_defaults_and_skips_when_absent() {
     .unwrap();
 
     assert!(state.assignment.url.is_none());
+    assert!(state.assignment.fb_url.is_none());
 
     let serialized = serde_json::to_value(state).unwrap();
     assert!(serialized["assignment"].get("url").is_none());
+    assert!(serialized["assignment"].get("fb_url").is_none());
 }
 
 #[cfg(feature = "mvcc-chunks")]
