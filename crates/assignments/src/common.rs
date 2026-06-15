@@ -10,7 +10,13 @@ pub enum WorkerStatus {
 
 #[derive(Serialize, Deserialize)]
 pub struct NetworkAssignment {
-    pub url: Option<String>, // deprecated
+    /// Deprecated: use `fb_url_v1` instead.
+    #[deprecated(note = "use fb_url_v1 instead")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Deprecated: use `fb_url_v1` instead.
+    #[deprecated(note = "use fb_url_v1 instead")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fb_url: Option<String>,
     pub fb_url_v1: Option<String>,
     pub id: String,
@@ -21,4 +27,12 @@ pub struct NetworkAssignment {
 pub struct NetworkState {
     pub network: String,
     pub assignment: NetworkAssignment,
+
+    #[cfg(feature = "mvcc-chunks")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_assignment: Option<NetworkAssignment>,
+
+    #[cfg(feature = "mvcc-chunks")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portal_assignment: Option<NetworkAssignment>,
 }
