@@ -26,6 +26,7 @@ use libp2p::{
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
+use tokio_util::time::DelayQueue;
 
 use sqd_contract_client::{Client as ContractClient, NetworkNodes};
 
@@ -80,6 +81,9 @@ pub struct BaseConfig {
     pub addr_cache_size: NonZeroUsize,
     /// Maximum number of concurrent Kademlia lookups for worker discovery (default: 20)
     pub max_concurrent_lookups: usize,
+    /// Cooldown before re-dialing a worker after its connection closes (default: 30 sec).
+    /// Prevents a tight dial→refuse→redial loop against workers that reject this peer.
+    pub reconnect_cooldown: Duration,
 }
 
 impl BaseConfig {
@@ -94,6 +98,7 @@ impl BaseConfig {
         let addr_cache_size = NonZeroUsize::new(parse_env_var("ADDR_CACHE_SIZE", 1024))
             .expect("addr_cache_size should be > 0");
         let max_concurrent_lookups = parse_env_var("MAX_CONCURRENT_LOOKUPS", 20);
+        let reconnect_cooldown = Duration::from_secs(parse_env_var("RECONNECT_COOLDOWN_SEC", 30));
         Self {
             onchain_update_interval,
             autonat_timeout,
@@ -103,6 +108,7 @@ impl BaseConfig {
             max_pubsub_msg_size,
             addr_cache_size,
             max_concurrent_lookups,
+            reconnect_cooldown,
         }
     }
 }
@@ -121,6 +127,12 @@ pub struct BaseBehaviour {
     maintain_worker_connections: bool,
     pending_lookups: VecDeque<PeerId>,
     max_concurrent_lookups: usize,
+    /// Flat cooldown applied before re-dialing a worker whose connection just closed.
+    reconnect_cooldown: Duration,
+    /// Workers awaiting a cooldown before reconnection.
+    reconnect_queue: DelayQueue<PeerId>,
+    /// Peers currently present in `reconnect_queue`, to avoid scheduling duplicates.
+    reconnect_scheduled: HashSet<PeerId>,
 }
 
 #[allow(dead_code)]
@@ -195,6 +207,9 @@ impl BaseBehaviour {
             maintain_worker_connections: false,
             pending_lookups: Default::default(),
             max_concurrent_lookups: config.max_concurrent_lookups,
+            reconnect_cooldown: config.reconnect_cooldown,
+            reconnect_queue: DelayQueue::new(),
+            reconnect_scheduled: HashSet::new(),
         }
     }
 
@@ -300,9 +315,17 @@ impl BehaviourWrapper for BaseBehaviour {
         }
     }
 
-    fn poll(&mut self, _cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
-        if let Some(ev) = self.pending_events.pop_front() {
-            return Poll::Ready(Some(ev));
+    fn poll(&mut self, cx: &mut Context<'_>) -> Poll<impl IntoIterator<Item = TToSwarm<Self>>> {
+        // Drain expired reconnects first, unconditionally: `poll_expired` is what registers
+        // the timer waker, so it must run even when there's a pending event to emit. Skipping
+        // it behind the early return below would let a cooldown entry expire without a
+        // registered waker, deferring the redial until some unrelated event wakes the task.
+        while let Poll::Ready(Some(expired)) = self.reconnect_queue.poll_expired(cx) {
+            let peer_id = expired.into_inner();
+            self.reconnect_scheduled.remove(&peer_id);
+            if !self.outbound_conn_exists(&peer_id) && self.registered_workers.contains(&peer_id) {
+                self.pending_lookups.push_back(peer_id);
+            }
         }
 
         while self.ongoing_lookups.len() < self.max_concurrent_lookups {
@@ -314,6 +337,10 @@ impl BehaviourWrapper for BaseBehaviour {
                 // cached-address dials don't count toward the max_concurrent_lookups cap.
                 self.find_and_dial(peer_id);
             }
+        }
+
+        if let Some(ev) = self.pending_events.pop_front() {
+            return Poll::Ready(Some(ev));
         }
 
         Poll::Pending
@@ -348,9 +375,15 @@ impl BaseBehaviour {
         if self.maintain_worker_connections
             && !self.outbound_conn_exists(&peer_id)
             && self.registered_workers.contains(&peer_id)
+            // Skip if a reconnect is already pending (avoids a tight redial loop and
+            // unbounded duplicate entries for workers that keep refusing this peer).
+            && self.reconnect_scheduled.insert(peer_id)
         {
-            log::debug!("Worker {peer_id} disconnected, scheduling reconnection");
-            self.pending_lookups.push_back(peer_id);
+            log::debug!(
+                "Worker {peer_id} disconnected, scheduling reconnection in {:?}",
+                self.reconnect_cooldown
+            );
+            self.reconnect_queue.insert(peer_id, self.reconnect_cooldown);
         }
         None
     }
@@ -526,7 +559,9 @@ impl BaseBehaviour {
 
         if self.maintain_worker_connections {
             for peer_id in &self.registered_workers {
-                if !self.outbound_conn_exists(peer_id) {
+                if !self.outbound_conn_exists(peer_id)
+                    && !self.reconnect_scheduled.contains(peer_id)
+                {
                     self.pending_lookups.push_back(*peer_id);
                 }
             }
