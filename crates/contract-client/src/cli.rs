@@ -33,6 +33,11 @@ pub struct RpcArgs {
     /// Useful as a rollback switch during the PortalRegistry migration.
     #[arg(long, env, default_value_t = false)]
     pub disable_portal_registry: bool,
+
+    /// Per-request timeout (seconds) for HTTP RPC calls. Bounds otherwise-unbounded
+    /// requests so a stalled endpoint can't wedge callers that `await` them inline.
+    #[arg(long, env, hide(true), default_value_t = 20)]
+    pub rpc_timeout_sec: u64,
 }
 
 impl RpcArgs {

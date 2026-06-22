@@ -5047,6 +5047,7 @@ dependencies = [
  "libp2p",
  "log",
  "num-rational",
+ "reqwest",
  "serde",
  "serde_json",
  "simple_logger",

@@ -198,8 +198,9 @@ pub async fn get_client(rpc_args: &RpcArgs) -> Result<Box<dyn Client>, ClientErr
         rpc_args.rpc_url,
         rpc_args.l1_rpc_url
     );
-    let l2_client = Transport::connect(&rpc_args.rpc_url).await?;
-    let l1_client = Transport::connect(&rpc_args.l1_rpc_url).await?;
+    let rpc_timeout = Duration::from_secs(rpc_args.rpc_timeout_sec);
+    let l2_client = Transport::connect(&rpc_args.rpc_url, rpc_timeout).await?;
+    let l1_client = Transport::connect(&rpc_args.l1_rpc_url, rpc_timeout).await?;
     let client: Box<dyn Client> = EthersClient::new(l1_client, l2_client, rpc_args).await?;
     Ok(client)
 }

@@ -10,6 +10,7 @@ use std::{
     future::Future,
     pin::Pin,
     sync::Arc,
+    time::Duration,
 };
 use url::Url;
 
@@ -60,9 +61,15 @@ impl From<TransportError> for ProviderError {
 }
 
 impl Transport {
-    pub async fn connect(rpc_url: &str) -> Result<Arc<Provider<Self>>, ClientError> {
+    /// Connect to an RPC endpoint, bounding every HTTP request with `timeout`.
+    ///
+    /// Without a timeout an HTTP request whose connection is accepted but never
+    /// answered (a stalled node, a black-holing load balancer) hangs forever,
+    /// which can wedge polling loops that `await` these calls inline.
+    pub async fn connect(rpc_url: &str, timeout: Duration) -> Result<Arc<Provider<Self>>, ClientError> {
         let transport = if rpc_url.starts_with("http") {
-            Self::Http(Http::new(Url::parse(rpc_url)?))
+            let client = reqwest::Client::builder().timeout(timeout).build()?;
+            Self::Http(Http::new_with_client(Url::parse(rpc_url)?, client))
         } else if rpc_url.starts_with("ws") {
             Self::Ws(Ws::connect(rpc_url).await?)
         } else {

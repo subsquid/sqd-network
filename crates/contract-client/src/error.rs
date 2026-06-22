@@ -18,6 +18,8 @@ pub enum ClientError {
     Provider(#[from] ethers::providers::ProviderError),
     #[error("Unsupported RPC protocol")]
     InvalidProtocol,
+    #[error("HTTP client error: {0}")]
+    HttpClient(#[from] reqwest::Error),
     #[error("Transaction receipt missing")]
     TxReceiptMissing,
     #[error("Block not found")]
