@@ -25,6 +25,8 @@ message Heartbeat {
   BitString missing_chunks = 3;
   optional uint64 stored_bytes = 4;
   optional uint32 current_epoch = 5;  // latest on-chain epoch known to the worker
+  // Highest worker assignment fully applied by this worker. Opaque outside the scheduler.
+  optional string last_applied_assignment_id = 6;
 }
 
 // Portal -> Worker
