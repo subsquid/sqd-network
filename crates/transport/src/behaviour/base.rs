@@ -22,7 +22,7 @@ use libp2p::{
         dial_opts::{DialOpts, PeerCondition},
         ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm,
     },
-    StreamProtocol,
+    Multiaddr, StreamProtocol,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
 use serde::{Deserialize, Serialize};
@@ -396,12 +396,40 @@ impl BaseBehaviour {
             _ => return None,
         };
 
-        // Filter out unreachable (private) addresses and add the remaining to cache and DHT
-        let listen_addrs = listen_addrs.into_iter().filter(addr_is_reachable);
-        self.inner.address_cache.put(peer_id, listen_addrs.clone());
-        listen_addrs.clone().for_each(|addr| {
-            self.inner.kademlia.add_address(&peer_id, addr);
-        });
+        // Filter out unreachable (private) addresses and normalize the rest to fully-qualified
+        // /p2p addresses, matching what `kademlia.add_address`/`remove_address` store internally.
+        let listen_addrs: HashSet<Multiaddr> = listen_addrs
+            .into_iter()
+            .filter(addr_is_reachable)
+            .filter_map(|addr| addr.with_p2p(peer_id).ok())
+            .collect();
+
+        // A peer may briefly announce no reachable addresses (e.g. mid-restart, before AutoNAT
+        // confirms a public address) — don't wipe its existing entry in that case.
+        if !listen_addrs.is_empty() {
+            // Add the freshly announced addresses first, then prune whatever the peer no longer
+            // announces. This order guarantees we never try to remove the entry's last address
+            // (which would evict the whole peer, not just the address).
+            for addr in &listen_addrs {
+                self.inner.kademlia.add_address(&peer_id, addr.clone());
+            }
+            let current_addrs = match self.inner.kademlia.kbucket(peer_id) {
+                Some(bucket) => bucket
+                    .iter()
+                    .find(|entry| *entry.node.key.preimage() == peer_id)
+                    .map(|entry| entry.node.value.iter().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default(),
+                None => Vec::new(),
+            };
+            for addr in stale_addrs(current_addrs, &listen_addrs) {
+                log::debug!("Removing stale address of {peer_id}: {addr}");
+                self.inner.kademlia.remove_address(&peer_id, &addr);
+            }
+
+            // Replace (not extend) the cached address set, so it too drops migrated-away addrs.
+            self.inner.address_cache.evict(peer_id);
+            self.inner.address_cache.put(peer_id, listen_addrs);
+        }
 
         self.identified_peers.insert(peer_id);
         self.try_emit_confidence()
@@ -568,5 +596,44 @@ impl BaseBehaviour {
         }
 
         None
+    }
+}
+
+/// Addresses present in `current` but absent from `announced`. Used to prune routing-table
+/// entries down to what a peer's latest identify announcement actually claims.
+fn stale_addrs(current: Vec<Multiaddr>, announced: &HashSet<Multiaddr>) -> Vec<Multiaddr> {
+    current.into_iter().filter(|addr| !announced.contains(addr)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addr(port: u16, peer: PeerId) -> Multiaddr {
+        format!("/ip4/1.2.3.4/udp/{port}/quic-v1/p2p/{peer}").parse().unwrap()
+    }
+
+    #[test]
+    fn no_stale_addrs_when_announced_is_superset() {
+        let peer = PeerId::random();
+        let current = vec![addr(1000, peer)];
+        let announced = HashSet::from([addr(1000, peer), addr(2000, peer)]);
+        assert!(stale_addrs(current, &announced).is_empty());
+    }
+
+    #[test]
+    fn detects_stale_addr_after_port_migration() {
+        let peer = PeerId::random();
+        let current = vec![addr(1000, peer), addr(2000, peer)];
+        let announced = HashSet::from([addr(2000, peer)]);
+        assert_eq!(stale_addrs(current, &announced), vec![addr(1000, peer)]);
+    }
+
+    #[test]
+    fn identical_sets_produce_no_stale_addrs() {
+        let peer = PeerId::random();
+        let current = vec![addr(1000, peer), addr(2000, peer)];
+        let announced = HashSet::from([addr(1000, peer), addr(2000, peer)]);
+        assert!(stale_addrs(current, &announced).is_empty());
     }
 }
