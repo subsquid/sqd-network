@@ -66,7 +66,10 @@ impl Transport {
     /// Without a timeout an HTTP request whose connection is accepted but never
     /// answered (a stalled node, a black-holing load balancer) hangs forever,
     /// which can wedge polling loops that `await` these calls inline.
-    pub async fn connect(rpc_url: &str, timeout: Duration) -> Result<Arc<Provider<Self>>, ClientError> {
+    pub async fn connect(
+        rpc_url: &str,
+        timeout: Duration,
+    ) -> Result<Arc<Provider<Self>>, ClientError> {
         let transport = if rpc_url.starts_with("http") {
             let client = reqwest::Client::builder().timeout(timeout).build()?;
             Self::Http(Http::new_with_client(Url::parse(rpc_url)?, client))
