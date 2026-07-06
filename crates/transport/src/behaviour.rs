@@ -11,4 +11,6 @@ pub mod pubsub;
 pub mod request_server;
 #[cfg(feature = "actors")]
 pub mod stream_client;
+#[cfg(feature = "stream-server")]
+pub mod stream_server;
 pub mod wrapped;

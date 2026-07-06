@@ -81,6 +81,10 @@ pub use behaviour::base::BaseConfig;
 pub use behaviour::pubsub::{PubsubBehaviour, PubsubMsg};
 #[cfg(feature = "actors")]
 pub use behaviour::stream_client::{ClientConfig, Timeout as StreamClientTimeout};
+#[cfg(feature = "stream-server")]
+pub use behaviour::stream_server::{
+    ResponseError as StreamResponseError, ResponseSender, ServerConfig as StreamServerConfig,
+};
 #[cfg(feature = "behaviour")]
 pub use behaviour::{
     addr_cache::AddressCache,

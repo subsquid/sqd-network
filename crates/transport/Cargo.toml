@@ -40,18 +40,21 @@ proto = []
 pubsub = ["behaviour", "libp2p/gossipsub"]
 noise = ["rand"]
 request-server = []
+stream-server = ["behaviour"]
 portal = ["actors"]
 logs-collector = ["actors"]
 portal-logs-collector = ["actors"]
 observer = ["actors"]
 pings-collector = ["actors"]
-worker = ["actors", "request-server", "proto", "noise"]
+worker = ["actors", "stream-server", "noise"]
 metrics = ["libp2p/metrics", "prometheus-client"]
 sql-client = ["actors"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt", "time", "test-util"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "test-util", "macros"] }
 env_logger = "0.11"
+libp2p-swarm-test = { workspace = true }
+futures = "0.3"
 
 [lints]
 workspace = true

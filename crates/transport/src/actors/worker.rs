@@ -3,11 +3,11 @@ use std::{sync::Arc, time::Duration};
 use futures::StreamExt;
 use futures_core::Stream;
 use libp2p::{
-    request_response::ResponseChannel,
     swarm::{NetworkBehaviour, SwarmEvent, ToSwarm},
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -17,18 +17,16 @@ use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent},
         noise::NoiseBehaviour,
-        request_server::{Request, ServerBehaviour},
+        stream_server::{Request, ResponseError, ResponseSender, ServerBehaviour, ServerConfig},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
-    codec::ProtoCodec,
     protocol::{
         MAX_HEARTBEAT_SIZE, MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE, MAX_QUERY_MSG_SIZE,
         MAX_QUERY_RESULT_SIZE, MAX_SQL_QUERY_MSG_SIZE, QUERY_PROTOCOL, SQL_QUERY_PROTOCOL,
         WORKER_LOGS_PROTOCOL, WORKER_STATUS_PROTOCOL,
     },
     record_event,
-    util::{new_queue, Receiver, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
-    QueueFull,
+    util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
 
 #[derive(Debug)]
@@ -37,51 +35,44 @@ pub enum WorkerEvent {
     Query {
         peer_id: PeerId,
         query: Query,
-        /// If this channel is dropped, the connection will be closed
-        resp_chan: ResponseChannel<QueryResult>,
+        /// If this sender is dropped, the stream is reset and the client sees an error
+        resp_chan: ResponseSender,
     },
     /// SQLQuery received from a portal
     SqlQuery {
         peer_id: PeerId,
         query: Query,
-        /// If this channel is dropped, the connection will be closed
-        resp_chan: ResponseChannel<QueryResult>,
+        /// If this sender is dropped, the stream is reset and the client sees an error
+        resp_chan: ResponseSender,
     },
     /// Logs requested by a collector
     LogsRequest {
         request: LogsRequest,
-        /// If this channel is dropped, the connection will be closed
-        resp_chan: ResponseChannel<QueryLogs>,
+        /// If this sender is dropped, the stream is reset and the client sees an error
+        resp_chan: ResponseSender,
     },
     StatusRequest {
         peer_id: PeerId,
-        /// If this channel is dropped, the connection will be closed
-        resp_chan: ResponseChannel<WorkerStatus>,
+        /// If this sender is dropped, the stream is reset and the client sees an error
+        resp_chan: ResponseSender,
     },
 }
 
-type QueryBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Query, QueryResult>>>;
-type SqlQueryBehaviour = Wrapped<ServerBehaviour<ProtoCodec<Query, QueryResult>>>;
-type LogsBehaviour = Wrapped<ServerBehaviour<ProtoCodec<LogsRequest, QueryLogs>>>;
-type StatusBehaviour = Wrapped<ServerBehaviour<ProtoCodec<(), WorkerStatus>>>;
+type ServerBehaviourWrapped = Wrapped<ServerBehaviour>;
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
-    query: QueryBehaviour,
-    sql_query: SqlQueryBehaviour,
-    logs: LogsBehaviour,
-    status: StatusBehaviour,
+    query: ServerBehaviourWrapped,
+    sql_query: ServerBehaviourWrapped,
+    logs: ServerBehaviourWrapped,
+    status: ServerBehaviourWrapped,
     noise: NoiseBehaviour,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerConfig {
     pub heartbeats_queue_size: usize,
-    pub query_results_queue_size: usize,
-    pub sql_query_results_queue_size: usize,
-    pub logs_queue_size: usize,
-    pub status_queue_size: usize,
     pub events_queue_size: usize,
     pub shutdown_timeout: Duration,
     pub query_execution_timeout: Duration,
@@ -92,10 +83,6 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             heartbeats_queue_size: 100,
-            query_results_queue_size: 100,
-            sql_query_results_queue_size: 100,
-            logs_queue_size: 1,
-            status_queue_size: 10,
             events_queue_size: 100,
             shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
             query_execution_timeout: Duration::from_secs(20),
@@ -111,31 +98,34 @@ pub struct WorkerBehaviour {
 impl WorkerBehaviour {
     pub fn new(mut base: BaseBehaviour, config: &WorkerConfig) -> Wrapped<Self> {
         base.set_server_mode();
+        let server_config = |max_request_size: u64, max_response_size: u64| ServerConfig {
+            max_request_size,
+            max_response_size,
+            read_timeout: config.query_execution_timeout,
+            write_timeout: config.query_execution_timeout,
+            ..Default::default()
+        };
         Self {
             inner: InnerBehaviour {
                 base: base.into(),
                 query: ServerBehaviour::new(
-                    ProtoCodec::new(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
                     QUERY_PROTOCOL,
-                    config.query_execution_timeout,
+                    server_config(MAX_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
                 )
                 .into(),
                 sql_query: ServerBehaviour::new(
-                    ProtoCodec::new(MAX_SQL_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
                     SQL_QUERY_PROTOCOL,
-                    config.query_execution_timeout,
+                    server_config(MAX_SQL_QUERY_MSG_SIZE, MAX_QUERY_RESULT_SIZE),
                 )
                 .into(),
                 logs: ServerBehaviour::new(
-                    ProtoCodec::new(MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE),
                     WORKER_LOGS_PROTOCOL,
-                    config.query_execution_timeout,
+                    server_config(MAX_LOGS_REQUEST_SIZE, MAX_LOGS_RESPONSE_SIZE),
                 )
                 .into(),
                 status: ServerBehaviour::new(
-                    ProtoCodec::new(0, MAX_HEARTBEAT_SIZE),
                     WORKER_STATUS_PROTOCOL,
-                    config.query_execution_timeout,
+                    server_config(0, MAX_HEARTBEAT_SIZE),
                 )
                 .into(),
                 noise: NoiseBehaviour::default(),
@@ -148,12 +138,20 @@ impl WorkerBehaviour {
         None
     }
 
-    fn on_query(
-        &mut self,
-        peer_id: PeerId,
-        query: Query,
-        resp_chan: ResponseChannel<QueryResult>,
-    ) -> Option<WorkerEvent> {
+    fn on_query(&mut self, req: Request) -> Option<WorkerEvent> {
+        let Request {
+            peer_id,
+            request,
+            response_sender,
+        } = req;
+        // Dropping `response_sender` on decode failure resets the stream.
+        let query = match Query::decode(request.as_ref()) {
+            Ok(query) => query,
+            Err(e) => {
+                log::warn!("Failed to decode query from {peer_id}: {e}");
+                return None;
+            }
+        };
         // Drop empty messages
         if query == Query::default() {
             None
@@ -161,17 +159,24 @@ impl WorkerBehaviour {
             Some(WorkerEvent::Query {
                 peer_id,
                 query,
-                resp_chan,
+                resp_chan: response_sender,
             })
         }
     }
 
-    fn on_sql_query(
-        &mut self,
-        peer_id: PeerId,
-        query: Query,
-        resp_chan: ResponseChannel<QueryResult>,
-    ) -> Option<WorkerEvent> {
+    fn on_sql_query(&mut self, req: Request) -> Option<WorkerEvent> {
+        let Request {
+            peer_id,
+            request,
+            response_sender,
+        } = req;
+        let query = match Query::decode(request.as_ref()) {
+            Ok(query) => query,
+            Err(e) => {
+                log::warn!("Failed to decode SQL query from {peer_id}: {e}");
+                return None;
+            }
+        };
         // Drop empty messages
         if query == Query::default() {
             None
@@ -179,72 +184,41 @@ impl WorkerBehaviour {
             Some(WorkerEvent::SqlQuery {
                 peer_id,
                 query,
-                resp_chan,
+                resp_chan: response_sender,
             })
         }
     }
 
-    pub fn send_query_result(
-        &mut self,
-        result: QueryResult,
-        resp_chan: ResponseChannel<QueryResult>,
-    ) {
-        log::debug!("Sending query result {result:?}");
-
-        self.inner
-            .query
-            .try_send_response(resp_chan, result)
-            .unwrap_or_else(|e| log::error!("Cannot send result for query {}", e.query_id));
+    fn on_logs_request(&mut self, req: Request) -> Option<WorkerEvent> {
+        let Request {
+            peer_id,
+            request,
+            response_sender,
+        } = req;
+        let request = match LogsRequest::decode(request.as_ref()) {
+            Ok(request) => request,
+            Err(e) => {
+                log::warn!("Failed to decode logs request from {peer_id}: {e}");
+                return None;
+            }
+        };
+        Some(WorkerEvent::LogsRequest {
+            request,
+            resp_chan: response_sender,
+        })
     }
 
-    pub fn send_sql_query_result(
-        &mut self,
-        result: QueryResult,
-        resp_chan: ResponseChannel<QueryResult>,
-    ) {
-        log::debug!("Sending sql query result {result:?}");
-
-        self.inner
-            .sql_query
-            .try_send_response(resp_chan, result)
-            .unwrap_or_else(|e| log::error!("Cannot send sql result for query {}", e.query_id));
-    }
-
-    fn on_logs_request(
-        &mut self,
-        _peer_id: PeerId,
-        request: LogsRequest,
-        resp_chan: ResponseChannel<QueryLogs>,
-    ) -> Option<WorkerEvent> {
-        Some(WorkerEvent::LogsRequest { request, resp_chan })
-    }
-
-    fn on_status_request(
-        &mut self,
-        peer_id: PeerId,
-        _request: (),
-        resp_chan: ResponseChannel<WorkerStatus>,
-    ) -> Option<WorkerEvent> {
+    fn on_status_request(&mut self, req: Request) -> Option<WorkerEvent> {
+        let Request {
+            peer_id,
+            response_sender,
+            ..
+        } = req;
         log::debug!("Status requested by {peer_id}");
-        Some(WorkerEvent::StatusRequest { peer_id, resp_chan })
-    }
-
-    pub fn send_logs(&mut self, logs: QueryLogs, resp_chan: ResponseChannel<QueryLogs>) {
-        log::debug!("Sending {} query logs", logs.queries_executed.len());
-
-        self.inner
-            .logs
-            .try_send_response(resp_chan, logs)
-            .unwrap_or_else(|_| log::error!("Couldn't send logs"));
-    }
-
-    pub fn send_status(&mut self, status: WorkerStatus, resp_chan: ResponseChannel<WorkerStatus>) {
-        log::debug!("Sending status on request");
-
-        self.inner
-            .status
-            .try_send_response(resp_chan, status)
-            .unwrap_or_else(|_| log::debug!("Couldn't send status"));
+        Some(WorkerEvent::StatusRequest {
+            peer_id,
+            resp_chan: response_sender,
+        })
     }
 }
 
@@ -262,26 +236,10 @@ impl BehaviourWrapper for WorkerBehaviour {
     ) -> impl IntoIterator<Item = TToSwarm<Self>> {
         let ev = match ev {
             InnerBehaviourEvent::Base(ev) => self.on_base_event(ev),
-            InnerBehaviourEvent::Query(Request {
-                peer_id,
-                request,
-                response_channel,
-            }) => self.on_query(peer_id, request, response_channel),
-            InnerBehaviourEvent::SqlQuery(Request {
-                peer_id,
-                request,
-                response_channel,
-            }) => self.on_sql_query(peer_id, request, response_channel),
-            InnerBehaviourEvent::Logs(Request {
-                peer_id,
-                request,
-                response_channel,
-            }) => self.on_logs_request(peer_id, request, response_channel),
-            InnerBehaviourEvent::Status(Request {
-                peer_id,
-                request,
-                response_channel,
-            }) => self.on_status_request(peer_id, request, response_channel),
+            InnerBehaviourEvent::Query(req) => self.on_query(req),
+            InnerBehaviourEvent::SqlQuery(req) => self.on_sql_query(req),
+            InnerBehaviourEvent::Logs(req) => self.on_logs_request(req),
+            InnerBehaviourEvent::Status(req) => self.on_status_request(req),
         };
         ev.map(ToSwarm::GenerateEvent)
     }
@@ -289,10 +247,6 @@ impl BehaviourWrapper for WorkerBehaviour {
 
 struct WorkerTransport {
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
-    query_results_rx: Receiver<(QueryResult, ResponseChannel<QueryResult>)>,
-    sql_query_results_rx: Receiver<(QueryResult, ResponseChannel<QueryResult>)>,
-    logs_rx: Receiver<(QueryLogs, ResponseChannel<QueryLogs>)>,
-    status_rx: Receiver<(WorkerStatus, ResponseChannel<WorkerStatus>)>,
     events_tx: Sender<WorkerEvent>,
 }
 
@@ -303,10 +257,6 @@ impl WorkerTransport {
             tokio::select! {
                  _ = cancel_token.cancelled() => break,
                 ev = self.swarm.select_next_some() => self.on_swarm_event(ev),
-                Some((res, resp_chan)) = self.query_results_rx.recv() => self.swarm.behaviour_mut().send_query_result(res, resp_chan),
-                Some((res, resp_chan)) = self.sql_query_results_rx.recv() => self.swarm.behaviour_mut().send_sql_query_result(res, resp_chan),
-                Some((logs, resp_chan)) = self.logs_rx.recv() => self.swarm.behaviour_mut().send_logs(logs, resp_chan),
-                Some((status, resp_chan)) = self.status_rx.recv() => self.swarm.behaviour_mut().send_status(status, resp_chan),
             }
         }
         log::info!("Shutting down worker P2P transport");
@@ -323,67 +273,52 @@ impl WorkerTransport {
 
 #[derive(Clone)]
 pub struct WorkerTransportHandle {
-    query_results_tx: Sender<(QueryResult, ResponseChannel<QueryResult>)>,
-    sql_query_results_tx: Sender<(QueryResult, ResponseChannel<QueryResult>)>,
-    logs_tx: Sender<(QueryLogs, ResponseChannel<QueryLogs>)>,
-    status_tx: Sender<(WorkerStatus, ResponseChannel<WorkerStatus>)>,
     _task_manager: Arc<TaskManager>, // This ensures that transport is stopped when the last handle is dropped
 }
 
 impl WorkerTransportHandle {
-    fn new(
-        query_results_tx: Sender<(QueryResult, ResponseChannel<QueryResult>)>,
-        sql_query_results_tx: Sender<(QueryResult, ResponseChannel<QueryResult>)>,
-        logs_tx: Sender<(QueryLogs, ResponseChannel<QueryLogs>)>,
-        status_tx: Sender<(WorkerStatus, ResponseChannel<WorkerStatus>)>,
-        transport: WorkerTransport,
-        shutdown_timeout: Duration,
-    ) -> Self {
+    fn new(transport: WorkerTransport, shutdown_timeout: Duration) -> Self {
         let mut task_manager = TaskManager::new(shutdown_timeout);
         task_manager.spawn(|c| transport.run(c));
         Self {
-            query_results_tx,
-            sql_query_results_tx,
-            logs_tx,
-            status_tx,
             _task_manager: Arc::new(task_manager),
         }
     }
 
-    pub fn send_query_result(
+    pub async fn send_query_result(
         &self,
         result: QueryResult,
-        resp_chan: ResponseChannel<QueryResult>,
-    ) -> Result<(), QueueFull> {
-        log::debug!("Queueing query result {result:?}");
-        self.query_results_tx.try_send((result, resp_chan))
+        resp_chan: ResponseSender,
+    ) -> Result<(), ResponseError> {
+        log::debug!("Sending query result {result:?}");
+        resp_chan.send(&result.encode_to_vec()).await
     }
 
-    pub fn send_sql_query_result(
+    pub async fn send_sql_query_result(
         &self,
         result: QueryResult,
-        resp_chan: ResponseChannel<QueryResult>,
-    ) -> Result<(), QueueFull> {
-        log::debug!("Queueing sql query result {result:?}");
-        self.sql_query_results_tx.try_send((result, resp_chan))
+        resp_chan: ResponseSender,
+    ) -> Result<(), ResponseError> {
+        log::debug!("Sending sql query result {result:?}");
+        resp_chan.send(&result.encode_to_vec()).await
     }
 
-    pub fn send_logs(
+    pub async fn send_logs(
         &self,
         logs: QueryLogs,
-        resp_chan: ResponseChannel<QueryLogs>,
-    ) -> Result<(), QueueFull> {
-        log::debug!("Queueing {} query logs", logs.queries_executed.len());
-        self.logs_tx.try_send((logs, resp_chan))
+        resp_chan: ResponseSender,
+    ) -> Result<(), ResponseError> {
+        log::debug!("Sending {} query logs", logs.queries_executed.len());
+        resp_chan.send(&logs.encode_to_vec()).await
     }
 
-    pub fn send_status(
+    pub async fn send_status(
         &self,
         status: WorkerStatus,
-        resp_chan: ResponseChannel<WorkerStatus>,
-    ) -> Result<(), QueueFull> {
-        log::debug!("Queueing worker status");
-        self.status_tx.try_send((status, resp_chan))
+        resp_chan: ResponseSender,
+    ) -> Result<(), ResponseError> {
+        log::debug!("Sending worker status");
+        resp_chan.send(&status.encode_to_vec()).await
     }
 }
 
@@ -391,28 +326,8 @@ pub fn start_transport(
     swarm: Swarm<Wrapped<WorkerBehaviour>>,
     config: &WorkerConfig,
 ) -> (impl Stream<Item = WorkerEvent>, WorkerTransportHandle) {
-    let (query_results_tx, query_results_rx) =
-        new_queue(config.query_results_queue_size, "query_results");
-    let (sql_query_results_tx, sql_query_results_rx) =
-        new_queue(config.sql_query_results_queue_size, "sql_query_results");
-    let (logs_tx, logs_rx) = new_queue(config.logs_queue_size, "logs");
-    let (status_tx, status_rx) = new_queue(config.status_queue_size, "status");
     let (events_tx, events_rx) = new_queue(config.events_queue_size, "events");
-    let transport = WorkerTransport {
-        swarm,
-        query_results_rx,
-        sql_query_results_rx,
-        logs_rx,
-        status_rx,
-        events_tx,
-    };
-    let handle = WorkerTransportHandle::new(
-        query_results_tx,
-        sql_query_results_tx,
-        logs_tx,
-        status_tx,
-        transport,
-        config.shutdown_timeout,
-    );
+    let transport = WorkerTransport { swarm, events_tx };
+    let handle = WorkerTransportHandle::new(transport, config.shutdown_timeout);
     (events_rx, handle)
 }
