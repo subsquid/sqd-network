@@ -3,6 +3,7 @@ use std::{task::Poll, time::Duration};
 use derivative::Derivative;
 use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
 use libp2p::{swarm::ToSwarm, PeerId, Stream, StreamProtocol};
+use prost::Message;
 use tokio::sync::mpsc;
 
 use crate::behaviour::wrapped::{BehaviourWrapper, TToSwarm};
@@ -90,23 +91,24 @@ impl ResponseSender {
 
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub struct Request {
+pub struct Request<T> {
     pub peer_id: PeerId,
     #[derivative(Debug = "ignore")]
-    pub request: Box<[u8]>,
+    pub request: T,
     #[derivative(Debug = "ignore")]
     pub response_sender: ResponseSender,
 }
 
-pub struct ServerBehaviour {
+pub struct ServerBehaviour<T> {
     inner: libp2p_stream::Behaviour,
     incoming: libp2p_stream::IncomingStreams,
+    protocol: &'static str,
     config: ServerConfig,
-    requests_tx: mpsc::Sender<Request>,
-    requests_rx: mpsc::Receiver<Request>,
+    requests_tx: mpsc::Sender<Request<T>>,
+    requests_rx: mpsc::Receiver<Request<T>>,
 }
 
-impl ServerBehaviour {
+impl<T: Message + Default + 'static> ServerBehaviour<T> {
     pub fn new(protocol: &'static str, config: ServerConfig) -> Self {
         let inner = libp2p_stream::Behaviour::new();
         let mut control = inner.new_control();
@@ -117,6 +119,7 @@ impl ServerBehaviour {
         Self {
             inner,
             incoming,
+            protocol,
             config,
             requests_tx,
             requests_rx,
@@ -124,17 +127,21 @@ impl ServerBehaviour {
     }
 
     fn spawn_read_task(&self, peer: PeerId, stream: Stream) {
+        let protocol = self.protocol;
         let config = self.config;
         let requests_tx = self.requests_tx.clone();
-        tokio::spawn(read_request(peer, stream, config, requests_tx));
+        tokio::spawn(read_request(peer, stream, protocol, config, requests_tx));
     }
 }
 
-async fn read_request(
+/// Read and decode the request message, keeping the decoding work off the swarm event loop.
+/// Returning early drops the stream, which resets it, so the client observes a failed request.
+async fn read_request<T: Message + Default>(
     peer: PeerId,
     mut stream: Stream,
+    protocol: &'static str,
     config: ServerConfig,
-    requests_tx: mpsc::Sender<Request>,
+    requests_tx: mpsc::Sender<Request<T>>,
 ) {
     let read_fut = async {
         let mut buf = Vec::new();
@@ -156,10 +163,17 @@ async fn read_request(
         log::warn!("Request from {peer} is too large ({} bytes), dropping", buf.len());
         return;
     }
+    let request = match T::decode(buf.as_slice()) {
+        Ok(request) => request,
+        Err(e) => {
+            log::warn!("Failed to decode {protocol} request from {peer}: {e}");
+            return;
+        }
+    };
 
     let request = Request {
         peer_id: peer,
-        request: buf.into_boxed_slice(),
+        request,
         response_sender: ResponseSender {
             stream,
             max_response_size: config.max_response_size,
@@ -179,9 +193,9 @@ async fn read_request(
     }
 }
 
-impl BehaviourWrapper for ServerBehaviour {
+impl<T: Message + Default + 'static> BehaviourWrapper for ServerBehaviour<T> {
     type Inner = libp2p_stream::Behaviour;
-    type Event = Request;
+    type Event = Request<T>;
 
     fn inner(&mut self) -> &mut Self::Inner {
         &mut self.inner
@@ -225,6 +239,20 @@ mod tests {
 
     const PROTO: &str = "/test/stream-server/1";
 
+    /// The message type served by the test protocol.
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    struct TestMsg {
+        #[prost(bytes = "vec", tag = "1")]
+        payload: Vec<u8>,
+    }
+
+    fn encode(payload: &[u8]) -> Vec<u8> {
+        TestMsg {
+            payload: payload.to_vec(),
+        }
+        .encode_to_vec()
+    }
+
     fn server_config() -> ServerConfig {
         ServerConfig {
             max_request_size: 1024,
@@ -245,15 +273,15 @@ mod tests {
         }
     }
 
-    /// Echo the request bytes back as the response.
-    fn echo(req: Request) -> impl Future<Output = ()> + Send {
+    /// Echo the request payload back as the response.
+    fn echo(req: Request<TestMsg>) -> impl Future<Output = ()> + Send {
         let Request {
             request,
             response_sender,
             ..
         } = req;
         async move {
-            let _ = response_sender.send(&request).await;
+            let _ = response_sender.send(&request.payload).await;
         }
     }
 
@@ -262,11 +290,11 @@ mod tests {
     /// peer id and a client handle for the test protocol.
     async fn setup<F, Fut>(handle_request: F) -> (PeerId, StreamClientHandle)
     where
-        F: Fn(Request) -> Fut + Send + Sync + 'static,
+        F: Fn(Request<TestMsg>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
         let mut server = Swarm::new_ephemeral_tokio(|_| {
-            Wrapped::from(ServerBehaviour::new(PROTO, server_config()))
+            Wrapped::from(ServerBehaviour::<TestMsg>::new(PROTO, server_config()))
         });
         let mut client = Swarm::new_ephemeral_tokio(|_| Wrapped::from(ClientBehaviour::default()));
         let handle = client.behaviour().new_handle(PROTO, client_config());
@@ -293,7 +321,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn round_trip() {
         let (peer, handle) = setup(echo).await;
-        let response = handle.request_response(peer, b"hello world").await.unwrap();
+        let response = handle.request_response(peer, &encode(b"hello world")).await.unwrap();
         assert_eq!(response, b"hello world");
     }
 
@@ -308,7 +336,7 @@ mod tests {
         let handle = Arc::new(handle);
         let futures = (0..50u32).map(|i| {
             let handle = handle.clone();
-            async move { (i, handle.request_response(peer, &i.to_le_bytes()).await) }
+            async move { (i, handle.request_response(peer, &encode(&i.to_le_bytes())).await) }
         });
         let results = futures::future::join_all(futures).await;
         for (i, result) in results {
@@ -324,7 +352,7 @@ mod tests {
         // transport it is an empty response. Either way it is a non-success (equivalent to the
         // old `request_response` ResponseOmission), which the application layer treats as an error.
         let (peer, handle) = setup(|_req| async move {}).await;
-        let result = handle.request_response(peer, b"hello").await;
+        let result = handle.request_response(peer, &encode(b"hello")).await;
         assert!(
             result.as_ref().map_or(true, Vec::is_empty),
             "expected a failure or empty response when the server drops the response, got {result:?}"
@@ -341,6 +369,19 @@ mod tests {
         assert!(
             result.as_ref().map_or(true, Vec::is_empty),
             "expected a failure or empty response for an oversized request, got {result:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn undecodable_request_rejected() {
+        // The bytes pass the size check but fail to decode as TestMsg, so the read task drops
+        // the stream without replying — the client must not observe a successful response.
+        let (peer, handle) = setup(echo).await;
+        let garbage = [0x08]; // field 1, varint wire type, missing value
+        let result = handle.request_response(peer, &garbage).await;
+        assert!(
+            result.as_ref().map_or(true, Vec::is_empty),
+            "expected a failure or empty response for an undecodable request, got {result:?}"
         );
     }
 }

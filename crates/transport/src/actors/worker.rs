@@ -58,15 +58,18 @@ pub enum WorkerEvent {
     },
 }
 
-type ServerBehaviourWrapped = Wrapped<ServerBehaviour>;
+type QueryBehaviour = Wrapped<ServerBehaviour<Query>>;
+type SqlQueryBehaviour = Wrapped<ServerBehaviour<Query>>;
+type LogsBehaviour = Wrapped<ServerBehaviour<LogsRequest>>;
+type StatusBehaviour = Wrapped<ServerBehaviour<()>>;
 
 #[derive(NetworkBehaviour)]
 pub struct InnerBehaviour {
     base: Wrapped<BaseBehaviour>,
-    query: ServerBehaviourWrapped,
-    sql_query: ServerBehaviourWrapped,
-    logs: ServerBehaviourWrapped,
-    status: ServerBehaviourWrapped,
+    query: QueryBehaviour,
+    sql_query: SqlQueryBehaviour,
+    logs: LogsBehaviour,
+    status: StatusBehaviour,
     noise: NoiseBehaviour,
 }
 
@@ -138,20 +141,12 @@ impl WorkerBehaviour {
         None
     }
 
-    fn on_query(&mut self, req: Request) -> Option<WorkerEvent> {
+    fn on_query(&mut self, req: Request<Query>) -> Option<WorkerEvent> {
         let Request {
             peer_id,
-            request,
+            request: query,
             response_sender,
         } = req;
-        // Dropping `response_sender` on decode failure resets the stream.
-        let query = match Query::decode(request.as_ref()) {
-            Ok(query) => query,
-            Err(e) => {
-                log::warn!("Failed to decode query from {peer_id}: {e}");
-                return None;
-            }
-        };
         // Drop empty messages
         if query == Query::default() {
             None
@@ -164,19 +159,12 @@ impl WorkerBehaviour {
         }
     }
 
-    fn on_sql_query(&mut self, req: Request) -> Option<WorkerEvent> {
+    fn on_sql_query(&mut self, req: Request<Query>) -> Option<WorkerEvent> {
         let Request {
             peer_id,
-            request,
+            request: query,
             response_sender,
         } = req;
-        let query = match Query::decode(request.as_ref()) {
-            Ok(query) => query,
-            Err(e) => {
-                log::warn!("Failed to decode SQL query from {peer_id}: {e}");
-                return None;
-            }
-        };
         // Drop empty messages
         if query == Query::default() {
             None
@@ -189,35 +177,18 @@ impl WorkerBehaviour {
         }
     }
 
-    fn on_logs_request(&mut self, req: Request) -> Option<WorkerEvent> {
-        let Request {
-            peer_id,
-            request,
-            response_sender,
-        } = req;
-        let request = match LogsRequest::decode(request.as_ref()) {
-            Ok(request) => request,
-            Err(e) => {
-                log::warn!("Failed to decode logs request from {peer_id}: {e}");
-                return None;
-            }
-        };
+    fn on_logs_request(&mut self, req: Request<LogsRequest>) -> Option<WorkerEvent> {
         Some(WorkerEvent::LogsRequest {
-            request,
-            resp_chan: response_sender,
+            request: req.request,
+            resp_chan: req.response_sender,
         })
     }
 
-    fn on_status_request(&mut self, req: Request) -> Option<WorkerEvent> {
-        let Request {
-            peer_id,
-            response_sender,
-            ..
-        } = req;
-        log::debug!("Status requested by {peer_id}");
+    fn on_status_request(&mut self, req: Request<()>) -> Option<WorkerEvent> {
+        log::debug!("Status requested by {}", req.peer_id);
         Some(WorkerEvent::StatusRequest {
-            peer_id,
-            resp_chan: response_sender,
+            peer_id: req.peer_id,
+            resp_chan: req.response_sender,
         })
     }
 }
