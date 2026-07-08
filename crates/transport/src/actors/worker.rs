@@ -7,17 +7,14 @@ use libp2p::{
     PeerId, Swarm,
 };
 use libp2p_swarm_derive::NetworkBehaviour;
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
-
-use sqd_messages::{LogsRequest, Query, QueryLogs, QueryResult, WorkerStatus};
 
 use crate::{
     behaviour::{
         base::{BaseBehaviour, BaseBehaviourEvent},
         noise::NoiseBehaviour,
-        stream_server::{Request, ResponseError, ResponseSender, ServerBehaviour, ServerConfig},
+        stream_server::{Request, ResponseSender, ServerBehaviour, ServerConfig},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
     protocol::{
@@ -29,31 +26,31 @@ use crate::{
     util::{new_queue, Sender, TaskManager, DEFAULT_SHUTDOWN_TIMEOUT},
 };
 
+/// Events emitted by the worker transport. Request payloads are raw protobuf bytes: decoding
+/// happens in the consumer (worker-rs), off the swarm loop. In every variant, dropping `resp_chan`
+/// without sending resets the stream and the client sees an error.
 #[derive(Debug)]
 pub enum WorkerEvent {
     /// Query received from a portal
     Query {
         peer_id: PeerId,
-        query: Query,
-        /// If this sender is dropped, the stream is reset and the client sees an error
+        request: Box<[u8]>,
         resp_chan: ResponseSender,
     },
     /// SQLQuery received from a portal
     SqlQuery {
         peer_id: PeerId,
-        query: Query,
-        /// If this sender is dropped, the stream is reset and the client sees an error
+        request: Box<[u8]>,
         resp_chan: ResponseSender,
     },
     /// Logs requested by a collector
     LogsRequest {
-        request: LogsRequest,
-        /// If this sender is dropped, the stream is reset and the client sees an error
+        peer_id: PeerId,
+        request: Box<[u8]>,
         resp_chan: ResponseSender,
     },
     StatusRequest {
         peer_id: PeerId,
-        /// If this sender is dropped, the stream is reset and the client sees an error
         resp_chan: ResponseSender,
     },
 }
@@ -144,24 +141,17 @@ impl WorkerBehaviour {
             request,
             response_sender,
         } = req;
-        // Dropping `response_sender` on decode failure resets the stream.
-        let query = match Query::decode(request.as_ref()) {
-            Ok(query) => query,
-            Err(e) => {
-                log::warn!("Failed to decode query from {peer_id}: {e}");
-                return None;
-            }
-        };
-        // Drop empty messages
-        if query == Query::default() {
-            None
-        } else {
-            Some(WorkerEvent::Query {
-                peer_id,
-                query,
-                resp_chan: response_sender,
-            })
+        // Drop empty queries here (a transport-internal artifact, e.g. a peer that opens a stream
+        // and half-closes without sending). Dropping `response_sender` resets the stream. This is a
+        // byte-level check; decoding happens in the consumer.
+        if request.is_empty() {
+            return None;
         }
+        Some(WorkerEvent::Query {
+            peer_id,
+            request,
+            resp_chan: response_sender,
+        })
     }
 
     fn on_sql_query(&mut self, req: Request) -> Option<WorkerEvent> {
@@ -170,23 +160,14 @@ impl WorkerBehaviour {
             request,
             response_sender,
         } = req;
-        let query = match Query::decode(request.as_ref()) {
-            Ok(query) => query,
-            Err(e) => {
-                log::warn!("Failed to decode SQL query from {peer_id}: {e}");
-                return None;
-            }
-        };
-        // Drop empty messages
-        if query == Query::default() {
-            None
-        } else {
-            Some(WorkerEvent::SqlQuery {
-                peer_id,
-                query,
-                resp_chan: response_sender,
-            })
+        if request.is_empty() {
+            return None;
         }
+        Some(WorkerEvent::SqlQuery {
+            peer_id,
+            request,
+            resp_chan: response_sender,
+        })
     }
 
     fn on_logs_request(&mut self, req: Request) -> Option<WorkerEvent> {
@@ -195,14 +176,9 @@ impl WorkerBehaviour {
             request,
             response_sender,
         } = req;
-        let request = match LogsRequest::decode(request.as_ref()) {
-            Ok(request) => request,
-            Err(e) => {
-                log::warn!("Failed to decode logs request from {peer_id}: {e}");
-                return None;
-            }
-        };
+        // An empty buffer is a valid `LogsRequest` (all fields default), so no empty check here.
         Some(WorkerEvent::LogsRequest {
+            peer_id,
             request,
             resp_chan: response_sender,
         })
@@ -283,42 +259,6 @@ impl WorkerTransportHandle {
         Self {
             _task_manager: Arc::new(task_manager),
         }
-    }
-
-    pub async fn send_query_result(
-        &self,
-        result: QueryResult,
-        resp_chan: ResponseSender,
-    ) -> Result<(), ResponseError> {
-        log::debug!("Sending query result {result:?}");
-        resp_chan.send(&result.encode_to_vec()).await
-    }
-
-    pub async fn send_sql_query_result(
-        &self,
-        result: QueryResult,
-        resp_chan: ResponseSender,
-    ) -> Result<(), ResponseError> {
-        log::debug!("Sending sql query result {result:?}");
-        resp_chan.send(&result.encode_to_vec()).await
-    }
-
-    pub async fn send_logs(
-        &self,
-        logs: QueryLogs,
-        resp_chan: ResponseSender,
-    ) -> Result<(), ResponseError> {
-        log::debug!("Sending {} query logs", logs.queries_executed.len());
-        resp_chan.send(&logs.encode_to_vec()).await
-    }
-
-    pub async fn send_status(
-        &self,
-        status: WorkerStatus,
-        resp_chan: ResponseSender,
-    ) -> Result<(), ResponseError> {
-        log::debug!("Sending worker status");
-        resp_chan.send(&status.encode_to_vec()).await
     }
 }
 
