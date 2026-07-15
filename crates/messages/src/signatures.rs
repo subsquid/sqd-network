@@ -83,6 +83,16 @@ impl Query {
             msg.extend_from_slice(&range.begin.to_le_bytes());
             msg.extend_from_slice(&range.end.to_le_bytes());
         }
+        if self.query_engine != 0 || self.output_format != 0 {
+            if self.block_range.is_none() {
+                // Marks the absence of block_range to keep the encoding invertible.
+                msg.push(0);
+            }
+            // Both fields are always emitted together so their values stay
+            // unambiguous regardless of which one is non-default.
+            msg.push(u8::try_from(self.query_engine).ok()?);
+            msg.push(u8::try_from(self.output_format).ok()?);
+        }
         Some(msg)
     }
 }
@@ -199,4 +209,105 @@ fn msg_to_sign_query_err(query_id: &str, err: &query_error::Err) -> Option<Vec<u
     msg.extend_from_slice(query_id.as_bytes());
     msg.push(code);
     Some(msg)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Range;
+
+    fn sample_query() -> Query {
+        Query {
+            query_id: "6c9bb0e3-4a3f-4b7a-9b6a-2f2f6e1a0d51".to_string(),
+            dataset: "s3://ethereum-mainnet".to_string(),
+            query: r#"{"type": "evm"}"#.to_string(),
+            chunk_id: "0000000000/0000808640-0000816499-b0486318".to_string(),
+            timestamp_ms: 1_700_000_000_000,
+            block_range: Some(Range {
+                begin: 808640,
+                end: 816499,
+            }),
+            ..Default::default()
+        }
+    }
+
+    fn worker_id() -> PeerId {
+        Keypair::generate_ed25519().public().to_peer_id()
+    }
+
+    #[test]
+    fn sign_verify_roundtrip_with_query_engine() {
+        let keypair = Keypair::generate_ed25519();
+        let client_id = keypair.public().to_peer_id();
+        let worker_id = worker_id();
+        for block_range in [None, Some(Range { begin: 1, end: 2 })] {
+            for query_engine in [0, 1] {
+                for output_format in [0, 1] {
+                    let mut query = sample_query();
+                    query.block_range = block_range;
+                    query.query_engine = query_engine;
+                    query.output_format = output_format;
+                    query.sign(&keypair, worker_id).unwrap();
+                    assert!(query.verify_signature(client_id, worker_id));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unspecified_engine_payload_is_unchanged() {
+        // The signed payload with query_engine == 0 and output_format == 0 must be
+        // byte-identical to the original encoding so that existing clients remain
+        // compatible.
+        let worker_id = worker_id();
+        let query = sample_query();
+        let msg = query.msg_to_sign(worker_id).unwrap();
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(query.query_id.as_bytes());
+        expected.extend_from_slice(&worker_id.to_bytes());
+        expected.extend_from_slice(&query.timestamp_ms.to_le_bytes());
+        expected.extend_from_slice(&u32::try_from(query.dataset.len()).unwrap().to_le_bytes());
+        expected.extend_from_slice(query.dataset.as_bytes());
+        expected.extend_from_slice(&u32::try_from(query.query.len()).unwrap().to_le_bytes());
+        expected.extend_from_slice(query.query.as_bytes());
+        expected.extend_from_slice(&u32::try_from(query.chunk_id.len()).unwrap().to_le_bytes());
+        expected.extend_from_slice(query.chunk_id.as_bytes());
+        let range = query.block_range.unwrap();
+        expected.extend_from_slice(&range.begin.to_le_bytes());
+        expected.extend_from_slice(&range.end.to_le_bytes());
+        assert_eq!(msg, expected);
+    }
+
+    #[test]
+    fn engine_choice_is_covered_by_signature() {
+        let keypair = Keypair::generate_ed25519();
+        let client_id = keypair.public().to_peer_id();
+        let worker_id = worker_id();
+        let mut query = sample_query();
+        query.query_engine = 1;
+        query.sign(&keypair, worker_id).unwrap();
+
+        // Flipping the engine choice must invalidate the signature.
+        query.query_engine = 0;
+        assert!(!query.verify_signature(client_id, worker_id));
+        query.query_engine = 2;
+        assert!(!query.verify_signature(client_id, worker_id));
+    }
+
+    #[test]
+    fn output_format_is_covered_by_signature() {
+        let keypair = Keypair::generate_ed25519();
+        let client_id = keypair.public().to_peer_id();
+        let worker_id = worker_id();
+        let mut query = sample_query();
+        query.output_format = 1;
+        query.sign(&keypair, worker_id).unwrap();
+
+        // Flipping the output format must invalidate the signature.
+        query.output_format = 0;
+        assert!(!query.verify_signature(client_id, worker_id));
+        query.output_format = 2;
+        assert!(!query.verify_signature(client_id, worker_id));
+    }
 }

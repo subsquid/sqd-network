@@ -42,12 +42,24 @@ message Query {
   uint64 timestamp_ms = 9;
   bytes signature = 10;  // covers all the above fields + worker's peer ID
   Compression compression = 12;
+  QueryEngine query_engine = 13;
+  OutputFormat output_format = 14;
 }
 
 enum Compression {
   COMPRESSION_GZIP = 0;
   COMPRESSION_NONE = 1;
   COMPRESSION_ZSTD = 2;
+}
+
+enum QueryEngine {
+  QUERY_ENGINE_DEFAULT = 0;
+  QUERY_ENGINE_DYNAMIC = 1;
+}
+
+enum OutputFormat {
+  OUTPUT_FORMAT_JSONL = 0;
+  OUTPUT_FORMAT_ARROW_IPC = 1;
 }
 
 // Worker -> Portal

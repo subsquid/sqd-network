@@ -19,6 +19,9 @@ sha3 = "0.10"
 
 libp2p-identity = { workspace = true }
 
+[dev-dependencies]
+libp2p-identity = { workspace = true, features = ["ed25519", "rand"] }
+
 [build-dependencies]
 prost-build = "0.12"
 
