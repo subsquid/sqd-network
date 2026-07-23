@@ -29,7 +29,7 @@ impl AddressCache {
     }
 
     pub fn put(&mut self, peer_id: PeerId, addrs: impl IntoIterator<Item = Multiaddr>) {
-        let addrs = addrs
+        let addrs: Vec<Multiaddr> = addrs
             .into_iter()
             .filter(addr_is_reachable)
             .map(|e| {
@@ -38,7 +38,13 @@ impl AddressCache {
                     e
                 })
             })
-            .inspect(|a| log::trace!("Caching address for peer {peer_id}: {a}"));
+            .inspect(|a| log::trace!("Caching address for peer {peer_id}: {a}"))
+            .collect();
+        // Never insert an entry with no addresses: `contains` reports such a peer as dialable,
+        // which suppresses DHT lookups while every dial fails with `NoAddresses`.
+        if addrs.is_empty() {
+            return;
+        }
         self.cache.get_or_insert_mut(peer_id, Default::default).extend(addrs)
     }
 
@@ -54,7 +60,8 @@ impl AddressCache {
         log::debug!("Dial failure: {err:?}");
         match err.error {
             libp2p::swarm::DialError::WrongPeerId { .. }
-            | libp2p::swarm::DialError::Transport(_) => {
+            | libp2p::swarm::DialError::Transport(_)
+            | libp2p::swarm::DialError::NoAddresses => {
                 if let Some(peer_id) = err.peer_id {
                     self.evict(peer_id);
                 }
@@ -129,5 +136,38 @@ impl NetworkBehaviour for AddressCache {
         _cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         Poll::Pending
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cache() -> AddressCache {
+        AddressCache::new(NonZeroUsize::new(10).unwrap())
+    }
+
+    #[test]
+    fn put_with_no_reachable_addrs_does_not_create_entry() {
+        let mut cache = cache();
+        let peer = PeerId::random();
+
+        cache.put(peer, ["/ip4/127.0.0.1/udp/1000/quic-v1".parse().unwrap()]);
+        assert!(!cache.contains(&peer));
+
+        cache.put(peer, std::iter::empty::<Multiaddr>());
+        assert!(!cache.contains(&peer));
+    }
+
+    #[test]
+    fn empty_put_does_not_wipe_existing_entry() {
+        let mut cache = cache();
+        let peer = PeerId::random();
+
+        cache.put(peer, ["/ip4/1.2.3.4/udp/1000/quic-v1".parse().unwrap()]);
+        assert!(cache.contains(&peer));
+
+        cache.put(peer, std::iter::empty::<Multiaddr>());
+        assert!(cache.contains(&peer));
     }
 }
