@@ -226,11 +226,11 @@ impl<'a> Assignment<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Dataset>>>>(Assignment::VT_DATASETS, None).unwrap()}
   }
   #[inline]
-  pub fn workers(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignment<'a>>> {
+  pub fn workers(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry<'a>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignment>>>>(Assignment::VT_WORKERS, None).unwrap()}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry>>>>(Assignment::VT_WORKERS, None).unwrap()}
   }
 }
 
@@ -242,14 +242,14 @@ impl flatbuffers::Verifiable for Assignment<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Dataset>>>>("datasets", Self::VT_DATASETS, true)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<WorkerAssignment>>>>("workers", Self::VT_WORKERS, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<WorkerEntry>>>>("workers", Self::VT_WORKERS, true)?
      .finish();
     Ok(())
   }
 }
 pub struct AssignmentArgs<'a> {
     pub datasets: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Dataset<'a>>>>>,
-    pub workers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignment<'a>>>>>,
+    pub workers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry<'a>>>>>,
 }
 impl<'a> Default for AssignmentArgs<'a> {
   #[inline]
@@ -271,7 +271,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> AssignmentBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Assignment::VT_DATASETS, datasets);
   }
   #[inline]
-  pub fn add_workers(&mut self, workers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<WorkerAssignment<'b >>>>) {
+  pub fn add_workers(&mut self, workers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<WorkerEntry<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Assignment::VT_WORKERS, workers);
   }
   #[inline]
@@ -299,39 +299,37 @@ impl core::fmt::Debug for Assignment<'_> {
       ds.finish()
   }
 }
-pub enum WorkerAssignmentOffset {}
+pub enum WorkerEntryOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct WorkerAssignment<'a> {
+pub struct WorkerEntry<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for WorkerAssignment<'a> {
-  type Inner = WorkerAssignment<'a>;
+impl<'a> flatbuffers::Follow<'a> for WorkerEntry<'a> {
+  type Inner = WorkerEntry<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
     Self { _tab: flatbuffers::Table::new(buf, loc) }
   }
 }
 
-impl<'a> WorkerAssignment<'a> {
+impl<'a> WorkerEntry<'a> {
   pub const VT_WORKER_ID: flatbuffers::VOffsetT = 4;
-  pub const VT_CHUNKS: flatbuffers::VOffsetT = 6;
   pub const VT_STATUS: flatbuffers::VOffsetT = 8;
   pub const VT_ENCRYPTED_HEADERS: flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    WorkerAssignment { _tab: table }
+    WorkerEntry { _tab: table }
   }
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args WorkerAssignmentArgs<'args>
-  ) -> flatbuffers::WIPOffset<WorkerAssignment<'bldr>> {
-    let mut builder = WorkerAssignmentBuilder::new(_fbb);
+    args: &'args WorkerEntryArgs<'args>
+  ) -> flatbuffers::WIPOffset<WorkerEntry<'bldr>> {
+    let mut builder = WorkerEntryBuilder::new(_fbb);
     if let Some(x) = args.encrypted_headers { builder.add_encrypted_headers(x); }
-    if let Some(x) = args.chunks { builder.add_chunks(x); }
     if let Some(x) = args.worker_id { builder.add_worker_id(x); }
     builder.add_status(args.status);
     builder.finish()
@@ -343,32 +341,25 @@ impl<'a> WorkerAssignment<'a> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<WorkerId>(WorkerAssignment::VT_WORKER_ID, None).unwrap()}
-  }
-  #[inline]
-  pub fn chunks(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk<'a>>>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk>>>>(WorkerAssignment::VT_CHUNKS, None)}
+    unsafe { self._tab.get::<WorkerId>(WorkerEntry::VT_WORKER_ID, None).unwrap()}
   }
   #[inline]
   pub fn status(&self) -> WorkerStatus {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<WorkerStatus>(WorkerAssignment::VT_STATUS, Some(WorkerStatus::Ok)).unwrap()}
+    unsafe { self._tab.get::<WorkerStatus>(WorkerEntry::VT_STATUS, Some(WorkerStatus::Ok)).unwrap()}
   }
   #[inline]
   pub fn encrypted_headers(&self) -> Option<EncryptedHeaders<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<EncryptedHeaders>>(WorkerAssignment::VT_ENCRYPTED_HEADERS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<EncryptedHeaders>>(WorkerEntry::VT_ENCRYPTED_HEADERS, None)}
   }
 }
 
-impl flatbuffers::Verifiable for WorkerAssignment<'_> {
+impl flatbuffers::Verifiable for WorkerEntry<'_> {
   #[inline]
   fn run_verifier(
     v: &mut flatbuffers::Verifier, pos: usize
@@ -376,73 +367,65 @@ impl flatbuffers::Verifiable for WorkerAssignment<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<WorkerId>("worker_id", Self::VT_WORKER_ID, true)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Chunk>>>>("chunks", Self::VT_CHUNKS, false)?
      .visit_field::<WorkerStatus>("status", Self::VT_STATUS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<EncryptedHeaders>>("encrypted_headers", Self::VT_ENCRYPTED_HEADERS, false)?
      .finish();
     Ok(())
   }
 }
-pub struct WorkerAssignmentArgs<'a> {
+pub struct WorkerEntryArgs<'a> {
     pub worker_id: Option<&'a WorkerId>,
-    pub chunks: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk<'a>>>>>,
     pub status: WorkerStatus,
     pub encrypted_headers: Option<flatbuffers::WIPOffset<EncryptedHeaders<'a>>>,
 }
-impl<'a> Default for WorkerAssignmentArgs<'a> {
+impl<'a> Default for WorkerEntryArgs<'a> {
   #[inline]
   fn default() -> Self {
-    WorkerAssignmentArgs {
+    WorkerEntryArgs {
       worker_id: None, // required field
-      chunks: None,
       status: WorkerStatus::Ok,
       encrypted_headers: None,
     }
   }
 }
 
-pub struct WorkerAssignmentBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+pub struct WorkerEntryBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
   fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WorkerAssignmentBuilder<'a, 'b, A> {
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WorkerEntryBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_worker_id(&mut self, worker_id: &WorkerId) {
-    self.fbb_.push_slot_always::<&WorkerId>(WorkerAssignment::VT_WORKER_ID, worker_id);
-  }
-  #[inline]
-  pub fn add_chunks(&mut self, chunks: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Chunk<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignment::VT_CHUNKS, chunks);
+    self.fbb_.push_slot_always::<&WorkerId>(WorkerEntry::VT_WORKER_ID, worker_id);
   }
   #[inline]
   pub fn add_status(&mut self, status: WorkerStatus) {
-    self.fbb_.push_slot::<WorkerStatus>(WorkerAssignment::VT_STATUS, status, WorkerStatus::Ok);
+    self.fbb_.push_slot::<WorkerStatus>(WorkerEntry::VT_STATUS, status, WorkerStatus::Ok);
   }
   #[inline]
   pub fn add_encrypted_headers(&mut self, encrypted_headers: flatbuffers::WIPOffset<EncryptedHeaders<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<EncryptedHeaders>>(WorkerAssignment::VT_ENCRYPTED_HEADERS, encrypted_headers);
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<EncryptedHeaders>>(WorkerEntry::VT_ENCRYPTED_HEADERS, encrypted_headers);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WorkerAssignmentBuilder<'a, 'b, A> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WorkerEntryBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
-    WorkerAssignmentBuilder {
+    WorkerEntryBuilder {
       fbb_: _fbb,
       start_: start,
     }
   }
   #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<WorkerAssignment<'a>> {
+  pub fn finish(self) -> flatbuffers::WIPOffset<WorkerEntry<'a>> {
     let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, WorkerAssignment::VT_WORKER_ID,"worker_id");
+    self.fbb_.required(o, WorkerEntry::VT_WORKER_ID,"worker_id");
     flatbuffers::WIPOffset::new(o.value())
   }
 }
 
-impl core::fmt::Debug for WorkerAssignment<'_> {
+impl core::fmt::Debug for WorkerEntry<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("WorkerAssignment");
+    let mut ds = f.debug_struct("WorkerEntry");
       ds.field("worker_id", &self.worker_id());
-      ds.field("chunks", &self.chunks());
       ds.field("status", &self.status());
       ds.field("encrypted_headers", &self.encrypted_headers());
       ds.finish()
@@ -1104,6 +1087,1081 @@ impl core::fmt::Debug for EncryptedHeaders<'_> {
       ds.field("identity", &self.identity());
       ds.field("nonce", &self.nonce());
       ds.field("ciphertext", &self.ciphertext());
+      ds.finish()
+  }
+}
+pub enum WorkerAssignmentOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct WorkerAssignment<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for WorkerAssignment<'a> {
+  type Inner = WorkerAssignment<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> WorkerAssignment<'a> {
+  pub const VT_DATASETS: flatbuffers::VOffsetT = 4;
+  pub const VT_WORKERS: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    WorkerAssignment { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args WorkerAssignmentArgs<'args>
+  ) -> flatbuffers::WIPOffset<WorkerAssignment<'bldr>> {
+    let mut builder = WorkerAssignmentBuilder::new(_fbb);
+    if let Some(x) = args.workers { builder.add_workers(x); }
+    if let Some(x) = args.datasets { builder.add_datasets(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn datasets(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignmentDataset<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignmentDataset>>>>(WorkerAssignment::VT_DATASETS, None).unwrap()}
+  }
+  #[inline]
+  pub fn workers(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry>>>>(WorkerAssignment::VT_WORKERS, None).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for WorkerAssignment<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<WorkerAssignmentDataset>>>>("datasets", Self::VT_DATASETS, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<WorkerEntry>>>>("workers", Self::VT_WORKERS, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct WorkerAssignmentArgs<'a> {
+    pub datasets: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignmentDataset<'a>>>>>,
+    pub workers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry<'a>>>>>,
+}
+impl<'a> Default for WorkerAssignmentArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    WorkerAssignmentArgs {
+      datasets: None, // required field
+      workers: None, // required field
+    }
+  }
+}
+
+pub struct WorkerAssignmentBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WorkerAssignmentBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_datasets(&mut self, datasets: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<WorkerAssignmentDataset<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignment::VT_DATASETS, datasets);
+  }
+  #[inline]
+  pub fn add_workers(&mut self, workers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<WorkerEntry<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignment::VT_WORKERS, workers);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WorkerAssignmentBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    WorkerAssignmentBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<WorkerAssignment<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, WorkerAssignment::VT_DATASETS,"datasets");
+    self.fbb_.required(o, WorkerAssignment::VT_WORKERS,"workers");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for WorkerAssignment<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("WorkerAssignment");
+      ds.field("datasets", &self.datasets());
+      ds.field("workers", &self.workers());
+      ds.finish()
+  }
+}
+pub enum WorkerAssignmentDatasetOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct WorkerAssignmentDataset<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for WorkerAssignmentDataset<'a> {
+  type Inner = WorkerAssignmentDataset<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> WorkerAssignmentDataset<'a> {
+  pub const VT_ID: flatbuffers::VOffsetT = 4;
+  pub const VT_CHUNKS: flatbuffers::VOffsetT = 6;
+  pub const VT_LAST_BLOCK: flatbuffers::VOffsetT = 8;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    WorkerAssignmentDataset { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args WorkerAssignmentDatasetArgs<'args>
+  ) -> flatbuffers::WIPOffset<WorkerAssignmentDataset<'bldr>> {
+    let mut builder = WorkerAssignmentDatasetBuilder::new(_fbb);
+    builder.add_last_block(args.last_block);
+    if let Some(x) = args.chunks { builder.add_chunks(x); }
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(WorkerAssignmentDataset::VT_ID, None).unwrap()}
+  }
+  #[inline]
+  pub fn key_compare_less_than(&self, o: &WorkerAssignmentDataset) -> bool {
+    self.id() < o.id()
+  }
+
+  #[inline]
+  pub fn key_compare_with_value(&self, val: & str) -> ::core::cmp::Ordering {
+    let key = self.id();
+    key.cmp(val)
+  }
+  #[inline]
+  pub fn chunks(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignmentChunk<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignmentChunk>>>>(WorkerAssignmentDataset::VT_CHUNKS, None).unwrap()}
+  }
+  #[inline]
+  pub fn last_block(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(WorkerAssignmentDataset::VT_LAST_BLOCK, Some(0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for WorkerAssignmentDataset<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<WorkerAssignmentChunk>>>>("chunks", Self::VT_CHUNKS, true)?
+     .visit_field::<u64>("last_block", Self::VT_LAST_BLOCK, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct WorkerAssignmentDatasetArgs<'a> {
+    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub chunks: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignmentChunk<'a>>>>>,
+    pub last_block: u64,
+}
+impl<'a> Default for WorkerAssignmentDatasetArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    WorkerAssignmentDatasetArgs {
+      id: None, // required field
+      chunks: None, // required field
+      last_block: 0,
+    }
+  }
+}
+
+pub struct WorkerAssignmentDatasetBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WorkerAssignmentDatasetBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignmentDataset::VT_ID, id);
+  }
+  #[inline]
+  pub fn add_chunks(&mut self, chunks: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<WorkerAssignmentChunk<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignmentDataset::VT_CHUNKS, chunks);
+  }
+  #[inline]
+  pub fn add_last_block(&mut self, last_block: u64) {
+    self.fbb_.push_slot::<u64>(WorkerAssignmentDataset::VT_LAST_BLOCK, last_block, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WorkerAssignmentDatasetBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    WorkerAssignmentDatasetBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<WorkerAssignmentDataset<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, WorkerAssignmentDataset::VT_ID,"id");
+    self.fbb_.required(o, WorkerAssignmentDataset::VT_CHUNKS,"chunks");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for WorkerAssignmentDataset<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("WorkerAssignmentDataset");
+      ds.field("id", &self.id());
+      ds.field("chunks", &self.chunks());
+      ds.field("last_block", &self.last_block());
+      ds.finish()
+  }
+}
+pub enum WorkerAssignmentChunkOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct WorkerAssignmentChunk<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for WorkerAssignmentChunk<'a> {
+  type Inner = WorkerAssignmentChunk<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> WorkerAssignmentChunk<'a> {
+  pub const VT_FIRST_BLOCK: flatbuffers::VOffsetT = 4;
+  pub const VT_ID: flatbuffers::VOffsetT = 6;
+  pub const VT_DATASET_ID: flatbuffers::VOffsetT = 8;
+  pub const VT_SIZE: flatbuffers::VOffsetT = 10;
+  pub const VT_DATASET_BASE_URL: flatbuffers::VOffsetT = 12;
+  pub const VT_SCHEMA_ID: flatbuffers::VOffsetT = 14;
+  pub const VT_TABLES_PRESENT: flatbuffers::VOffsetT = 16;
+  pub const VT_WORKER_INDEXES: flatbuffers::VOffsetT = 18;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    WorkerAssignmentChunk { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args WorkerAssignmentChunkArgs<'args>
+  ) -> flatbuffers::WIPOffset<WorkerAssignmentChunk<'bldr>> {
+    let mut builder = WorkerAssignmentChunkBuilder::new(_fbb);
+    builder.add_first_block(args.first_block);
+    if let Some(x) = args.worker_indexes { builder.add_worker_indexes(x); }
+    if let Some(x) = args.tables_present { builder.add_tables_present(x); }
+    builder.add_schema_id(args.schema_id);
+    if let Some(x) = args.dataset_base_url { builder.add_dataset_base_url(x); }
+    builder.add_size(args.size);
+    if let Some(x) = args.dataset_id { builder.add_dataset_id(x); }
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn first_block(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(WorkerAssignmentChunk::VT_FIRST_BLOCK, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn key_compare_less_than(&self, o: &WorkerAssignmentChunk) -> bool {
+    self.first_block() < o.first_block()
+  }
+
+  #[inline]
+  pub fn key_compare_with_value(&self, val: u64) -> ::core::cmp::Ordering {
+    let key = self.first_block();
+    key.cmp(&val)
+  }
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(WorkerAssignmentChunk::VT_ID, None).unwrap()}
+  }
+  #[inline]
+  pub fn dataset_id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(WorkerAssignmentChunk::VT_DATASET_ID, None).unwrap()}
+  }
+  #[inline]
+  pub fn size(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(WorkerAssignmentChunk::VT_SIZE, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn dataset_base_url(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(WorkerAssignmentChunk::VT_DATASET_BASE_URL, None).unwrap()}
+  }
+  #[inline]
+  pub fn schema_id(&self) -> i32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i32>(WorkerAssignmentChunk::VT_SCHEMA_ID, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn tables_present(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>(WorkerAssignmentChunk::VT_TABLES_PRESENT, None)}
+  }
+  #[inline]
+  pub fn worker_indexes(&self) -> flatbuffers::Vector<'a, u16> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u16>>>(WorkerAssignmentChunk::VT_WORKER_INDEXES, None).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for WorkerAssignmentChunk<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u64>("first_block", Self::VT_FIRST_BLOCK, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("dataset_id", Self::VT_DATASET_ID, true)?
+     .visit_field::<u32>("size", Self::VT_SIZE, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("dataset_base_url", Self::VT_DATASET_BASE_URL, true)?
+     .visit_field::<i32>("schema_id", Self::VT_SCHEMA_ID, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<&'_ str>>>>("tables_present", Self::VT_TABLES_PRESENT, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u16>>>("worker_indexes", Self::VT_WORKER_INDEXES, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct WorkerAssignmentChunkArgs<'a> {
+    pub first_block: u64,
+    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub dataset_id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub size: u32,
+    pub dataset_base_url: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub schema_id: i32,
+    pub tables_present: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub worker_indexes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u16>>>,
+}
+impl<'a> Default for WorkerAssignmentChunkArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    WorkerAssignmentChunkArgs {
+      first_block: 0,
+      id: None, // required field
+      dataset_id: None, // required field
+      size: 0,
+      dataset_base_url: None, // required field
+      schema_id: 0,
+      tables_present: None,
+      worker_indexes: None, // required field
+    }
+  }
+}
+
+pub struct WorkerAssignmentChunkBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WorkerAssignmentChunkBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_first_block(&mut self, first_block: u64) {
+    self.fbb_.push_slot::<u64>(WorkerAssignmentChunk::VT_FIRST_BLOCK, first_block, 0);
+  }
+  #[inline]
+  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignmentChunk::VT_ID, id);
+  }
+  #[inline]
+  pub fn add_dataset_id(&mut self, dataset_id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignmentChunk::VT_DATASET_ID, dataset_id);
+  }
+  #[inline]
+  pub fn add_size(&mut self, size: u32) {
+    self.fbb_.push_slot::<u32>(WorkerAssignmentChunk::VT_SIZE, size, 0);
+  }
+  #[inline]
+  pub fn add_dataset_base_url(&mut self, dataset_base_url: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignmentChunk::VT_DATASET_BASE_URL, dataset_base_url);
+  }
+  #[inline]
+  pub fn add_schema_id(&mut self, schema_id: i32) {
+    self.fbb_.push_slot::<i32>(WorkerAssignmentChunk::VT_SCHEMA_ID, schema_id, 0);
+  }
+  #[inline]
+  pub fn add_tables_present(&mut self, tables_present: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignmentChunk::VT_TABLES_PRESENT, tables_present);
+  }
+  #[inline]
+  pub fn add_worker_indexes(&mut self, worker_indexes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u16>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignmentChunk::VT_WORKER_INDEXES, worker_indexes);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WorkerAssignmentChunkBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    WorkerAssignmentChunkBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<WorkerAssignmentChunk<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, WorkerAssignmentChunk::VT_ID,"id");
+    self.fbb_.required(o, WorkerAssignmentChunk::VT_DATASET_ID,"dataset_id");
+    self.fbb_.required(o, WorkerAssignmentChunk::VT_DATASET_BASE_URL,"dataset_base_url");
+    self.fbb_.required(o, WorkerAssignmentChunk::VT_WORKER_INDEXES,"worker_indexes");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for WorkerAssignmentChunk<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("WorkerAssignmentChunk");
+      ds.field("first_block", &self.first_block());
+      ds.field("id", &self.id());
+      ds.field("dataset_id", &self.dataset_id());
+      ds.field("size", &self.size());
+      ds.field("dataset_base_url", &self.dataset_base_url());
+      ds.field("schema_id", &self.schema_id());
+      ds.field("tables_present", &self.tables_present());
+      ds.field("worker_indexes", &self.worker_indexes());
+      ds.finish()
+  }
+}
+pub enum PortalAssignmentOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PortalAssignment<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for PortalAssignment<'a> {
+  type Inner = PortalAssignment<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> PortalAssignment<'a> {
+  pub const VT_DATASETS: flatbuffers::VOffsetT = 4;
+  pub const VT_WORKERS: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    PortalAssignment { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PortalAssignmentArgs<'args>
+  ) -> flatbuffers::WIPOffset<PortalAssignment<'bldr>> {
+    let mut builder = PortalAssignmentBuilder::new(_fbb);
+    if let Some(x) = args.workers { builder.add_workers(x); }
+    if let Some(x) = args.datasets { builder.add_datasets(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn datasets(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalAssignmentDataset<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalAssignmentDataset>>>>(PortalAssignment::VT_DATASETS, None).unwrap()}
+  }
+  #[inline]
+  pub fn workers(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalEntry<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalEntry>>>>(PortalAssignment::VT_WORKERS, None).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for PortalAssignment<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<PortalAssignmentDataset>>>>("datasets", Self::VT_DATASETS, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<PortalEntry>>>>("workers", Self::VT_WORKERS, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PortalAssignmentArgs<'a> {
+    pub datasets: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalAssignmentDataset<'a>>>>>,
+    pub workers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalEntry<'a>>>>>,
+}
+impl<'a> Default for PortalAssignmentArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PortalAssignmentArgs {
+      datasets: None, // required field
+      workers: None, // required field
+    }
+  }
+}
+
+pub struct PortalAssignmentBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PortalAssignmentBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_datasets(&mut self, datasets: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<PortalAssignmentDataset<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(PortalAssignment::VT_DATASETS, datasets);
+  }
+  #[inline]
+  pub fn add_workers(&mut self, workers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<PortalEntry<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(PortalAssignment::VT_WORKERS, workers);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PortalAssignmentBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PortalAssignmentBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<PortalAssignment<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PortalAssignment::VT_DATASETS,"datasets");
+    self.fbb_.required(o, PortalAssignment::VT_WORKERS,"workers");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for PortalAssignment<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("PortalAssignment");
+      ds.field("datasets", &self.datasets());
+      ds.field("workers", &self.workers());
+      ds.finish()
+  }
+}
+pub enum PortalAssignmentDatasetOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PortalAssignmentDataset<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for PortalAssignmentDataset<'a> {
+  type Inner = PortalAssignmentDataset<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> PortalAssignmentDataset<'a> {
+  pub const VT_ID: flatbuffers::VOffsetT = 4;
+  pub const VT_CHUNKS: flatbuffers::VOffsetT = 6;
+  pub const VT_LAST_BLOCK: flatbuffers::VOffsetT = 8;
+  pub const VT_SCHEMA_ID: flatbuffers::VOffsetT = 10;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    PortalAssignmentDataset { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PortalAssignmentDatasetArgs<'args>
+  ) -> flatbuffers::WIPOffset<PortalAssignmentDataset<'bldr>> {
+    let mut builder = PortalAssignmentDatasetBuilder::new(_fbb);
+    builder.add_last_block(args.last_block);
+    builder.add_schema_id(args.schema_id);
+    if let Some(x) = args.chunks { builder.add_chunks(x); }
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(PortalAssignmentDataset::VT_ID, None).unwrap()}
+  }
+  #[inline]
+  pub fn key_compare_less_than(&self, o: &PortalAssignmentDataset) -> bool {
+    self.id() < o.id()
+  }
+
+  #[inline]
+  pub fn key_compare_with_value(&self, val: & str) -> ::core::cmp::Ordering {
+    let key = self.id();
+    key.cmp(val)
+  }
+  #[inline]
+  pub fn chunks(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalAssignmentChunk<'a>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalAssignmentChunk>>>>(PortalAssignmentDataset::VT_CHUNKS, None).unwrap()}
+  }
+  #[inline]
+  pub fn last_block(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PortalAssignmentDataset::VT_LAST_BLOCK, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn schema_id(&self) -> i32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<i32>(PortalAssignmentDataset::VT_SCHEMA_ID, Some(0)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for PortalAssignmentDataset<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<PortalAssignmentChunk>>>>("chunks", Self::VT_CHUNKS, true)?
+     .visit_field::<u64>("last_block", Self::VT_LAST_BLOCK, false)?
+     .visit_field::<i32>("schema_id", Self::VT_SCHEMA_ID, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PortalAssignmentDatasetArgs<'a> {
+    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub chunks: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<PortalAssignmentChunk<'a>>>>>,
+    pub last_block: u64,
+    pub schema_id: i32,
+}
+impl<'a> Default for PortalAssignmentDatasetArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PortalAssignmentDatasetArgs {
+      id: None, // required field
+      chunks: None, // required field
+      last_block: 0,
+      schema_id: 0,
+    }
+  }
+}
+
+pub struct PortalAssignmentDatasetBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PortalAssignmentDatasetBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(PortalAssignmentDataset::VT_ID, id);
+  }
+  #[inline]
+  pub fn add_chunks(&mut self, chunks: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<PortalAssignmentChunk<'b >>>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(PortalAssignmentDataset::VT_CHUNKS, chunks);
+  }
+  #[inline]
+  pub fn add_last_block(&mut self, last_block: u64) {
+    self.fbb_.push_slot::<u64>(PortalAssignmentDataset::VT_LAST_BLOCK, last_block, 0);
+  }
+  #[inline]
+  pub fn add_schema_id(&mut self, schema_id: i32) {
+    self.fbb_.push_slot::<i32>(PortalAssignmentDataset::VT_SCHEMA_ID, schema_id, 0);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PortalAssignmentDatasetBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PortalAssignmentDatasetBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<PortalAssignmentDataset<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PortalAssignmentDataset::VT_ID,"id");
+    self.fbb_.required(o, PortalAssignmentDataset::VT_CHUNKS,"chunks");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for PortalAssignmentDataset<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("PortalAssignmentDataset");
+      ds.field("id", &self.id());
+      ds.field("chunks", &self.chunks());
+      ds.field("last_block", &self.last_block());
+      ds.field("schema_id", &self.schema_id());
+      ds.finish()
+  }
+}
+pub enum PortalAssignmentChunkOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PortalAssignmentChunk<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for PortalAssignmentChunk<'a> {
+  type Inner = PortalAssignmentChunk<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> PortalAssignmentChunk<'a> {
+  pub const VT_FIRST_BLOCK: flatbuffers::VOffsetT = 4;
+  pub const VT_ID: flatbuffers::VOffsetT = 6;
+  pub const VT_DATASET_ID: flatbuffers::VOffsetT = 8;
+  pub const VT_LAST_BLOCK_HASH: flatbuffers::VOffsetT = 10;
+  pub const VT_LAST_BLOCK_TIMESTAMP: flatbuffers::VOffsetT = 12;
+  pub const VT_WORKER_INDEXES: flatbuffers::VOffsetT = 14;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    PortalAssignmentChunk { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PortalAssignmentChunkArgs<'args>
+  ) -> flatbuffers::WIPOffset<PortalAssignmentChunk<'bldr>> {
+    let mut builder = PortalAssignmentChunkBuilder::new(_fbb);
+    if let Some(x) = args.last_block_timestamp { builder.add_last_block_timestamp(x); }
+    builder.add_first_block(args.first_block);
+    if let Some(x) = args.worker_indexes { builder.add_worker_indexes(x); }
+    if let Some(x) = args.last_block_hash { builder.add_last_block_hash(x); }
+    if let Some(x) = args.dataset_id { builder.add_dataset_id(x); }
+    if let Some(x) = args.id { builder.add_id(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn first_block(&self) -> u64 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PortalAssignmentChunk::VT_FIRST_BLOCK, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn key_compare_less_than(&self, o: &PortalAssignmentChunk) -> bool {
+    self.first_block() < o.first_block()
+  }
+
+  #[inline]
+  pub fn key_compare_with_value(&self, val: u64) -> ::core::cmp::Ordering {
+    let key = self.first_block();
+    key.cmp(&val)
+  }
+  #[inline]
+  pub fn id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(PortalAssignmentChunk::VT_ID, None).unwrap()}
+  }
+  #[inline]
+  pub fn dataset_id(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(PortalAssignmentChunk::VT_DATASET_ID, None).unwrap()}
+  }
+  #[inline]
+  pub fn last_block_hash(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<&str>>(PortalAssignmentChunk::VT_LAST_BLOCK_HASH, None)}
+  }
+  #[inline]
+  pub fn last_block_timestamp(&self) -> Option<u64> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u64>(PortalAssignmentChunk::VT_LAST_BLOCK_TIMESTAMP, None)}
+  }
+  #[inline]
+  pub fn worker_indexes(&self) -> flatbuffers::Vector<'a, u16> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, u16>>>(PortalAssignmentChunk::VT_WORKER_INDEXES, None).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for PortalAssignmentChunk<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<u64>("first_block", Self::VT_FIRST_BLOCK, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("dataset_id", Self::VT_DATASET_ID, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<&str>>("last_block_hash", Self::VT_LAST_BLOCK_HASH, false)?
+     .visit_field::<u64>("last_block_timestamp", Self::VT_LAST_BLOCK_TIMESTAMP, false)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, u16>>>("worker_indexes", Self::VT_WORKER_INDEXES, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PortalAssignmentChunkArgs<'a> {
+    pub first_block: u64,
+    pub id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub dataset_id: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub last_block_hash: Option<flatbuffers::WIPOffset<&'a str>>,
+    pub last_block_timestamp: Option<u64>,
+    pub worker_indexes: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, u16>>>,
+}
+impl<'a> Default for PortalAssignmentChunkArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PortalAssignmentChunkArgs {
+      first_block: 0,
+      id: None, // required field
+      dataset_id: None, // required field
+      last_block_hash: None,
+      last_block_timestamp: None,
+      worker_indexes: None, // required field
+    }
+  }
+}
+
+pub struct PortalAssignmentChunkBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PortalAssignmentChunkBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_first_block(&mut self, first_block: u64) {
+    self.fbb_.push_slot::<u64>(PortalAssignmentChunk::VT_FIRST_BLOCK, first_block, 0);
+  }
+  #[inline]
+  pub fn add_id(&mut self, id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(PortalAssignmentChunk::VT_ID, id);
+  }
+  #[inline]
+  pub fn add_dataset_id(&mut self, dataset_id: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(PortalAssignmentChunk::VT_DATASET_ID, dataset_id);
+  }
+  #[inline]
+  pub fn add_last_block_hash(&mut self, last_block_hash: flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(PortalAssignmentChunk::VT_LAST_BLOCK_HASH, last_block_hash);
+  }
+  #[inline]
+  pub fn add_last_block_timestamp(&mut self, last_block_timestamp: u64) {
+    self.fbb_.push_slot_always::<u64>(PortalAssignmentChunk::VT_LAST_BLOCK_TIMESTAMP, last_block_timestamp);
+  }
+  #[inline]
+  pub fn add_worker_indexes(&mut self, worker_indexes: flatbuffers::WIPOffset<flatbuffers::Vector<'b , u16>>) {
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(PortalAssignmentChunk::VT_WORKER_INDEXES, worker_indexes);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PortalAssignmentChunkBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PortalAssignmentChunkBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<PortalAssignmentChunk<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PortalAssignmentChunk::VT_ID,"id");
+    self.fbb_.required(o, PortalAssignmentChunk::VT_DATASET_ID,"dataset_id");
+    self.fbb_.required(o, PortalAssignmentChunk::VT_WORKER_INDEXES,"worker_indexes");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for PortalAssignmentChunk<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("PortalAssignmentChunk");
+      ds.field("first_block", &self.first_block());
+      ds.field("id", &self.id());
+      ds.field("dataset_id", &self.dataset_id());
+      ds.field("last_block_hash", &self.last_block_hash());
+      ds.field("last_block_timestamp", &self.last_block_timestamp());
+      ds.field("worker_indexes", &self.worker_indexes());
+      ds.finish()
+  }
+}
+pub enum PortalEntryOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct PortalEntry<'a> {
+  pub _tab: flatbuffers::Table<'a>,
+}
+
+impl<'a> flatbuffers::Follow<'a> for PortalEntry<'a> {
+  type Inner = PortalEntry<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: flatbuffers::Table::new(buf, loc) }
+  }
+}
+
+impl<'a> PortalEntry<'a> {
+  pub const VT_WORKER_ID: flatbuffers::VOffsetT = 4;
+  pub const VT_STATUS: flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
+    PortalEntry { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PortalEntryArgs<'args>
+  ) -> flatbuffers::WIPOffset<PortalEntry<'bldr>> {
+    let mut builder = PortalEntryBuilder::new(_fbb);
+    if let Some(x) = args.worker_id { builder.add_worker_id(x); }
+    builder.add_status(args.status);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn worker_id(&self) -> &'a WorkerId {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WorkerId>(PortalEntry::VT_WORKER_ID, None).unwrap()}
+  }
+  #[inline]
+  pub fn status(&self) -> WorkerStatus {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<WorkerStatus>(PortalEntry::VT_STATUS, Some(WorkerStatus::Ok)).unwrap()}
+  }
+}
+
+impl flatbuffers::Verifiable for PortalEntry<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut flatbuffers::Verifier, pos: usize
+  ) -> Result<(), flatbuffers::InvalidFlatbuffer> {
+    use self::flatbuffers::Verifiable;
+    v.visit_table(pos)?
+     .visit_field::<WorkerId>("worker_id", Self::VT_WORKER_ID, true)?
+     .visit_field::<WorkerStatus>("status", Self::VT_STATUS, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PortalEntryArgs<'a> {
+    pub worker_id: Option<&'a WorkerId>,
+    pub status: WorkerStatus,
+}
+impl<'a> Default for PortalEntryArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PortalEntryArgs {
+      worker_id: None, // required field
+      status: WorkerStatus::Ok,
+    }
+  }
+}
+
+pub struct PortalEntryBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> PortalEntryBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_worker_id(&mut self, worker_id: &WorkerId) {
+    self.fbb_.push_slot_always::<&WorkerId>(PortalEntry::VT_WORKER_ID, worker_id);
+  }
+  #[inline]
+  pub fn add_status(&mut self, status: WorkerStatus) {
+    self.fbb_.push_slot::<WorkerStatus>(PortalEntry::VT_STATUS, status, WorkerStatus::Ok);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> PortalEntryBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PortalEntryBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> flatbuffers::WIPOffset<PortalEntry<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PortalEntry::VT_WORKER_ID,"worker_id");
+    flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl core::fmt::Debug for PortalEntry<'_> {
+  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+    let mut ds = f.debug_struct("PortalEntry");
+      ds.field("worker_id", &self.worker_id());
+      ds.field("status", &self.status());
       ds.finish()
   }
 }

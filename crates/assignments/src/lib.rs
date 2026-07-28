@@ -11,6 +11,13 @@ pub use common::{NetworkAssignment, NetworkState, WorkerStatus};
 
 #[cfg(feature = "builder")]
 pub use builder::AssignmentBuilder;
+#[cfg(all(feature = "builder", feature = "mvcc-chunks"))]
+pub use builder::{
+    PortalAssignmentBuilder, PortalAssignmentChunkBuilder, WorkerAssignmentBuilder,
+    WorkerAssignmentChunkBuilder,
+};
 
+#[cfg(all(feature = "reader", feature = "mvcc-chunks"))]
+pub use reader::{AssignedWorker, PortalAssignment, PortalWorker, WorkerAssignment};
 #[cfg(feature = "reader")]
 pub use reader::{Assignment, ChunkNotFound, ChunkRef, Worker};

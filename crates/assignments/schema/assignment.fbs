@@ -3,7 +3,7 @@
 
 table Assignment {
   datasets: [Dataset] (required);
-  workers: [WorkerAssignment] (required);
+  workers: [WorkerEntry] (required);
 }
 
 enum WorkerStatus: byte {
@@ -13,7 +13,11 @@ enum WorkerStatus: byte {
   UnsupportedVersion,
 }
 
-table WorkerAssignment {
+// A worker's entry within a published assignment: identity, serve-eligibility status, and the
+// sealed HTTP auth headers for the storage backend. Renamed from `WorkerAssignment` (NET-1180) to
+// free that name for the new worker-facing root table below; this type is internal to the
+// assignments crate (builder.rs/reader.rs) and was never referenced by name elsewhere.
+table WorkerEntry {
   worker_id: WorkerId (required);  // sorted by parsed PeerId
 
   chunks: [Chunk] (deprecated);
@@ -54,6 +58,71 @@ table EncryptedHeaders {
   identity: [ubyte] (required);
   nonce: [ubyte] (required);
   ciphertext: [ubyte] (required);
+}
+
+// --- NET-1180: split worker/portal assignment content ---
+//
+// `Assignment` above is served identically to both workers and portals today. These two root
+// tables diverge that content so each side carries only what it actually reads (see
+// docs/assignment-wire-format.md in network-scheduler for the field-by-field trace). Both are
+// independent roots living in this same file — flatc generates a `root_as_worker_assignment` /
+// `root_as_portal_assignment` function for every table regardless of the file's declared
+// `root_type` below, so this doesn't disturb the legacy `Assignment` path. Published as
+// NetworkState's `worker_assignment` / `portal_assignment` blobs.
+//
+// How a chunk's or dataset's `schema_id` resolves to actual schema content is explicitly out of
+// scope here (NET-1180) — it travels as an opaque reference for now.
+
+table WorkerAssignment {
+  datasets: [WorkerAssignmentDataset] (required);
+  workers: [WorkerEntry] (required);
+}
+
+table WorkerAssignmentDataset {
+  id: string (key);  // e.g. "s3://solana-mainnet-2"
+  chunks: [WorkerAssignmentChunk] (required);
+  last_block: uint64;
+}
+
+table WorkerAssignmentChunk {
+  first_block: uint64 (key);
+  id: string (required);
+  dataset_id: string (required);
+  size: uint32;
+  dataset_base_url: string (required);  // shared across all chunks of the dataset
+  // No per-chunk base_url: the legacy field was always just `id` restated
+  // (see sqd-assignments builder.rs), so the worker builds the download prefix from
+  // dataset_base_url + id directly.
+  schema_id: int32;
+  // Table names present, resolved against schema_id's tables. Absent (null) = all tables present.
+  tables_present: [string];
+  worker_indexes: [uint16] (required);
+}
+
+table PortalAssignment {
+  datasets: [PortalAssignmentDataset] (required);
+  workers: [PortalEntry] (required);
+}
+
+table PortalAssignmentDataset {
+  id: string (key);
+  chunks: [PortalAssignmentChunk] (required);
+  last_block: uint64;
+  schema_id: int32;  // the dataset's current read schema, for query validation
+}
+
+table PortalAssignmentChunk {
+  first_block: uint64 (key);
+  id: string (required);
+  dataset_id: string (required);
+  last_block_hash: string;
+  last_block_timestamp: uint64 = null;
+  worker_indexes: [uint16] (required);  // confirmed routing, not the raw ideal placement
+}
+
+table PortalEntry {
+  worker_id: WorkerId (required);
+  status: WorkerStatus;
 }
 
 root_type Assignment;

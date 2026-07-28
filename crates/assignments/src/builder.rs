@@ -14,6 +14,15 @@ use crate::{
 
 use super::assignment_fb::{self, Assignment, WorkerId};
 
+fn status_to_fb(status: common::WorkerStatus) -> assignment_fb::WorkerStatus {
+    match status {
+        crate::WorkerStatus::Ok => assignment_fb::WorkerStatus::Ok,
+        crate::WorkerStatus::Unreliable => assignment_fb::WorkerStatus::Unreliable,
+        crate::WorkerStatus::DeprecatedVersion => assignment_fb::WorkerStatus::DeprecatedVersion,
+        crate::WorkerStatus::UnsupportedVersion => assignment_fb::WorkerStatus::UnsupportedVersion,
+    }
+}
+
 pub struct AssignmentBuilder<Rng: CryptoRngCore> {
     builder: fb::FlatBufferBuilder<'static>,
     rng: Rng,
@@ -23,7 +32,7 @@ pub struct AssignmentBuilder<Rng: CryptoRngCore> {
     current_chunks: Vec<fb::WIPOffset<assignment_fb::Chunk<'static>>>,
     current_dataset_id_offset: Option<fb::WIPOffset<&'static str>>,
     all_datasets: Vec<fb::WIPOffset<assignment_fb::Dataset<'static>>>,
-    worker_assignments: Vec<(WorkerId, fb::WIPOffset<assignment_fb::WorkerAssignment<'static>>)>,
+    worker_assignments: Vec<(WorkerId, fb::WIPOffset<assignment_fb::WorkerEntry<'static>>)>,
     last_peer_id: Option<PeerId>,
     cloudflare_storage_secret: String,
     common_identity: fb::WIPOffset<fb::Vector<'static, u8>>,
@@ -90,16 +99,20 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
         self.current_chunks.clear();
     }
 
-    pub fn add_worker(&mut self, id: PeerId, status: common::WorkerStatus, chunk_indexes: &[u32]) {
+    /// `chunk_indexes` is accepted for backward API compatibility but no longer used: the
+    /// generated `WorkerEntryArgs` excludes the `chunks` field entirely now that it's
+    /// `(deprecated)` in the schema — flatc won't let a deprecated field be populated by new
+    /// code. Chunk-to-worker mappings travel via each chunk's `worker_indexes` instead.
+    pub fn add_worker(&mut self, id: PeerId, status: common::WorkerStatus, _chunk_indexes: &[u32]) {
         let timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs().try_into().unwrap();
-        self.add_worker_with_timestamp(id, status, chunk_indexes, timestamp);
+        self.add_worker_with_timestamp(id, status, _chunk_indexes, timestamp);
     }
 
     pub fn add_worker_with_timestamp(
         &mut self,
         id: PeerId,
         status: common::WorkerStatus,
-        chunk_indexes: &[u32],
+        _chunk_indexes: &[u32],
         timestamp: usize,
     ) {
         if let Some(last) = self.last_peer_id {
@@ -108,19 +121,7 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
         self.last_peer_id = Some(id);
 
         let worker_id = WorkerId::from(id);
-        let chunks = self
-            .builder
-            .create_vector_from_iter(chunk_indexes.iter().map(|&i| self.all_chunks[i as usize]));
-        let status = match status {
-            crate::WorkerStatus::Ok => assignment_fb::WorkerStatus::Ok,
-            crate::WorkerStatus::Unreliable => assignment_fb::WorkerStatus::Unreliable,
-            crate::WorkerStatus::DeprecatedVersion => {
-                assignment_fb::WorkerStatus::DeprecatedVersion
-            }
-            crate::WorkerStatus::UnsupportedVersion => {
-                assignment_fb::WorkerStatus::UnsupportedVersion
-            }
-        };
+        let status = status_to_fb(status);
 
         let encrypted_headers = self
             .generate_encrypted_headers(&id, timestamp)
@@ -128,11 +129,10 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
                 tracing::warn!("Failed to encrypt headers for worker {}: {}", id, e);
             })
             .ok();
-        let offset = assignment_fb::WorkerAssignment::create(
+        let offset = assignment_fb::WorkerEntry::create(
             &mut self.builder,
-            &assignment_fb::WorkerAssignmentArgs {
+            &assignment_fb::WorkerEntryArgs {
                 worker_id: Some(&worker_id),
-                chunks: Some(chunks),
                 status,
                 encrypted_headers,
             },
@@ -342,6 +342,489 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
                 dataset_base_url: self.dataset_base_url,
                 base_url: self.id,
                 files: self.files,
+                worker_indexes: self.worker_indexes,
+            },
+        );
+        self.p
+            .add_chunk(offset, self.dataset_id.expect("Dataset ID must be set"), block_range)
+    }
+}
+
+// ===== Worker-facing assignment (NET-1180) =====
+//
+// Same continuity-checked chunk/dataset staging as `AssignmentBuilder`, minus the file-list
+// machinery (a worker resolves its chunks' files from the schema, not a wire-provided list — see
+// docs/assignment-wire-format.md in network-scheduler). `WorkerEntry` is shared with the legacy
+// format unchanged.
+
+#[cfg(feature = "mvcc-chunks")]
+pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
+    builder: fb::FlatBufferBuilder<'static>,
+    rng: Rng,
+    all_chunks: Vec<fb::WIPOffset<assignment_fb::WorkerAssignmentChunk<'static>>>,
+    last_block: Option<u64>,
+    current_chunks: Vec<fb::WIPOffset<assignment_fb::WorkerAssignmentChunk<'static>>>,
+    current_dataset_id_offset: Option<fb::WIPOffset<&'static str>>,
+    all_datasets: Vec<fb::WIPOffset<assignment_fb::WorkerAssignmentDataset<'static>>>,
+    worker_entries: Vec<(WorkerId, fb::WIPOffset<assignment_fb::WorkerEntry<'static>>)>,
+    last_peer_id: Option<PeerId>,
+    cloudflare_storage_secret: String,
+    common_identity: fb::WIPOffset<fb::Vector<'static, u8>>,
+    common_secret_key: SecretKey,
+    check_continuity: bool,
+}
+
+#[cfg(feature = "mvcc-chunks")]
+impl WorkerAssignmentBuilder<OsRng> {
+    pub fn new(cloudflare_storage_secret: impl Into<String>) -> Self {
+        Self::new_with_rng(cloudflare_storage_secret, OsRng)
+    }
+}
+
+#[cfg(feature = "mvcc-chunks")]
+impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
+    pub fn new_with_rng(cloudflare_storage_secret: impl Into<String>, mut rng: Rng) -> Self {
+        let mut builder = flatbuffers::FlatBufferBuilder::new();
+        let common_secret_key = SecretKey::generate(&mut rng);
+        let common_public_key_bytes = *common_secret_key.public_key().as_bytes();
+        let common_identity = builder.create_vector(&common_public_key_bytes);
+        Self {
+            builder,
+            rng,
+            all_chunks: Vec::new(),
+            last_block: None,
+            current_chunks: Vec::new(),
+            current_dataset_id_offset: None,
+            all_datasets: Vec::new(),
+            worker_entries: Vec::new(),
+            last_peer_id: None,
+            cloudflare_storage_secret: cloudflare_storage_secret.into(),
+            common_identity,
+            common_secret_key,
+            check_continuity: true,
+        }
+    }
+
+    /// See [`AssignmentBuilder::check_continuity`].
+    pub fn check_continuity(mut self, check: bool) -> Self {
+        self.check_continuity = check;
+        self
+    }
+
+    pub fn new_chunk(&mut self) -> WorkerAssignmentChunkBuilder<'_, Rng> {
+        WorkerAssignmentChunkBuilder::new(self)
+    }
+
+    pub fn finish_dataset(&mut self) {
+        let chunks = self.builder.create_vector(&self.current_chunks);
+        let offset = assignment_fb::WorkerAssignmentDataset::create(
+            &mut self.builder,
+            &assignment_fb::WorkerAssignmentDatasetArgs {
+                id: self.current_dataset_id_offset.take(),
+                chunks: Some(chunks),
+                last_block: self
+                    .last_block
+                    .take()
+                    .expect("At least one chunk should be present in the dataset"),
+            },
+        );
+        self.all_datasets.push(offset);
+        self.current_chunks.clear();
+    }
+
+    pub fn add_worker(&mut self, id: PeerId, status: common::WorkerStatus) {
+        let timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs().try_into().unwrap();
+        self.add_worker_with_timestamp(id, status, timestamp);
+    }
+
+    pub fn add_worker_with_timestamp(
+        &mut self,
+        id: PeerId,
+        status: common::WorkerStatus,
+        timestamp: usize,
+    ) {
+        if let Some(last) = self.last_peer_id {
+            assert!(last < id, "Workers must be added in ascending order of their PeerIDs");
+        }
+        self.last_peer_id = Some(id);
+
+        let worker_id = WorkerId::from(id);
+        let status = status_to_fb(status);
+        let encrypted_headers = self
+            .generate_encrypted_headers(&id, timestamp)
+            .inspect_err(|e| {
+                tracing::warn!("Failed to encrypt headers for worker {}: {}", id, e);
+            })
+            .ok();
+        // The deprecated per-worker `chunks` field is excluded from `WorkerEntryArgs` entirely —
+        // chunks carry their holders via `worker_indexes` instead (see
+        // `WorkerAssignmentChunkBuilder`).
+        let offset = assignment_fb::WorkerEntry::create(
+            &mut self.builder,
+            &assignment_fb::WorkerEntryArgs {
+                worker_id: Some(&worker_id),
+                status,
+                encrypted_headers,
+            },
+        );
+        self.worker_entries.push((worker_id, offset));
+    }
+
+    pub fn finish(&mut self) -> Vec<u8> {
+        let datasets = self.builder.create_vector(&self.all_datasets);
+        let workers = self
+            .builder
+            .create_vector_from_iter(self.worker_entries.iter().map(|(_, offset)| *offset));
+
+        let root = assignment_fb::WorkerAssignment::create(
+            &mut self.builder,
+            &assignment_fb::WorkerAssignmentArgs {
+                datasets: Some(datasets),
+                workers: Some(workers),
+            },
+        );
+
+        self.builder.finish(root, None);
+        self.builder.finished_data().to_vec()
+    }
+
+    fn add_chunk(
+        &mut self,
+        offset: fb::WIPOffset<assignment_fb::WorkerAssignmentChunk<'static>>,
+        dataset: WIPOffset<&'static str>,
+        block_range: RangeInclusive<u64>,
+    ) -> anyhow::Result<()> {
+        let result = match self.last_block {
+            Some(last) if last + 1 != *block_range.start() => Err(anyhow::anyhow!(
+                "Chunks in the dataset must be contiguous, got {} -> {}",
+                last,
+                block_range.start()
+            )),
+            _ => Ok(()),
+        };
+        if result.is_ok() || !self.check_continuity {
+            self.all_chunks.push(offset);
+            self.last_block = Some(*block_range.end());
+            self.current_chunks.push(offset);
+            self.current_dataset_id_offset = Some(dataset);
+        }
+        result
+    }
+
+    fn generate_encrypted_headers(
+        &mut self,
+        peer_id: &PeerId,
+        timestamp: usize,
+    ) -> anyhow::Result<fb::WIPOffset<assignment_fb::EncryptedHeaders<'static>>> {
+        let id = peer_id.to_string();
+        let worker_signature = timed_hmac(&id, &self.cloudflare_storage_secret, timestamp);
+        let plaintext =
+            format!(r#"{{"worker-id":"{}","worker-signature":"{}"}}"#, id, worker_signature);
+
+        let (ciphertext, nonce) = encrypt_with_rng(
+            peer_id,
+            &self.common_secret_key,
+            plaintext.as_bytes(),
+            &mut self.rng,
+        )?;
+
+        let ciphertext_offset = self.builder.create_vector(&ciphertext);
+        let nonce_offset = self.builder.create_vector(&nonce);
+        Ok(assignment_fb::EncryptedHeaders::create(
+            &mut self.builder,
+            &assignment_fb::EncryptedHeadersArgs {
+                identity: Some(self.common_identity),
+                nonce: Some(nonce_offset),
+                ciphertext: Some(ciphertext_offset),
+            },
+        ))
+    }
+}
+
+#[cfg(feature = "mvcc-chunks")]
+pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
+    p: &'b mut WorkerAssignmentBuilder<Rng>,
+
+    block_range: Option<RangeInclusive<u64>>,
+    id: Option<fb::WIPOffset<&'static str>>,
+    dataset_id: Option<fb::WIPOffset<&'static str>>,
+    size: Option<u32>,
+    dataset_base_url: Option<fb::WIPOffset<&'static str>>,
+    schema_id: Option<i32>,
+    tables_present: Option<fb::WIPOffset<fb::Vector<'static, fb::ForwardsUOffset<&'static str>>>>,
+    worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
+}
+
+#[cfg(feature = "mvcc-chunks")]
+impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
+    pub fn new(parent: &'b mut WorkerAssignmentBuilder<Rng>) -> Self {
+        Self {
+            p: parent,
+            block_range: None,
+            id: None,
+            dataset_id: None,
+            size: None,
+            dataset_base_url: None,
+            schema_id: None,
+            tables_present: None,
+            worker_indexes: None,
+        }
+    }
+
+    pub fn id(mut self, id: &str) -> Self {
+        self.id = Some(self.p.builder.create_string(id));
+        self
+    }
+
+    pub fn dataset_id(mut self, dataset_id: &str) -> Self {
+        self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
+        self
+    }
+
+    pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
+        self.block_range = Some(range);
+        self
+    }
+
+    pub fn size(mut self, size: u32) -> Self {
+        self.size = Some(size);
+        self
+    }
+
+    pub fn dataset_base_url(mut self, url: &str) -> Self {
+        self.dataset_base_url = Some(self.p.builder.create_shared_string(url));
+        self
+    }
+
+    /// The schema the chunk was written under. See docs/mvcc-schema.md (network-scheduler) —
+    /// resolving this id to schema content is out of scope here (NET-1180).
+    pub fn schema_id(mut self, schema_id: i32) -> Self {
+        self.schema_id = Some(schema_id);
+        self
+    }
+
+    /// Table names present in this chunk, resolved against `schema_id`'s tables. Omit (leave
+    /// unset) when every table is present.
+    pub fn tables_present<S: AsRef<str>>(mut self, tables: &[S]) -> Self {
+        let offsets: Vec<_> =
+            tables.iter().map(|t| self.p.builder.create_string(t.as_ref())).collect();
+        self.tables_present = Some(self.p.builder.create_vector(&offsets));
+        self
+    }
+
+    pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
+        self.worker_indexes = Some(self.p.builder.create_vector(indexes));
+        self
+    }
+
+    pub fn finish(self) -> anyhow::Result<()> {
+        let block_range = self.block_range.expect("Block range must be set");
+        let offset = assignment_fb::WorkerAssignmentChunk::create(
+            &mut self.p.builder,
+            &assignment_fb::WorkerAssignmentChunkArgs {
+                id: self.id,
+                first_block: *block_range.start(),
+                dataset_id: self.dataset_id,
+                size: self.size.expect("Size must be set"),
+                dataset_base_url: self.dataset_base_url,
+                schema_id: self.schema_id.expect("schema_id must be set"),
+                tables_present: self.tables_present,
+                worker_indexes: self.worker_indexes,
+            },
+        );
+        self.p
+            .add_chunk(offset, self.dataset_id.expect("Dataset ID must be set"), block_range)
+    }
+}
+
+// ===== Portal-facing assignment (NET-1180) =====
+//
+// No encryption, no RNG: portals never see `encrypted_headers`. `PortalEntry` carries only
+// identity + status. Chunks carry `last_block_hash`/`last_block_timestamp` instead of
+// files/URLs; the dataset (not the chunk) carries `schema_id` — the portal's current read schema
+// reference, not a per-chunk write-schema pin.
+
+#[cfg(feature = "mvcc-chunks")]
+#[derive(Default)]
+pub struct PortalAssignmentBuilder {
+    builder: fb::FlatBufferBuilder<'static>,
+    all_chunks: Vec<fb::WIPOffset<assignment_fb::PortalAssignmentChunk<'static>>>,
+    last_block: Option<u64>,
+    current_chunks: Vec<fb::WIPOffset<assignment_fb::PortalAssignmentChunk<'static>>>,
+    current_dataset_id_offset: Option<fb::WIPOffset<&'static str>>,
+    all_datasets: Vec<fb::WIPOffset<assignment_fb::PortalAssignmentDataset<'static>>>,
+    worker_entries: Vec<(WorkerId, fb::WIPOffset<assignment_fb::PortalEntry<'static>>)>,
+    last_peer_id: Option<PeerId>,
+    check_continuity: bool,
+}
+
+#[cfg(feature = "mvcc-chunks")]
+impl PortalAssignmentBuilder {
+    pub fn new() -> Self {
+        Self {
+            builder: flatbuffers::FlatBufferBuilder::new(),
+            check_continuity: true,
+            ..Default::default()
+        }
+    }
+
+    /// See [`AssignmentBuilder::check_continuity`].
+    pub fn check_continuity(mut self, check: bool) -> Self {
+        self.check_continuity = check;
+        self
+    }
+
+    pub fn new_chunk(&mut self) -> PortalAssignmentChunkBuilder<'_> {
+        PortalAssignmentChunkBuilder::new(self)
+    }
+
+    /// `schema_id` is the dataset's current read schema at publication time — a single
+    /// per-dataset reference, not a per-chunk write-schema pin (contrast with
+    /// `WorkerAssignmentChunkBuilder::schema_id`).
+    pub fn finish_dataset(&mut self, schema_id: i32) {
+        let chunks = self.builder.create_vector(&self.current_chunks);
+        let offset = assignment_fb::PortalAssignmentDataset::create(
+            &mut self.builder,
+            &assignment_fb::PortalAssignmentDatasetArgs {
+                id: self.current_dataset_id_offset.take(),
+                chunks: Some(chunks),
+                last_block: self
+                    .last_block
+                    .take()
+                    .expect("At least one chunk should be present in the dataset"),
+                schema_id,
+            },
+        );
+        self.all_datasets.push(offset);
+        self.current_chunks.clear();
+    }
+
+    pub fn add_worker(&mut self, id: PeerId, status: common::WorkerStatus) {
+        if let Some(last) = self.last_peer_id {
+            assert!(last < id, "Workers must be added in ascending order of their PeerIDs");
+        }
+        self.last_peer_id = Some(id);
+
+        let worker_id = WorkerId::from(id);
+        let offset = assignment_fb::PortalEntry::create(
+            &mut self.builder,
+            &assignment_fb::PortalEntryArgs {
+                worker_id: Some(&worker_id),
+                status: status_to_fb(status),
+            },
+        );
+        self.worker_entries.push((worker_id, offset));
+    }
+
+    pub fn finish(&mut self) -> Vec<u8> {
+        let datasets = self.builder.create_vector(&self.all_datasets);
+        let workers = self
+            .builder
+            .create_vector_from_iter(self.worker_entries.iter().map(|(_, offset)| *offset));
+
+        let root = assignment_fb::PortalAssignment::create(
+            &mut self.builder,
+            &assignment_fb::PortalAssignmentArgs {
+                datasets: Some(datasets),
+                workers: Some(workers),
+            },
+        );
+
+        self.builder.finish(root, None);
+        self.builder.finished_data().to_vec()
+    }
+
+    fn add_chunk(
+        &mut self,
+        offset: fb::WIPOffset<assignment_fb::PortalAssignmentChunk<'static>>,
+        dataset: WIPOffset<&'static str>,
+        block_range: RangeInclusive<u64>,
+    ) -> anyhow::Result<()> {
+        let result = match self.last_block {
+            Some(last) if last + 1 != *block_range.start() => Err(anyhow::anyhow!(
+                "Chunks in the dataset must be contiguous, got {} -> {}",
+                last,
+                block_range.start()
+            )),
+            _ => Ok(()),
+        };
+        if result.is_ok() || !self.check_continuity {
+            self.all_chunks.push(offset);
+            self.last_block = Some(*block_range.end());
+            self.current_chunks.push(offset);
+            self.current_dataset_id_offset = Some(dataset);
+        }
+        result
+    }
+}
+
+#[cfg(feature = "mvcc-chunks")]
+pub struct PortalAssignmentChunkBuilder<'b> {
+    p: &'b mut PortalAssignmentBuilder,
+
+    block_range: Option<RangeInclusive<u64>>,
+    id: Option<fb::WIPOffset<&'static str>>,
+    dataset_id: Option<fb::WIPOffset<&'static str>>,
+    last_block_hash: Option<fb::WIPOffset<&'static str>>,
+    last_block_timestamp: Option<u64>,
+    worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
+}
+
+#[cfg(feature = "mvcc-chunks")]
+impl<'b> PortalAssignmentChunkBuilder<'b> {
+    pub fn new(parent: &'b mut PortalAssignmentBuilder) -> Self {
+        Self {
+            p: parent,
+            block_range: None,
+            id: None,
+            dataset_id: None,
+            last_block_hash: None,
+            last_block_timestamp: None,
+            worker_indexes: None,
+        }
+    }
+
+    pub fn id(mut self, id: &str) -> Self {
+        self.id = Some(self.p.builder.create_string(id));
+        self
+    }
+
+    pub fn dataset_id(mut self, dataset_id: &str) -> Self {
+        self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
+        self
+    }
+
+    pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
+        self.block_range = Some(range);
+        self
+    }
+
+    pub fn last_block_hash(mut self, hash: &str) -> Self {
+        self.last_block_hash = Some(self.p.builder.create_string(hash));
+        self
+    }
+
+    pub fn last_block_timestamp(mut self, timestamp: u64) -> Self {
+        self.last_block_timestamp = Some(timestamp);
+        self
+    }
+
+    /// Confirmed routing (which workers portals should route to), not the raw ideal placement.
+    pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
+        self.worker_indexes = Some(self.p.builder.create_vector(indexes));
+        self
+    }
+
+    pub fn finish(self) -> anyhow::Result<()> {
+        let block_range = self.block_range.expect("Block range must be set");
+        let offset = assignment_fb::PortalAssignmentChunk::create(
+            &mut self.p.builder,
+            &assignment_fb::PortalAssignmentChunkArgs {
+                id: self.id,
+                first_block: *block_range.start(),
+                dataset_id: self.dataset_id,
+                last_block_hash: self.last_block_hash,
+                last_block_timestamp: self.last_block_timestamp,
                 worker_indexes: self.worker_indexes,
             },
         );

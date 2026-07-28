@@ -47,3 +47,14 @@ impl Dataset<'_> {
         self.chunks().get(self.chunks().len() - 1).last_block_hash()
     }
 }
+
+#[cfg(feature = "mvcc-chunks")]
+impl PortalAssignmentDataset<'_> {
+    pub fn first_block(&self) -> u64 {
+        self.chunks().get(0).first_block()
+    }
+
+    pub fn last_block_hash(&self) -> Option<&str> {
+        self.chunks().get(self.chunks().len() - 1).last_block_hash()
+    }
+}
