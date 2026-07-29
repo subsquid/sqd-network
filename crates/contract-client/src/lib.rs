@@ -30,7 +30,7 @@ pub use libp2p::PeerId;
 
 pub use cli::{Network, RpcArgs};
 pub use client::{
-    get_client, Allocation, Client, DummyData, EpochStream, NetworkNodes, NodeStream,
+    get_client, Allocation, Client, DummyClient, DummyData, EpochStream, NetworkNodes, NodeStream,
     PortalCluster, Worker,
 };
 pub use error::ClientError;

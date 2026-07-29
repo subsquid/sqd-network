@@ -607,6 +607,12 @@ fn stale_addrs(current: Vec<Multiaddr>, announced: &HashSet<Multiaddr>) -> Vec<M
 
 #[cfg(test)]
 mod tests {
+    use libp2p::{
+        core::{transport::PortUse, Endpoint},
+        swarm::ConnectionId,
+    };
+    use sqd_contract_client::{DummyClient, DummyData};
+
     use super::*;
 
     fn addr(port: u16, peer: PeerId) -> Multiaddr {
@@ -635,5 +641,121 @@ mod tests {
         let current = vec![addr(1000, peer), addr(2000, peer)];
         let announced = HashSet::from([addr(1000, peer), addr(2000, peer)]);
         assert!(stale_addrs(current, &announced).is_empty());
+    }
+
+    /// Async because `WhitelistBehavior::new` builds a `tokio::time::interval` stream, which
+    /// panics without a reactor.
+    fn test_behaviour(keypair: &Keypair) -> BaseBehaviour {
+        let config = BaseConfig {
+            // Pinned rather than read from the environment: `ONCHAIN_UPDATE_INTERVAL_SEC=0` or
+            // `ADDR_CACHE_SIZE=0` in a developer's shell would otherwise panic the test.
+            onchain_update_interval: Duration::from_secs(60),
+            addr_cache_size: NonZeroUsize::new(16).expect("non-zero"),
+            ..BaseConfig::from_env()
+        };
+        BaseBehaviour::new(
+            keypair,
+            Box::new(DummyClient::new(DummyData::default())),
+            config,
+            vec![],
+            StreamProtocol::new("/subsquid/dht/test/1.0.0"),
+            AgentInfo {
+                name: "test",
+                version: "0.0.0",
+            },
+        )
+    }
+
+    /// `keypair` must be the *remote* peer's, so `public_key` and `peer_id` agree as they do on
+    /// the wire.
+    fn identify_received(keypair: &Keypair, listen_addrs: Vec<Multiaddr>) -> identify::Event {
+        identify::Event::Received {
+            connection_id: ConnectionId::new_unchecked(1),
+            peer_id: keypair.public().to_peer_id(),
+            info: identify::Info {
+                public_key: keypair.public(),
+                protocol_version: ID_PROTOCOL.to_owned(),
+                agent_version: "sqd-worker/2.13.0".to_owned(),
+                listen_addrs,
+                protocols: vec![],
+                observed_addr: "/ip4/5.6.7.8/udp/1/quic-v1".parse().expect("valid addr"),
+                signed_peer_record: None,
+            },
+        }
+    }
+
+    /// A worker behind NAT announces a public address that no longer reaches it, while we are
+    /// connected on a different address learned from the DHT. The announced set must not be
+    /// treated as authoritative: the address we are demonstrably connected on has to survive in
+    /// the routing stores, or the worker becomes permanently undialable (NET-384).
+    ///
+    /// Asserted against the address cache and the Kademlia routing table individually rather than
+    /// against the aggregate of `InnerBehaviour`, because `autonat` keeps its own transient copy
+    /// of a connected peer's address and would mask the defect.
+    #[tokio::test]
+    async fn keeps_confirmed_address_when_peer_announces_a_stale_one() {
+        let local = Keypair::generate_ed25519();
+        let remote = Keypair::generate_ed25519();
+        let peer = remote.public().to_peer_id();
+        let working = addr(12208, peer); // the address the connection actually runs on
+        let announced = addr(9999, peer); // the stale address the worker advertises
+
+        let mut behaviour = test_behaviour(&local);
+        // Stand in for the on-chain registration that normally whitelists a worker.
+        behaviour.allow_peer(peer);
+
+        // The DHT lookup that found this worker is what put `working` in the routing table.
+        behaviour.inner.kademlia.add_address(&peer, working.clone());
+
+        // The dial succeeded on `working`, so it is confirmed reachable.
+        behaviour
+            .inner()
+            .handle_established_outbound_connection(
+                ConnectionId::new_unchecked(1),
+                peer,
+                &working,
+                Endpoint::Dialer,
+                PortUse::Reuse,
+            )
+            .expect("connection should be accepted");
+
+        // Identify arrives over that same connection, announcing only the stale address.
+        behaviour.on_identify_event(identify_received(&remote, vec![announced.clone()]));
+
+        let cached = behaviour
+            .inner
+            .address_cache
+            .handle_pending_outbound_connection(
+                ConnectionId::new_unchecked(2),
+                Some(peer),
+                &[],
+                Endpoint::Dialer,
+            )
+            .expect("dial should be allowed");
+        let routed = behaviour
+            .inner
+            .kademlia
+            .handle_pending_outbound_connection(
+                ConnectionId::new_unchecked(3),
+                Some(peer),
+                &[],
+                Endpoint::Dialer,
+            )
+            .expect("dial should be allowed");
+
+        // Guards against the test passing vacuously if the identify event stops being applied.
+        assert!(
+            routed.contains(&announced),
+            "identify was not applied: kademlia never learned the announced address"
+        );
+
+        assert!(
+            cached.contains(&working),
+            "address cache dropped the address we are connected on; it would dial {cached:?}"
+        );
+        assert!(
+            routed.contains(&working),
+            "kademlia dropped the address we are connected on; it would dial {routed:?}"
+        );
     }
 }

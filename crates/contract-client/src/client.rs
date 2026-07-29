@@ -206,7 +206,7 @@ pub async fn get_client(rpc_args: &RpcArgs) -> Result<Box<dyn Client>, ClientErr
 }
 
 /// Dummy data structure loaded from JSON file
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct DummyData {
     pub current_epoch: u32,
     pub current_epoch_start: u64,
@@ -237,8 +237,10 @@ pub struct DummyPortalCluster {
     pub allocated_computation_units: String,
 }
 
+/// In-memory [`Client`] backed by static data. Used by `--dummy-client-file-path` and as a
+/// stand-in for the on-chain client in tests.
 #[derive(Clone)]
-struct DummyClient {
+pub struct DummyClient {
     data: DummyData,
 }
 
