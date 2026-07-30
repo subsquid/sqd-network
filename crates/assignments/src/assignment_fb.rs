@@ -1,14 +1,10 @@
-#![allow(
-    dead_code,
-    unused_imports,
-    unsafe_op_in_unsafe_fn,
-    mismatched_lifetime_syntaxes,
-    clippy::all
-)]
-
 use libp2p_identity::PeerId;
 
-include!("../schema/gen/assignment_generated.rs");
+pub(crate) use crate::assignment_generated::*;
+#[cfg(feature = "mvcc-chunks")]
+pub(crate) use crate::portal_assignment_generated::*;
+#[cfg(feature = "mvcc-chunks")]
+pub(crate) use crate::worker_assignment_generated::*;
 
 impl Eq for WorkerId {}
 
@@ -33,7 +29,7 @@ impl From<PeerId> for WorkerId {
 #[test]
 fn test_worker_id_conversion() {
     let peer_id = libp2p_identity::Keypair::generate_ed25519().public().to_peer_id();
-    let worker_id: WorkerId = peer_id.clone().into();
+    let worker_id: WorkerId = peer_id.into();
     let converted_peer_id: PeerId = worker_id.try_into().expect("Conversion should succeed");
     assert_eq!(peer_id, converted_peer_id, "PeerId conversion failed");
 }

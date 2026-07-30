@@ -1,0 +1,42 @@
+// When changing this file, regenerate the sources by running
+// flatc --rust -o gen ./assignment.fbs ./worker_assignment.fbs ./portal_assignment.fbs
+
+include "assignment.fbs";
+
+// --- NET-1180: portal-oriented assignment ---
+//
+// The legacy `Assignment` (assignment.fbs) is served identically to both workers and portals
+// today. This root type diverges that content to carry only what a portal actually reads (see
+// docs/assignment-wire-format.md in network-scheduler for the field-by-field trace). No
+// download/auth fields at all. Published as NetworkState's `portal_assignment` blob.
+//
+// How a dataset's `schema_id` resolves to actual schema content is explicitly out of scope here
+// (NET-1180) -- it travels as an opaque reference for now.
+
+table PortalAssignment {
+  datasets: [PortalAssignmentDataset] (required);
+  workers: [PortalEntry] (required);
+}
+
+table PortalAssignmentDataset {
+  id: string (key);
+  chunks: [PortalAssignmentChunk] (required);
+  last_block: uint64;
+  schema_id: int32;  // the dataset's current read schema, for query validation
+}
+
+table PortalAssignmentChunk {
+  first_block: uint64 (key);
+  id: string (required);
+  dataset_id: string (required);
+  last_block_hash: string;
+  last_block_timestamp: uint64 = null;
+  worker_indexes: [uint16] (required);  // confirmed routing, not the raw ideal placement
+}
+
+table PortalEntry {
+  worker_id: WorkerId (required);
+  status: WorkerStatus;
+}
+
+root_type PortalAssignment;

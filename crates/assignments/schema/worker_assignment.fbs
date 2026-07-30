@@ -1,0 +1,42 @@
+// When changing this file, regenerate the sources by running
+// flatc --rust -o gen ./assignment.fbs ./worker_assignment.fbs ./portal_assignment.fbs
+
+include "assignment.fbs";
+
+// --- NET-1180: worker-oriented assignment ---
+//
+// The legacy `Assignment` (assignment.fbs) is served identically to both workers and portals
+// today. This root type diverges that content to carry only what a worker actually reads (see
+// docs/assignment-wire-format.md in network-scheduler for the field-by-field trace). Published as
+// NetworkState's `worker_assignment` blob.
+//
+// How a chunk's `schema_id`/`tables_present` resolve to actual schema content is explicitly out
+// of scope here (NET-1180) -- they travel as opaque references for now.
+
+table WorkerAssignment {
+  datasets: [WorkerAssignmentDataset] (required);
+  workers: [WorkerEntry] (required);
+}
+
+table WorkerAssignmentDataset {
+  id: string (key);  // e.g. "s3://solana-mainnet-2"
+  chunks: [WorkerAssignmentChunk] (required);
+  last_block: uint64;
+}
+
+table WorkerAssignmentChunk {
+  first_block: uint64 (key);
+  id: string (required);
+  dataset_id: string (required);
+  size: uint32;
+  dataset_base_url: string (required);  // shared across all chunks of the dataset
+  // No per-chunk base_url: the legacy field was always just `id` restated
+  // (see sqd-assignments builder.rs), so the worker builds the download prefix from
+  // dataset_base_url + id directly.
+  schema_id: int32;
+  // Table names present, resolved against schema_id's tables. Absent (null) = all tables present.
+  tables_present: [string];
+  worker_indexes: [uint16] (required);
+}
+
+root_type WorkerAssignment;
