@@ -76,7 +76,6 @@ fn test_portal_assignment_round_trip() {
         .id("0221000000/0221000000-0221000649-BQJdx")
         .dataset_id("s3://solana-mainnet-2")
         .block_range(221000000..=221000649)
-        .last_block_hash("BQJdx")
         .last_block_timestamp(1696192039)
         .worker_indexes(&[0])
         .finish()
@@ -90,7 +89,7 @@ fn test_portal_assignment_round_trip() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset(7);
+    builder.finish_dataset(7, Some("BQJdx"));
 
     let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
@@ -102,6 +101,7 @@ fn test_portal_assignment_round_trip() {
     let dataset = assignment.get_dataset("s3://solana-mainnet-2").unwrap();
     assert_eq!(dataset.last_block(), 221001549);
     assert_eq!(dataset.schema_id(), 7);
+    assert_eq!(dataset.last_block_hash(), Some("BQJdx"));
 
     assert_eq!(assignment.get_worker_id(0).unwrap(), peer_id);
     let worker = assignment.get_worker_by_index(0);
@@ -110,12 +110,8 @@ fn test_portal_assignment_round_trip() {
 
     let chunk1 = assignment.find_chunk("s3://solana-mainnet-2", 221000000).unwrap();
     assert_eq!(chunk1.id(), "0221000000/0221000000-0221000649-BQJdx");
-    assert_eq!(chunk1.last_block_hash(), Some("BQJdx"));
     assert_eq!(chunk1.last_block_timestamp(), Some(1696192039));
     assert_eq!(chunk1.worker_indexes().iter().collect::<Vec<_>>(), vec![0]);
-
-    let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
-    assert_eq!(chunk2.last_block_hash(), None);
 
     assert_eq!(
         assignment.find_chunk("s3://dummy", 0),

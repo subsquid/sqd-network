@@ -22,6 +22,9 @@ table PortalAssignmentDataset {
   id: string (key);
   chunks: [PortalAssignmentChunk] (required);
   last_block: uint64;
+  // The head hash of the dataset (i.e. of its last chunk). Only ever meaningful at the dataset
+  // level -- unlike last_block_timestamp, no query needs a per-chunk hash.
+  last_block_hash: string;
   schema_id: int32;  // the dataset's current read schema, for query validation
 }
 
@@ -29,7 +32,6 @@ table PortalAssignmentChunk {
   first_block: uint64 (key);
   id: string (required);
   dataset_id: string (required);
-  last_block_hash: string;
   last_block_timestamp: uint64 = null;
   worker_indexes: [uint16] (required);  // confirmed routing, not the raw ideal placement
 }

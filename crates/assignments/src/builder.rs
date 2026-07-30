@@ -681,7 +681,13 @@ impl PortalAssignmentBuilder {
     /// `schema_id` is the dataset's current read schema at publication time — a single
     /// per-dataset reference, not a per-chunk write-schema pin (contrast with
     /// `WorkerAssignmentChunkBuilder::schema_id`).
-    pub fn finish_dataset(&mut self, schema_id: i32) {
+    ///
+    /// `last_block_hash` is the head hash of the dataset (i.e. of its last chunk) — a
+    /// dataset-level value, since no query needs a per-chunk hash (contrast with
+    /// `PortalAssignmentChunkBuilder::last_block_timestamp`, which the timestamp lookup needs on
+    /// every chunk).
+    pub fn finish_dataset(&mut self, schema_id: i32, last_block_hash: Option<&str>) {
+        let last_block_hash = last_block_hash.map(|hash| self.builder.create_string(hash));
         let chunks = self.builder.create_vector(&self.current_chunks);
         let offset = assignment_fb::PortalAssignmentDataset::create(
             &mut self.builder,
@@ -692,6 +698,7 @@ impl PortalAssignmentBuilder {
                     .last_block
                     .take()
                     .expect("At least one chunk should be present in the dataset"),
+                last_block_hash,
                 schema_id,
             },
         );
@@ -765,7 +772,6 @@ pub struct PortalAssignmentChunkBuilder<'b> {
     block_range: Option<RangeInclusive<u64>>,
     id: Option<fb::WIPOffset<&'static str>>,
     dataset_id: Option<fb::WIPOffset<&'static str>>,
-    last_block_hash: Option<fb::WIPOffset<&'static str>>,
     last_block_timestamp: Option<u64>,
     worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
 }
@@ -778,7 +784,6 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
             block_range: None,
             id: None,
             dataset_id: None,
-            last_block_hash: None,
             last_block_timestamp: None,
             worker_indexes: None,
         }
@@ -796,11 +801,6 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
 
     pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
         self.block_range = Some(range);
-        self
-    }
-
-    pub fn last_block_hash(mut self, hash: &str) -> Self {
-        self.last_block_hash = Some(self.p.builder.create_string(hash));
         self
     }
 
@@ -823,7 +823,6 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
                 id: self.id,
                 first_block: *block_range.start(),
                 dataset_id: self.dataset_id,
-                last_block_hash: self.last_block_hash,
                 last_block_timestamp: self.last_block_timestamp,
                 worker_indexes: self.worker_indexes,
             },
