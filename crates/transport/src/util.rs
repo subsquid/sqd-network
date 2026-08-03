@@ -61,6 +61,15 @@ pub fn addr_is_reachable(addr: &Multiaddr) -> bool {
     }
 }
 
+/// `addr_is_reachable` reads `PRIVATE_NETWORK` from the environment on every call, and Rust runs
+/// the tests of a binary as threads in one process — so a test that sets the variable changes what
+/// every concurrently running test sees. Any test that reads or writes it must hold this lock.
+#[cfg(test)]
+pub(crate) fn private_network_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -68,6 +77,10 @@ mod test {
 
     #[test]
     fn test_addr_is_reachable() {
+        let _guard = private_network_env_lock();
+        // Start from a known state: a developer's shell, or a previous test, may have set it.
+        std::env::remove_var("PRIVATE_NETWORK");
+
         assert!(!addr_is_reachable(&multiaddr!(Ip4([127, 0, 0, 1]), Tcp(12345u16))));
         assert!(!addr_is_reachable(&multiaddr!(Ip4([169, 254, 0, 1]), Tcp(12345u16))));
         assert!(!addr_is_reachable(&multiaddr!(Ip4([192, 168, 0, 1]), Tcp(12345u16))));
@@ -84,5 +97,9 @@ mod test {
         assert!(addr_is_reachable(&multiaddr!(Ip4([192, 168, 0, 1]), Tcp(12345u16))));
         assert!(addr_is_reachable(&multiaddr!(Ip4([10, 0, 0, 1]), Tcp(12345u16))));
         assert!(addr_is_reachable(&multiaddr!(Ip4([172, 16, 0, 1]), Tcp(12345u16))));
+
+        // Leave the process as we found it, so tests that expect private addresses to be
+        // unreachable still see that.
+        std::env::remove_var("PRIVATE_NETWORK");
     }
 }

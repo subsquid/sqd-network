@@ -149,6 +149,9 @@ mod tests {
 
     #[test]
     fn put_with_no_reachable_addrs_does_not_create_entry() {
+        // Loopback counts as reachable while `PRIVATE_NETWORK` is set, so this test cannot run
+        // alongside the one that sets it.
+        let _guard = crate::util::private_network_env_lock();
         let mut cache = cache();
         let peer = PeerId::random();
 
