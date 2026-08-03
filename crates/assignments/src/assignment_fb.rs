@@ -1,3 +1,8 @@
+//! Facade over the three raw flatc-generated schemas (`assignment_generated`,
+//! `worker_assignment_generated`, `portal_assignment_generated`), re-exported here into one flat
+//! namespace, plus small hand-written impls for all three -- despite the module's name, it's not
+//! legacy-only.
+
 use libp2p_identity::PeerId;
 
 pub(crate) use crate::assignment_generated::*;
