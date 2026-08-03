@@ -575,8 +575,8 @@ impl BaseBehaviour {
 mod tests {
     use libp2p::{
         core::{transport::PortUse, Endpoint},
-        swarm::ConnectionId,
-        Multiaddr,
+        swarm::{ConnectionId, DialError, DialFailure},
+        Multiaddr, TransportError,
     };
     use sqd_contract_client::{DummyClient, DummyData};
 
@@ -699,6 +699,120 @@ mod tests {
         assert!(
             routed.contains(&working),
             "kademlia dropped the address we are connected on; it would dial {routed:?}"
+        );
+    }
+
+    /// Drive the wrapper's own `poll` until it yields nothing more, collecting what it emits.
+    /// Runs the reconnect timer and the lookup queue, which is where redials are scheduled.
+    fn drain_poll(behaviour: &mut BaseBehaviour) -> Vec<TToSwarm<BaseBehaviour>> {
+        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+        let mut events = vec![];
+        while let Poll::Ready(evs) = BehaviourWrapper::poll(behaviour, &mut cx) {
+            let before = events.len();
+            events.extend(evs);
+            if events.len() == before {
+                break;
+            }
+        }
+        events
+    }
+
+    fn dial_failure(peer: PeerId, error: &DialError) -> FromSwarm<'_> {
+        FromSwarm::DialFailure(DialFailure {
+            peer_id: Some(peer),
+            error,
+            connection_id: ConnectionId::new_unchecked(2),
+        })
+    }
+
+    fn dialed(addr: &Multiaddr) -> ConnectedPoint {
+        ConnectedPoint::Dialer {
+            address: addr.clone(),
+            role_override: Endpoint::Dialer,
+            port_use: PortUse::Reuse,
+        }
+    }
+
+    /// A registered worker we are connected to stops being reachable — its host drops off the
+    /// network, keeping the peer ID and losing the address.
+    ///
+    /// The reconnect path fires exactly once, on `ConnectionClosed`, and at that moment the
+    /// address cache still holds the now-dead address, so `find_and_dial` dials it instead of
+    /// looking the worker up. That dial fails, which empties the cache — and nothing schedules a
+    /// Kademlia lookup afterwards, because `reconnect_queue` is fed only by connection closures
+    /// and the whitelist sweep is suppressed while the registered set is unchanged. Every later
+    /// heartbeat request then dies with `NoAddresses` until unrelated DHT traffic happens to
+    /// repopulate the cache, which is the 15–100 minute stranding seen in production (NET-384).
+    #[tokio::test(start_paused = true)]
+    async fn looks_up_worker_whose_cached_address_stopped_working() {
+        let local = Keypair::generate_ed25519();
+        let remote = Keypair::generate_ed25519();
+        let peer = remote.public().to_peer_id();
+        let stale = addr(12208, peer);
+
+        let mut behaviour = test_behaviour(&local);
+        behaviour.maintain_worker_connections();
+        // Stand in for the on-chain registration: this is what makes the worker eligible for
+        // reconnection and lookups.
+        behaviour.on_nodes_update(NetworkNodes {
+            portals: HashSet::new(),
+            workers: HashSet::from([peer]),
+        });
+        // The address a previous DHT lookup found, cached so it can be dialed directly.
+        behaviour.inner.address_cache.put(peer, Some(stale.clone()));
+
+        let endpoint = dialed(&stale);
+        behaviour.on_connection_established(ConnectionEstablished {
+            peer_id: peer,
+            connection_id: ConnectionId::new_unchecked(1),
+            endpoint: &endpoint,
+            failed_addresses: &[],
+            other_established: 0,
+        });
+
+        // The worker drops off the network and the connection goes down.
+        behaviour.on_connection_closed(ConnectionClosed {
+            peer_id: peer,
+            connection_id: ConnectionId::new_unchecked(1),
+            endpoint: &endpoint,
+            cause: None,
+            remaining_established: 0,
+        });
+
+        // Let the reconnect cooldown elapse, so the queued redial is attempted.
+        tokio::time::advance(behaviour.reconnect_cooldown + Duration::from_secs(1)).await;
+        let redial = drain_poll(&mut behaviour);
+        assert!(
+            redial.iter().any(|ev| matches!(ev, ToSwarm::Dial { .. })),
+            "expected a redial after the cooldown, got {} event(s)",
+            redial.len()
+        );
+
+        // That redial goes to the dead address and fails, which empties the address cache.
+        let error = DialError::Transport(vec![(
+            stale.clone(),
+            TransportError::Other(std::io::Error::other("host unreachable")),
+        )]);
+        // `Wrapped` hands swarm events to the inner behaviours first and to the wrapper second
+        // (see `wrapped.rs`), so the cache has already evicted by the time `BaseBehaviour` sees
+        // the failure. Replicated here in that order.
+        behaviour.inner.address_cache.on_swarm_event(dial_failure(peer, &error));
+        behaviour.on_swarm_event(dial_failure(peer, &error));
+
+        // Guards against the test passing vacuously if eviction stops happening on dial failure.
+        assert!(
+            !behaviour.inner.address_cache.contains(&peer),
+            "dial failure no longer evicts; this test would assert nothing"
+        );
+
+        // We now know no address for a worker we are supposed to stay connected to. The only way
+        // back is a DHT lookup, so one has to be scheduled.
+        tokio::time::advance(behaviour.reconnect_cooldown * 2).await;
+        drain_poll(&mut behaviour);
+        assert!(
+            behaviour.ongoing_lookups.contains_left(&peer),
+            "no Kademlia lookup started after the cache was emptied: the worker stays undialable \
+             until unrelated DHT traffic supplies an address"
         );
     }
 }
