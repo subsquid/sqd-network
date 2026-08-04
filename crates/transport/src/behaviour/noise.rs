@@ -9,7 +9,7 @@ use libp2p::{
 };
 use std::task::{Context, Poll};
 
-use crate::{protocol::NOISE_PROTOCOL, Multiaddr, PeerId};
+use crate::{libp2p_stream, protocol::NOISE_PROTOCOL, Multiaddr, PeerId};
 
 const BUFFER_SIZE: usize = 10 * 1024 * 1024; // 10 MB
 

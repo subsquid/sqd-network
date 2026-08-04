@@ -15,7 +15,14 @@ futures-core = "0.3"
 lazy_static = { version = "1" }
 libp2p = { workspace = true, features = ["dns", "tokio", "identify", "kad", "ping", "request-response", "serde", "autonat", "quic"] }
 libp2p-connection-limits = { workspace = true }
-libp2p-stream = { workspace = true }
+# libp2p-core, libp2p-identity, libp2p-swarm, rand and tracing are used by the vendored
+# `libp2p_stream` module only — the rest of the crate goes through the `libp2p` facade. Bump
+# these three together with `libp2p` itself: pointing them at a version the facade does not use
+# links two copies of the swarm types and fails with "expected NetworkBehaviour, found
+# NetworkBehaviour".
+libp2p-core = { workspace = true }
+libp2p-identity = { workspace = true }
+libp2p-swarm = { workspace = true }
 libp2p-swarm-derive = { workspace = true }
 log = "0.4"
 lru = "0.12"
@@ -29,16 +36,17 @@ thiserror = "1"
 tokio = { version = "1", features = ["fs", "macros", "sync"] }
 tokio-util = { version = "0.7", features = ["time"] }
 tokio-stream = "0.1.17"
+tracing = { version = "0.1", optional = true }
 
 sqd-contract-client = { path = "../contract-client" }
 sqd-messages = { path = "../messages", features = ["signatures", "semver"] }
 
 [features]
 actors = ["behaviour"]
-behaviour = []
+behaviour = ["dep:rand", "dep:tracing"]
 proto = []
 pubsub = ["behaviour", "libp2p/gossipsub"]
-noise = ["rand"]
+noise = ["dep:rand"]
 request-server = []
 stream-server = ["behaviour"]
 portal = ["actors"]

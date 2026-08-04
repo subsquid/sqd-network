@@ -9,7 +9,7 @@ use libp2p::{
 };
 use std::task::{Context, Poll};
 
-use crate::{protocol::KEEP_ALIVE_PROTOCOL, Multiaddr, PeerId};
+use crate::{libp2p_stream, protocol::KEEP_ALIVE_PROTOCOL, Multiaddr, PeerId};
 
 /// A behaviour that allows keeping connections alive forever.
 ///
