@@ -3,18 +3,13 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-libp2p = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "fac3b0c9" }
+libp2p = { version = "0.56.0" }
+libp2p-core = { version = "0.43.1" }
 libp2p-identity = { version = "0.2.12", features = ["peerid"] }
-libp2p-connection-limits = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "fac3b0c9" }
-libp2p-swarm-derive = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "fac3b0c9" }
-libp2p-stream = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "fac3b0c9" }
-libp2p-swarm-test = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "fac3b0c9" }
-
-# The fork builds its crates against its in-tree libp2p-identity (path = "identity"), so consumers
-# must redirect the crates.io libp2p-identity to the same source, otherwise two incompatible copies
-# of libp2p_identity are linked. See the fork's "Use libp2p-identity from the fork" commit.
-[patch.crates-io]
-libp2p-identity = { git = "https://github.com/kalabukdima/rust-libp2p.git", rev = "fac3b0c9" }
+libp2p-connection-limits = { version = "0.6.0" }
+libp2p-swarm = { version = "0.47.0" }
+libp2p-swarm-derive = { version = "0.35.1" }
+libp2p-swarm-test = { version = "0.6.0" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

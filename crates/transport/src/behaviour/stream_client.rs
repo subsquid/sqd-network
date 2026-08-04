@@ -2,9 +2,12 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use libp2p::{PeerId, StreamProtocol};
-use libp2p_stream::OpenStreamError;
 
-use crate::{util::StreamWithPayload, BehaviourWrapper};
+use crate::{
+    libp2p_stream::{self, OpenStreamError},
+    util::StreamWithPayload,
+    BehaviourWrapper,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ClientConfig {
@@ -136,16 +139,11 @@ impl Clone for StreamClientHandle {
     }
 }
 
+// Derived rather than written out: now that `libp2p_stream` lives in this crate, clippy sees
+// that `Behaviour: Default` and flags the manual impl as derivable.
+#[derive(Default)]
 pub struct ClientBehaviour {
     inner: libp2p_stream::Behaviour,
-}
-
-impl Default for ClientBehaviour {
-    fn default() -> Self {
-        Self {
-            inner: libp2p_stream::Behaviour::new(),
-        }
-    }
 }
 
 impl ClientBehaviour {
@@ -174,7 +172,6 @@ impl From<OpenStreamError> for RequestError {
         match e {
             OpenStreamError::UnsupportedProtocol(_) => Self::UnsupportedProtocol,
             OpenStreamError::Io(e) => Self::Io(e),
-            _ => unreachable!(),
         }
     }
 }

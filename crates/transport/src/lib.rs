@@ -40,6 +40,8 @@ mod builder;
 mod cli;
 #[cfg(feature = "proto")]
 mod codec;
+#[cfg(feature = "behaviour")]
+pub mod libp2p_stream;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 pub mod protocol;
