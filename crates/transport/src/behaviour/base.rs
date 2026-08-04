@@ -20,7 +20,7 @@ use libp2p::{
     swarm::{
         behaviour::ConnectionEstablished,
         dial_opts::{DialOpts, PeerCondition},
-        ConnectionClosed, FromSwarm, NetworkBehaviour, ToSwarm,
+        ConnectionClosed, DialError, DialFailure, FromSwarm, NetworkBehaviour, ToSwarm,
     },
     StreamProtocol,
 };
@@ -292,6 +292,7 @@ impl BehaviourWrapper for BaseBehaviour {
         match ev {
             FromSwarm::ConnectionEstablished(conn) => self.on_connection_established(conn),
             FromSwarm::ConnectionClosed(conn) => self.on_connection_closed(conn),
+            FromSwarm::DialFailure(failure) => self.on_dial_failure(failure),
             _ => None,
         }
     }
@@ -320,6 +321,12 @@ impl BehaviourWrapper for BaseBehaviour {
         // the timer waker, so it must run even when there's a pending event to emit. Skipping
         // it behind the early return below would let a cooldown entry expire without a
         // registered waker, deferring the redial until some unrelated event wakes the task.
+        // Known limitation: `reconnect_scheduled` is cleared here rather than when the dial is
+        // actually issued, so it de-duplicates against `reconnect_queue` but not against
+        // `pending_lookups`. A peer held back by the `max_concurrent_lookups` cap therefore
+        // collects one extra `pending_lookups` entry per dial failure, and that queue is
+        // unbounded. Harmless at the current worker counts, where the cap is not reached;
+        // tracking the dial through to its start would need more state than it is worth.
         while let Poll::Ready(Some(expired)) = self.reconnect_queue.poll_expired(cx) {
             let peer_id = expired.into_inner();
             self.reconnect_scheduled.remove(&peer_id);
@@ -385,6 +392,49 @@ impl BaseBehaviour {
             );
             self.reconnect_queue.insert(peer_id, self.reconnect_cooldown);
         }
+        None
+    }
+
+    /// A failed dial to a registered worker is the only signal that its cached address is dead:
+    /// `AddressCache` drops the entry on exactly these errors (`addr_cache.rs`), and until this
+    /// arm existed nothing re-armed afterwards, because a failed dial establishes no connection
+    /// and so produces no close event. The worker then stayed undialable until unrelated DHT
+    /// traffic happened to supply an address — the stranding in NET-384.
+    ///
+    /// `DialError::NoAddresses` is deliberately not covered. It also evicts, but it is the error
+    /// a fruitless lookup produces, so scheduling on it would let the recovery feed itself
+    /// indefinitely.
+    ///
+    /// Retries are unbounded: a worker that stays registered is one we are supposed to hold a
+    /// connection to, so it is worth looking up for as long as that holds. `reconnect_scheduled`
+    /// and the cooldown cap the cost at one lookup per peer per `reconnect_cooldown`, and the
+    /// registered set is what bounds the population.
+    ///
+    /// The queued dial goes through `find_and_dial`, so it uses the address cache if something
+    /// refilled it during the cooldown. That is the right call when the new address is fresher
+    /// than the failure — a concurrent lookup landing its result — and costs one extra cooldown
+    /// when it is Kademlia echoing back the address we just disproved, after which the next
+    /// failure re-arms. Unbounded retries are what make that merely slow instead of terminal.
+    fn on_dial_failure(&mut self, failure: DialFailure) -> Option<TToSwarm<Self>> {
+        let peer_id = failure.peer_id?;
+        if !matches!(failure.error, DialError::Transport(_) | DialError::WrongPeerId { .. }) {
+            return None;
+        }
+        if !self.maintain_worker_connections
+            || self.outbound_conn_exists(&peer_id)
+            || !self.registered_workers.contains(&peer_id)
+        {
+            return None;
+        }
+        // Skip if a reconnect is already pending, as in `on_connection_closed`.
+        if !self.reconnect_scheduled.insert(peer_id) {
+            return None;
+        }
+        log::debug!(
+            "Dial to worker {peer_id} failed, scheduling a lookup in {:?}",
+            self.reconnect_cooldown
+        );
+        self.reconnect_queue.insert(peer_id, self.reconnect_cooldown);
         None
     }
 
@@ -575,7 +625,7 @@ impl BaseBehaviour {
 mod tests {
     use libp2p::{
         core::{transport::PortUse, Endpoint},
-        swarm::{ConnectionId, DialError, DialFailure},
+        swarm::ConnectionId,
         Multiaddr, TransportError,
     };
     use sqd_contract_client::{DummyClient, DummyData};
@@ -733,6 +783,53 @@ mod tests {
         }
     }
 
+    fn transport_error(addr: &Multiaddr) -> DialError {
+        DialError::Transport(vec![(
+            addr.clone(),
+            TransportError::Other(std::io::Error::other("host unreachable")),
+        )])
+    }
+
+    /// Deliver a dial failure the way `Wrapped` does: inner behaviours first (so the address
+    /// cache evicts), then the wrapper (see `wrapped.rs`).
+    fn deliver_dial_failure(behaviour: &mut BaseBehaviour, peer: PeerId, error: &DialError) {
+        behaviour.inner.address_cache.on_swarm_event(dial_failure(peer, error));
+        behaviour.on_swarm_event(dial_failure(peer, error));
+    }
+
+    /// A registered worker whose connection has closed and whose cached address then failed.
+    /// Leaves the behaviour at the point where recovery has to happen.
+    fn stranded_worker(local: &Keypair, peer: PeerId, addr: &Multiaddr) -> BaseBehaviour {
+        let mut behaviour = test_behaviour(local);
+        behaviour.maintain_worker_connections();
+        behaviour.on_nodes_update(NetworkNodes {
+            portals: HashSet::new(),
+            workers: HashSet::from([peer]),
+        });
+        behaviour.inner.address_cache.put(peer, Some(addr.clone()));
+        // The whitelist sweep queues its own dial for a newly registered worker. Let it run, so
+        // the state left behind is a plain established connection rather than a half-drained
+        // sweep, and `reconnect_scheduled` reflects only what the close below schedules.
+        drain_poll(&mut behaviour);
+
+        let endpoint = dialed(addr);
+        behaviour.on_connection_established(ConnectionEstablished {
+            peer_id: peer,
+            connection_id: ConnectionId::new_unchecked(1),
+            endpoint: &endpoint,
+            failed_addresses: &[],
+            other_established: 0,
+        });
+        behaviour.on_connection_closed(ConnectionClosed {
+            peer_id: peer,
+            connection_id: ConnectionId::new_unchecked(1),
+            endpoint: &endpoint,
+            cause: None,
+            remaining_established: 0,
+        });
+        behaviour
+    }
+
     /// A registered worker we are connected to stops being reachable — its host drops off the
     /// network, keeping the peer ID and losing the address.
     ///
@@ -750,34 +847,8 @@ mod tests {
         let peer = remote.public().to_peer_id();
         let stale = addr(12208, peer);
 
-        let mut behaviour = test_behaviour(&local);
-        behaviour.maintain_worker_connections();
-        // Stand in for the on-chain registration: this is what makes the worker eligible for
-        // reconnection and lookups.
-        behaviour.on_nodes_update(NetworkNodes {
-            portals: HashSet::new(),
-            workers: HashSet::from([peer]),
-        });
-        // The address a previous DHT lookup found, cached so it can be dialed directly.
-        behaviour.inner.address_cache.put(peer, Some(stale.clone()));
-
-        let endpoint = dialed(&stale);
-        behaviour.on_connection_established(ConnectionEstablished {
-            peer_id: peer,
-            connection_id: ConnectionId::new_unchecked(1),
-            endpoint: &endpoint,
-            failed_addresses: &[],
-            other_established: 0,
-        });
-
-        // The worker drops off the network and the connection goes down.
-        behaviour.on_connection_closed(ConnectionClosed {
-            peer_id: peer,
-            connection_id: ConnectionId::new_unchecked(1),
-            endpoint: &endpoint,
-            cause: None,
-            remaining_established: 0,
-        });
+        // Registered on chain, connected on a cached address, then dropped off the network.
+        let mut behaviour = stranded_worker(&local, peer, &stale);
 
         // Let the reconnect cooldown elapse, so the queued redial is attempted.
         tokio::time::advance(behaviour.reconnect_cooldown + Duration::from_secs(1)).await;
@@ -789,15 +860,7 @@ mod tests {
         );
 
         // That redial goes to the dead address and fails, which empties the address cache.
-        let error = DialError::Transport(vec![(
-            stale.clone(),
-            TransportError::Other(std::io::Error::other("host unreachable")),
-        )]);
-        // `Wrapped` hands swarm events to the inner behaviours first and to the wrapper second
-        // (see `wrapped.rs`), so the cache has already evicted by the time `BaseBehaviour` sees
-        // the failure. Replicated here in that order.
-        behaviour.inner.address_cache.on_swarm_event(dial_failure(peer, &error));
-        behaviour.on_swarm_event(dial_failure(peer, &error));
+        deliver_dial_failure(&mut behaviour, peer, &transport_error(&stale));
 
         // Guards against the test passing vacuously if eviction stops happening on dial failure.
         assert!(
@@ -813,6 +876,155 @@ mod tests {
             behaviour.ongoing_lookups.contains_left(&peer),
             "no Kademlia lookup started after the cache was emptied: the worker stays undialable \
              until unrelated DHT traffic supplies an address"
+        );
+    }
+
+    /// If something refills the cache during the cooldown, the queued dial uses it rather than
+    /// looking up. When that address is Kademlia echoing back the one we just disproved, the
+    /// round is wasted — but the dial fails again and re-arms, so recovery costs an extra
+    /// cooldown instead of stranding. This is what lets the change carry no per-peer mode state.
+    #[tokio::test(start_paused = true)]
+    async fn a_cache_refilled_during_the_cooldown_costs_a_round_but_re_arms() {
+        let local = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let stale = addr(12208, peer);
+
+        let mut behaviour = stranded_worker(&local, peer, &stale);
+        tokio::time::advance(behaviour.reconnect_cooldown + Duration::from_secs(1)).await;
+        drain_poll(&mut behaviour);
+        deliver_dial_failure(&mut behaviour, peer, &transport_error(&stale));
+
+        // Kademlia echoes the dead address back while the reconnect waits out its cooldown.
+        behaviour.on_kademlia_event(kad::Event::RoutablePeer {
+            peer,
+            address: stale.clone(),
+        });
+        assert!(
+            behaviour.inner.address_cache.contains(&peer),
+            "kademlia did not repopulate the cache; this test would assert nothing"
+        );
+
+        // The wasted round: the cached address is dialed rather than looked up.
+        tokio::time::advance(behaviour.reconnect_cooldown + Duration::from_secs(1)).await;
+        let events = drain_poll(&mut behaviour);
+        assert!(
+            !behaviour.ongoing_lookups.contains_left(&peer),
+            "expected the refilled cache to be dialed, not bypassed"
+        );
+        assert!(
+            events.iter().any(|ev| matches!(ev, ToSwarm::Dial { .. })),
+            "expected a dial to the cached address"
+        );
+
+        // It fails again, and that re-arms — which is what keeps the round merely wasted.
+        deliver_dial_failure(&mut behaviour, peer, &transport_error(&stale));
+        tokio::time::advance(behaviour.reconnect_cooldown + Duration::from_secs(1)).await;
+        drain_poll(&mut behaviour);
+        assert!(
+            behaviour.ongoing_lookups.contains_left(&peer),
+            "recovery stalled after a wasted round instead of looking the worker up"
+        );
+    }
+
+    /// The `outbound_conn_exists` gate: a dial can fail while another connection to the same
+    /// worker is up, and chasing a peer we are already connected to is pure waste.
+    #[tokio::test(start_paused = true)]
+    async fn dial_failure_schedules_nothing_while_a_connection_is_up() {
+        let local = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let addr = addr(12208, peer);
+
+        let mut behaviour = stranded_worker(&local, peer, &addr);
+        // Drain the reconnect the close queued, so it can't be mistaken for a new one.
+        tokio::time::advance(behaviour.reconnect_cooldown + Duration::from_secs(1)).await;
+        drain_poll(&mut behaviour);
+        assert!(!behaviour.reconnect_scheduled.contains(&peer), "reconnect did not drain");
+
+        let endpoint = dialed(&addr);
+        behaviour.on_connection_established(ConnectionEstablished {
+            peer_id: peer,
+            connection_id: ConnectionId::new_unchecked(3),
+            endpoint: &endpoint,
+            failed_addresses: &[],
+            other_established: 0,
+        });
+
+        // A second, redundant dial fails while that connection is still up.
+        deliver_dial_failure(&mut behaviour, peer, &transport_error(&addr));
+        assert!(
+            !behaviour.reconnect_scheduled.contains(&peer),
+            "scheduled a reconnect for a worker we are already connected to"
+        );
+    }
+
+    /// Dropping off the registered set is what stops the retries.
+    #[tokio::test(start_paused = true)]
+    async fn stops_retrying_once_the_worker_leaves_the_registered_set() {
+        let local = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let stale = addr(12208, peer);
+
+        let mut behaviour = stranded_worker(&local, peer, &stale);
+        tokio::time::advance(behaviour.reconnect_cooldown + Duration::from_secs(1)).await;
+        drain_poll(&mut behaviour);
+
+        behaviour.on_nodes_update(NetworkNodes {
+            portals: HashSet::new(),
+            workers: HashSet::new(),
+        });
+        deliver_dial_failure(&mut behaviour, peer, &transport_error(&stale));
+        assert!(
+            !behaviour.reconnect_scheduled.contains(&peer),
+            "kept chasing a worker that is no longer registered"
+        );
+    }
+
+    /// `NoAddresses` is what a fruitless lookup produces, so scheduling on it would let recovery
+    /// feed itself. Out of scope until per-peer backoff exists.
+    #[tokio::test(start_paused = true)]
+    async fn no_addresses_failure_does_not_schedule_a_lookup() {
+        let local = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let stale = addr(12208, peer);
+
+        let mut behaviour = stranded_worker(&local, peer, &stale);
+        tokio::time::advance(behaviour.reconnect_cooldown + Duration::from_secs(1)).await;
+        drain_poll(&mut behaviour);
+
+        deliver_dial_failure(&mut behaviour, peer, &DialError::NoAddresses);
+        assert!(
+            !behaviour.reconnect_scheduled.contains(&peer),
+            "NoAddresses scheduled a lookup, which lets an empty lookup retry itself"
+        );
+    }
+
+    /// Only actors in `maintain_worker_connections` mode chase reconnections, and only for peers
+    /// the contracts list as registered.
+    #[tokio::test(start_paused = true)]
+    async fn dial_failure_schedules_nothing_outside_maintained_workers() {
+        let local = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let stranger = Keypair::generate_ed25519().public().to_peer_id();
+        let stale = addr(12208, peer);
+
+        // Registered, but this actor does not maintain worker connections.
+        let mut passive = test_behaviour(&local);
+        passive.on_nodes_update(NetworkNodes {
+            portals: HashSet::new(),
+            workers: HashSet::from([peer]),
+        });
+        deliver_dial_failure(&mut passive, peer, &transport_error(&stale));
+        assert!(
+            !passive.reconnect_scheduled.contains(&peer),
+            "scheduled a reconnect without maintain_worker_connections"
+        );
+
+        // Maintains connections, but the peer is not a registered worker.
+        let mut active = stranded_worker(&local, peer, &stale);
+        deliver_dial_failure(&mut active, stranger, &transport_error(&addr(12208, stranger)));
+        assert!(
+            !active.reconnect_scheduled.contains(&stranger),
+            "scheduled a reconnect for an unregistered peer"
         );
     }
 }
