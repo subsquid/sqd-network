@@ -226,11 +226,11 @@ impl<'a> Assignment<'a> {
     unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Dataset>>>>(Assignment::VT_DATASETS, None).unwrap()}
   }
   #[inline]
-  pub fn workers(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignment<'a>>> {
+  pub fn workers(&self) -> flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry<'a>>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignment>>>>(Assignment::VT_WORKERS, None).unwrap()}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry>>>>(Assignment::VT_WORKERS, None).unwrap()}
   }
 }
 
@@ -242,14 +242,14 @@ impl flatbuffers::Verifiable for Assignment<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Dataset>>>>("datasets", Self::VT_DATASETS, true)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<WorkerAssignment>>>>("workers", Self::VT_WORKERS, true)?
+     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<WorkerEntry>>>>("workers", Self::VT_WORKERS, true)?
      .finish();
     Ok(())
   }
 }
 pub struct AssignmentArgs<'a> {
     pub datasets: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Dataset<'a>>>>>,
-    pub workers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerAssignment<'a>>>>>,
+    pub workers: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<WorkerEntry<'a>>>>>,
 }
 impl<'a> Default for AssignmentArgs<'a> {
   #[inline]
@@ -271,7 +271,7 @@ impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> AssignmentBuilder<'a, 'b, A> {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Assignment::VT_DATASETS, datasets);
   }
   #[inline]
-  pub fn add_workers(&mut self, workers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<WorkerAssignment<'b >>>>) {
+  pub fn add_workers(&mut self, workers: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<WorkerEntry<'b >>>>) {
     self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(Assignment::VT_WORKERS, workers);
   }
   #[inline]
@@ -299,39 +299,37 @@ impl core::fmt::Debug for Assignment<'_> {
       ds.finish()
   }
 }
-pub enum WorkerAssignmentOffset {}
+pub enum WorkerEntryOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
-pub struct WorkerAssignment<'a> {
+pub struct WorkerEntry<'a> {
   pub _tab: flatbuffers::Table<'a>,
 }
 
-impl<'a> flatbuffers::Follow<'a> for WorkerAssignment<'a> {
-  type Inner = WorkerAssignment<'a>;
+impl<'a> flatbuffers::Follow<'a> for WorkerEntry<'a> {
+  type Inner = WorkerEntry<'a>;
   #[inline]
   unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
     Self { _tab: flatbuffers::Table::new(buf, loc) }
   }
 }
 
-impl<'a> WorkerAssignment<'a> {
+impl<'a> WorkerEntry<'a> {
   pub const VT_WORKER_ID: flatbuffers::VOffsetT = 4;
-  pub const VT_CHUNKS: flatbuffers::VOffsetT = 6;
   pub const VT_STATUS: flatbuffers::VOffsetT = 8;
   pub const VT_ENCRYPTED_HEADERS: flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub unsafe fn init_from_table(table: flatbuffers::Table<'a>) -> Self {
-    WorkerAssignment { _tab: table }
+    WorkerEntry { _tab: table }
   }
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args WorkerAssignmentArgs<'args>
-  ) -> flatbuffers::WIPOffset<WorkerAssignment<'bldr>> {
-    let mut builder = WorkerAssignmentBuilder::new(_fbb);
+    args: &'args WorkerEntryArgs<'args>
+  ) -> flatbuffers::WIPOffset<WorkerEntry<'bldr>> {
+    let mut builder = WorkerEntryBuilder::new(_fbb);
     if let Some(x) = args.encrypted_headers { builder.add_encrypted_headers(x); }
-    if let Some(x) = args.chunks { builder.add_chunks(x); }
     if let Some(x) = args.worker_id { builder.add_worker_id(x); }
     builder.add_status(args.status);
     builder.finish()
@@ -343,32 +341,25 @@ impl<'a> WorkerAssignment<'a> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<WorkerId>(WorkerAssignment::VT_WORKER_ID, None).unwrap()}
-  }
-  #[inline]
-  pub fn chunks(&self) -> Option<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk<'a>>>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk>>>>(WorkerAssignment::VT_CHUNKS, None)}
+    unsafe { self._tab.get::<WorkerId>(WorkerEntry::VT_WORKER_ID, None).unwrap()}
   }
   #[inline]
   pub fn status(&self) -> WorkerStatus {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<WorkerStatus>(WorkerAssignment::VT_STATUS, Some(WorkerStatus::Ok)).unwrap()}
+    unsafe { self._tab.get::<WorkerStatus>(WorkerEntry::VT_STATUS, Some(WorkerStatus::Ok)).unwrap()}
   }
   #[inline]
   pub fn encrypted_headers(&self) -> Option<EncryptedHeaders<'a>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<EncryptedHeaders>>(WorkerAssignment::VT_ENCRYPTED_HEADERS, None)}
+    unsafe { self._tab.get::<flatbuffers::ForwardsUOffset<EncryptedHeaders>>(WorkerEntry::VT_ENCRYPTED_HEADERS, None)}
   }
 }
 
-impl flatbuffers::Verifiable for WorkerAssignment<'_> {
+impl flatbuffers::Verifiable for WorkerEntry<'_> {
   #[inline]
   fn run_verifier(
     v: &mut flatbuffers::Verifier, pos: usize
@@ -376,73 +367,65 @@ impl flatbuffers::Verifiable for WorkerAssignment<'_> {
     use self::flatbuffers::Verifiable;
     v.visit_table(pos)?
      .visit_field::<WorkerId>("worker_id", Self::VT_WORKER_ID, true)?
-     .visit_field::<flatbuffers::ForwardsUOffset<flatbuffers::Vector<'_, flatbuffers::ForwardsUOffset<Chunk>>>>("chunks", Self::VT_CHUNKS, false)?
      .visit_field::<WorkerStatus>("status", Self::VT_STATUS, false)?
      .visit_field::<flatbuffers::ForwardsUOffset<EncryptedHeaders>>("encrypted_headers", Self::VT_ENCRYPTED_HEADERS, false)?
      .finish();
     Ok(())
   }
 }
-pub struct WorkerAssignmentArgs<'a> {
+pub struct WorkerEntryArgs<'a> {
     pub worker_id: Option<&'a WorkerId>,
-    pub chunks: Option<flatbuffers::WIPOffset<flatbuffers::Vector<'a, flatbuffers::ForwardsUOffset<Chunk<'a>>>>>,
     pub status: WorkerStatus,
     pub encrypted_headers: Option<flatbuffers::WIPOffset<EncryptedHeaders<'a>>>,
 }
-impl<'a> Default for WorkerAssignmentArgs<'a> {
+impl<'a> Default for WorkerEntryArgs<'a> {
   #[inline]
   fn default() -> Self {
-    WorkerAssignmentArgs {
+    WorkerEntryArgs {
       worker_id: None, // required field
-      chunks: None,
       status: WorkerStatus::Ok,
       encrypted_headers: None,
     }
   }
 }
 
-pub struct WorkerAssignmentBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
+pub struct WorkerEntryBuilder<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> {
   fbb_: &'b mut flatbuffers::FlatBufferBuilder<'a, A>,
   start_: flatbuffers::WIPOffset<flatbuffers::TableUnfinishedWIPOffset>,
 }
-impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WorkerAssignmentBuilder<'a, 'b, A> {
+impl<'a: 'b, 'b, A: flatbuffers::Allocator + 'a> WorkerEntryBuilder<'a, 'b, A> {
   #[inline]
   pub fn add_worker_id(&mut self, worker_id: &WorkerId) {
-    self.fbb_.push_slot_always::<&WorkerId>(WorkerAssignment::VT_WORKER_ID, worker_id);
-  }
-  #[inline]
-  pub fn add_chunks(&mut self, chunks: flatbuffers::WIPOffset<flatbuffers::Vector<'b , flatbuffers::ForwardsUOffset<Chunk<'b >>>>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<_>>(WorkerAssignment::VT_CHUNKS, chunks);
+    self.fbb_.push_slot_always::<&WorkerId>(WorkerEntry::VT_WORKER_ID, worker_id);
   }
   #[inline]
   pub fn add_status(&mut self, status: WorkerStatus) {
-    self.fbb_.push_slot::<WorkerStatus>(WorkerAssignment::VT_STATUS, status, WorkerStatus::Ok);
+    self.fbb_.push_slot::<WorkerStatus>(WorkerEntry::VT_STATUS, status, WorkerStatus::Ok);
   }
   #[inline]
   pub fn add_encrypted_headers(&mut self, encrypted_headers: flatbuffers::WIPOffset<EncryptedHeaders<'b >>) {
-    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<EncryptedHeaders>>(WorkerAssignment::VT_ENCRYPTED_HEADERS, encrypted_headers);
+    self.fbb_.push_slot_always::<flatbuffers::WIPOffset<EncryptedHeaders>>(WorkerEntry::VT_ENCRYPTED_HEADERS, encrypted_headers);
   }
   #[inline]
-  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WorkerAssignmentBuilder<'a, 'b, A> {
+  pub fn new(_fbb: &'b mut flatbuffers::FlatBufferBuilder<'a, A>) -> WorkerEntryBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
-    WorkerAssignmentBuilder {
+    WorkerEntryBuilder {
       fbb_: _fbb,
       start_: start,
     }
   }
   #[inline]
-  pub fn finish(self) -> flatbuffers::WIPOffset<WorkerAssignment<'a>> {
+  pub fn finish(self) -> flatbuffers::WIPOffset<WorkerEntry<'a>> {
     let o = self.fbb_.end_table(self.start_);
-    self.fbb_.required(o, WorkerAssignment::VT_WORKER_ID,"worker_id");
+    self.fbb_.required(o, WorkerEntry::VT_WORKER_ID,"worker_id");
     flatbuffers::WIPOffset::new(o.value())
   }
 }
 
-impl core::fmt::Debug for WorkerAssignment<'_> {
+impl core::fmt::Debug for WorkerEntry<'_> {
   fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    let mut ds = f.debug_struct("WorkerAssignment");
+    let mut ds = f.debug_struct("WorkerEntry");
       ds.field("worker_id", &self.worker_id());
-      ds.field("chunks", &self.chunks());
       ds.field("status", &self.status());
       ds.field("encrypted_headers", &self.encrypted_headers());
       ds.finish()

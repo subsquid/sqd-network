@@ -1,9 +1,12 @@
 // When changing this file, regenerate the sources by running
-// flatc --rust -o gen ./assignment.fbs
+// flatc --rust -o gen ./assignment.fbs ./worker_assignment.fbs ./portal_assignment.fbs
+//
+// worker_assignment.fbs and portal_assignment.fbs (NET-1180) each `include` this file to reuse
+// WorkerStatus/WorkerId/EncryptedHeaders/WorkerEntry -- see those files for the split rationale.
 
 table Assignment {
   datasets: [Dataset] (required);
-  workers: [WorkerAssignment] (required);
+  workers: [WorkerEntry] (required);
 }
 
 enum WorkerStatus: byte {
@@ -13,7 +16,12 @@ enum WorkerStatus: byte {
   UnsupportedVersion,
 }
 
-table WorkerAssignment {
+// A worker's entry within a published assignment: identity, serve-eligibility status, and the
+// sealed HTTP auth headers for the storage backend. Renamed from `WorkerAssignment` (NET-1180) to
+// free that name for the new worker-facing root table in worker_assignment.fbs, which reuses this
+// same table; this type is internal to the assignments crate (builder.rs/reader.rs) and was never
+// referenced by name elsewhere.
+table WorkerEntry {
   worker_id: WorkerId (required);  // sorted by parsed PeerId
 
   chunks: [Chunk] (deprecated);
