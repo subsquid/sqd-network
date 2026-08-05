@@ -104,9 +104,11 @@ impl NetworkBehaviour for Behaviour {
             FromSwarm::DialFailure(DialFailure {
                 peer_id: Some(peer_id),
                 error:
-                    error @ (DialError::Transport(_)
+                    error @ (DialError::LocalPeerId { .. }
+                    | DialError::Transport(_)
                     | DialError::Denied { .. }
                     | DialError::NoAddresses
+                    | DialError::Aborted
                     | DialError::WrongPeerId { .. }),
                 ..
             }) => {

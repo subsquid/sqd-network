@@ -103,6 +103,7 @@ impl Shared {
 
     pub(crate) fn on_connection_closed(&mut self, conn: ConnectionId) {
         self.connections.remove(&conn);
+        self.senders.remove(&conn);
     }
 
     pub(crate) fn on_dial_failure(&mut self, peer: PeerId, reason: String) {
@@ -118,7 +119,7 @@ impl Shared {
         }
     }
 
-    pub(crate) fn sender(&mut self, peer: PeerId) -> mpsc::Sender<NewStream> {
+    pub(crate) fn sender(&mut self, peer: PeerId) -> io::Result<mpsc::Sender<NewStream>> {
         let maybe_sender = self
             .connections
             .iter()
@@ -130,17 +131,27 @@ impl Shared {
             Some(sender) => {
                 tracing::debug!("Returning sender to existing connection");
 
-                sender.clone()
+                Ok(sender.clone())
             }
             None => {
+                if let Some((sender, _)) = self.pending_channels.get(&peer) {
+                    tracing::debug!(%peer, "Returning sender for pending connection");
+                    return Ok(sender.clone());
+                }
+
                 tracing::debug!(%peer, "Not connected to peer, initiating dial");
 
-                let (sender, _) =
-                    self.pending_channels.entry(peer).or_insert_with(|| mpsc::channel(0));
+                self.dial_sender.unbounded_send(peer).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        "stream behaviour is no longer running",
+                    )
+                })?;
 
-                let _ = self.dial_sender.unbounded_send(peer);
+                let (sender, receiver) = mpsc::channel(0);
+                self.pending_channels.insert(peer, (sender.clone(), receiver));
 
-                sender.clone()
+                Ok(sender)
             }
         }
     }
@@ -163,5 +174,29 @@ impl Shared {
         self.senders.insert(connection, sender);
 
         receiver
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closing_connection_removes_its_sender() {
+        let (dial_sender, _dial_receiver) = mpsc::unbounded();
+        let mut shared = Shared::new(dial_sender);
+        let connection = ConnectionId::new_unchecked(1);
+        let peer = PeerId::random();
+
+        let _receiver = shared.receiver(peer, connection);
+        shared.on_connection_established(connection, peer);
+
+        assert!(shared.connections.contains_key(&connection));
+        assert!(shared.senders.contains_key(&connection));
+
+        shared.on_connection_closed(connection);
+
+        assert!(!shared.connections.contains_key(&connection));
+        assert!(!shared.senders.contains_key(&connection));
     }
 }

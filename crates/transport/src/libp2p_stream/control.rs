@@ -48,7 +48,7 @@ impl Control {
     ) -> Result<Stream, OpenStreamError> {
         tracing::debug!(%peer, "Requesting new stream");
 
-        let mut new_stream_sender = Shared::lock(&self.shared).sender(peer);
+        let mut new_stream_sender = Shared::lock(&self.shared).sender(peer)?;
 
         let (sender, receiver) = oneshot::channel();
 
