@@ -1,6 +1,6 @@
 mod common;
 
-#[cfg(all(feature = "builder", feature = "reader", feature = "mvcc-chunks"))]
+#[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
 fn test_worker_assignment_round_trip() {
     use rand::{rngs::StdRng, SeedableRng};
@@ -64,7 +64,7 @@ fn test_worker_assignment_round_trip() {
     assert!(chunks[1].tables_present().is_none(), "unset tables_present means all present");
 }
 
-#[cfg(all(feature = "builder", feature = "reader", feature = "mvcc-chunks"))]
+#[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
 fn test_portal_assignment_round_trip() {
     use sqd_assignments::PortalAssignmentBuilder;

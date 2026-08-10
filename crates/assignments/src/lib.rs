@@ -11,7 +11,6 @@
 mod assignment_generated {
     include!("../schema/gen/assignment_generated.rs");
 }
-#[cfg(feature = "mvcc-chunks")]
 #[allow(
     dead_code,
     unused_imports,
@@ -22,7 +21,6 @@ mod assignment_generated {
 mod worker_assignment_generated {
     include!("../schema/gen/worker_assignment_generated.rs");
 }
-#[cfg(feature = "mvcc-chunks")]
 #[allow(
     dead_code,
     unused_imports,
@@ -43,17 +41,17 @@ mod reader;
 #[cfg(feature = "builder")]
 mod signatures;
 
-pub use common::{NetworkAssignment, NetworkState, WorkerStatus};
+pub use common::{NetworkAssignment, NetworkState, SchemaBundle, WorkerStatus};
 
 #[cfg(feature = "builder")]
 pub use builder::AssignmentBuilder;
-#[cfg(all(feature = "builder", feature = "mvcc-chunks"))]
+#[cfg(all(feature = "builder"))]
 pub use builder::{
     PortalAssignmentBuilder, PortalAssignmentChunkBuilder, WorkerAssignmentBuilder,
     WorkerAssignmentChunkBuilder,
 };
 
-#[cfg(all(feature = "reader", feature = "mvcc-chunks"))]
+#[cfg(all(feature = "reader"))]
 pub use reader::{AssignedWorker, PortalAssignment, PortalWorker, WorkerAssignment};
 #[cfg(feature = "reader")]
 pub use reader::{Assignment, ChunkNotFound, ChunkRef, Worker};

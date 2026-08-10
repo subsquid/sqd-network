@@ -8,7 +8,7 @@ pub enum WorkerStatus {
     UnsupportedVersion,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkAssignment {
     /// Deprecated: use `fb_url_v1` instead.
     #[deprecated(note = "use fb_url_v1 instead")]
@@ -23,16 +23,23 @@ pub struct NetworkAssignment {
     pub effective_from: u64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct SchemaBundle {
+    pub hash: String,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkState {
     pub network: String,
     pub assignment: NetworkAssignment,
 
-    #[cfg(feature = "mvcc-chunks")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_assignment: Option<NetworkAssignment>,
 
-    #[cfg(feature = "mvcc-chunks")]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub portal_assignment: Option<NetworkAssignment>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_bundle: Option<SchemaBundle>,
 }

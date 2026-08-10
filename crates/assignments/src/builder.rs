@@ -357,7 +357,6 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
 // docs/assignment-wire-format.md in network-scheduler). `WorkerEntry` is shared with the legacy
 // format unchanged.
 
-#[cfg(feature = "mvcc-chunks")]
 pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     builder: fb::FlatBufferBuilder<'static>,
     rng: Rng,
@@ -374,14 +373,12 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     check_continuity: bool,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl WorkerAssignmentBuilder<OsRng> {
     pub fn new(cloudflare_storage_secret: impl Into<String>) -> Self {
         Self::new_with_rng(cloudflare_storage_secret, OsRng)
     }
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     pub fn new_with_rng(cloudflare_storage_secret: impl Into<String>, mut rng: Rng) -> Self {
         let mut builder = flatbuffers::FlatBufferBuilder::new();
@@ -541,7 +538,6 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     }
 }
 
-#[cfg(feature = "mvcc-chunks")]
 pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     p: &'b mut WorkerAssignmentBuilder<Rng>,
 
@@ -555,7 +551,6 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     pub fn new(parent: &'b mut WorkerAssignmentBuilder<Rng>) -> Self {
         Self {
@@ -644,7 +639,6 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
 // files/URLs; the dataset (not the chunk) carries `schema_id` — the portal's current read schema
 // reference, not a per-chunk write-schema pin.
 
-#[cfg(feature = "mvcc-chunks")]
 #[derive(Default)]
 pub struct PortalAssignmentBuilder {
     builder: fb::FlatBufferBuilder<'static>,
@@ -658,7 +652,6 @@ pub struct PortalAssignmentBuilder {
     check_continuity: bool,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl PortalAssignmentBuilder {
     pub fn new() -> Self {
         Self {
@@ -765,7 +758,6 @@ impl PortalAssignmentBuilder {
     }
 }
 
-#[cfg(feature = "mvcc-chunks")]
 pub struct PortalAssignmentChunkBuilder<'b> {
     p: &'b mut PortalAssignmentBuilder,
 
@@ -776,7 +768,6 @@ pub struct PortalAssignmentChunkBuilder<'b> {
     worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl<'b> PortalAssignmentChunkBuilder<'b> {
     pub fn new(parent: &'b mut PortalAssignmentBuilder) -> Self {
         Self {

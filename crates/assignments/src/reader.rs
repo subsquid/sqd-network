@@ -230,7 +230,6 @@ impl Worker<'_> {
 // portal concern), no `last_block_hash`/`last_block_timestamp` on chunks (portal-only). Otherwise
 // mirrors `Assignment`/`Worker` — see docs/assignment-wire-format.md in network-scheduler.
 
-#[cfg(feature = "mvcc-chunks")]
 #[ouroboros::self_referencing]
 pub struct WorkerAssignment {
     buf: Vec<u8>,
@@ -240,7 +239,6 @@ pub struct WorkerAssignment {
     reader: assignment_fb::WorkerAssignment<'this>,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl WorkerAssignment {
     pub fn from_owned(buf: Vec<u8>) -> Result<Self, flatbuffers::InvalidFlatbuffer> {
         let opts = flatbuffers::VerifierOptions {
@@ -328,14 +326,12 @@ impl WorkerAssignment {
 
 /// A worker's entry in a [`WorkerAssignment`]: identity, status, sealed auth headers, and the
 /// chunks it's assigned (via each chunk's `worker_indexes`).
-#[cfg(feature = "mvcc-chunks")]
 pub struct AssignedWorker<'f> {
     assignment: assignment_fb::WorkerAssignment<'f>,
     reader: assignment_fb::WorkerEntry<'f>,
     index: u16,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl AssignedWorker<'_> {
     pub fn iter_chunks(
         &self,
@@ -388,7 +384,6 @@ impl AssignedWorker<'_> {
 // concerns), chunks carry `last_block_hash`/`last_block_timestamp` instead, and each dataset
 // carries a `schema_id` (a reference, not resolved here — see NET-1180's out-of-scope note).
 
-#[cfg(feature = "mvcc-chunks")]
 #[ouroboros::self_referencing]
 pub struct PortalAssignment {
     buf: Vec<u8>,
@@ -398,7 +393,6 @@ pub struct PortalAssignment {
     reader: assignment_fb::PortalAssignment<'this>,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl PortalAssignment {
     pub fn from_owned(buf: Vec<u8>) -> Result<Self, flatbuffers::InvalidFlatbuffer> {
         let opts = flatbuffers::VerifierOptions {
@@ -534,12 +528,10 @@ impl PortalAssignment {
 /// A worker's entry in a [`PortalAssignment`]: just identity and routing eligibility — no
 /// `encrypted_headers`/chunk iteration; a portal never downloads and never needs a specific
 /// worker's whole chunk list.
-#[cfg(feature = "mvcc-chunks")]
 pub struct PortalWorker<'f> {
     reader: assignment_fb::PortalEntry<'f>,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl PortalWorker<'_> {
     pub fn peer_id(&self) -> Result<PeerId, anyhow::Error> {
         Ok((*self.reader.worker_id()).try_into()?)
@@ -584,11 +576,9 @@ fn decrypt_headers(
     Ok(map)
 }
 
-#[cfg(feature = "mvcc-chunks")]
 #[derive(Copy, Clone)]
 struct PortalChunks<'a>(&'a Vector<'a, ForwardsUOffset<assignment_fb::PortalAssignmentChunk<'a>>>);
 
-#[cfg(feature = "mvcc-chunks")]
 impl<'a> IndexGet for PortalChunks<'a> {
     type Item = assignment_fb::PortalAssignmentChunk<'a>;
 
