@@ -23,8 +23,11 @@ pub struct NetworkAssignment {
     pub effective_from: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+/// Where to fetch the schema content that assignments only reference by id — a worker chunk's
+/// `write_schema_id`, a portal dataset's `read_schema_id`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct SchemaBundle {
+    /// Content hash of the bundle at `url`, so a cached copy can be reused across states.
     pub hash: String,
     pub url: String,
 }

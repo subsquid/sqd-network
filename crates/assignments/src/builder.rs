@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{btree_map::Entry, BTreeMap, HashMap},
     ops::RangeInclusive,
 };
 
@@ -377,6 +377,9 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     check_continuity: bool,
     /// `BTreeMap` so `finish` emits rosters id-sorted, as `TableRoster`'s `(key)` lookup requires.
     write_schemas: BTreeMap<u32, Vec<String>>,
+    /// Whole datasets usually share one bitmap, so chunks reuse a single vector for it — the same
+    /// deduplication `AssignmentBuilder` does for file lists.
+    tables_present_offsets: HashMap<Vec<u8>, fb::WIPOffset<fb::Vector<'static, u8>>>,
 }
 
 impl WorkerAssignmentBuilder<OsRng> {
@@ -406,6 +409,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             common_secret_key,
             check_continuity: true,
             write_schemas: BTreeMap::new(),
+            tables_present_offsets: HashMap::new(),
         }
     }
 
@@ -432,15 +436,20 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             tables.is_sorted_by(|a, b| a.as_ref() < b.as_ref()),
             "write schema {write_schema_id}'s roster must be sorted and free of duplicates"
         );
-        let tables: Vec<String> = tables.iter().map(|t| t.as_ref().to_owned()).collect();
-        if let Some(existing) = self.write_schemas.get(&write_schema_id) {
-            anyhow::ensure!(
-                *existing == tables,
-                "write schema {write_schema_id} re-registered with a different table roster"
-            );
-            return Ok(());
+        match self.write_schemas.entry(write_schema_id) {
+            Entry::Occupied(existing) => {
+                let registered = existing.get();
+                let unchanged = registered.len() == tables.len()
+                    && std::iter::zip(registered, tables).all(|(old, new)| old == new.as_ref());
+                anyhow::ensure!(
+                    unchanged,
+                    "write schema {write_schema_id} re-registered with a different table roster"
+                );
+            }
+            Entry::Vacant(slot) => {
+                slot.insert(tables.iter().map(|t| t.as_ref().to_owned()).collect());
+            }
         }
-        self.write_schemas.insert(write_schema_id, tables);
         Ok(())
     }
 
@@ -527,16 +536,20 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         &mut self,
     ) -> fb::WIPOffset<fb::Vector<'static, fb::ForwardsUOffset<assignment_fb::TableRoster<'static>>>>
     {
-        // Moved out and put back to read the rosters while `self.builder` is mutably borrowed.
-        let write_schemas = std::mem::take(&mut self.write_schemas);
+        // Destructured so the rosters can be read while `builder` is mutably borrowed.
+        let Self {
+            builder,
+            write_schemas,
+            ..
+        } = self;
         let offsets: Vec<_> = write_schemas
             .iter()
             .map(|(write_schema_id, tables)| {
                 let table_offsets: Vec<_> =
-                    tables.iter().map(|t| self.builder.create_shared_string(t)).collect();
-                let tables = self.builder.create_vector(&table_offsets);
+                    tables.iter().map(|t| builder.create_shared_string(t)).collect();
+                let tables = builder.create_vector(&table_offsets);
                 assignment_fb::TableRoster::create(
-                    &mut self.builder,
+                    builder,
                     &assignment_fb::TableRosterArgs {
                         write_schema_id: *write_schema_id,
                         tables: Some(tables),
@@ -544,8 +557,19 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
                 )
             })
             .collect();
-        self.write_schemas = write_schemas;
-        self.builder.create_vector(&offsets)
+        builder.create_vector(&offsets)
+    }
+
+    /// Interns a `tables_present` bitmap, so chunks sharing one share a single vector.
+    fn cache_tables_bitmap(&mut self, bits: Vec<u8>) -> fb::WIPOffset<fb::Vector<'static, u8>> {
+        match self.tables_present_offsets.get(&bits) {
+            Some(&offset) => offset,
+            None => {
+                let offset = self.builder.create_vector(&bits);
+                self.tables_present_offsets.insert(bits, offset);
+                offset
+            }
+        }
     }
 
     fn add_chunk(
@@ -610,7 +634,9 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     size: Option<u32>,
     dataset_base_url: Option<fb::WIPOffset<&'static str>>,
     write_schema_id: Option<u32>,
-    tables_present: Option<fb::WIPOffset<fb::Vector<'static, u8>>>,
+    /// The bitmap and the write schema it was encoded against — they can diverge if
+    /// `write_schema_id` is set again afterwards, which `finish` rejects.
+    tables_present: Option<(u32, fb::WIPOffset<fb::Vector<'static, u8>>)>,
     worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
 }
 
@@ -703,7 +729,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             }
             bits
         };
-        self.tables_present = Some(self.p.builder.create_vector(&bits));
+        self.tables_present = Some((write_schema_id, self.p.cache_tables_bitmap(bits)));
         Ok(self)
     }
 
@@ -714,8 +740,9 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
 
     /// # Errors
     ///
-    /// If `write_schema_id` is unset or its roster was never registered, or if the chunk breaks
-    /// block continuity (see [`WorkerAssignmentBuilder::check_continuity`]).
+    /// If `write_schema_id` is unset, its roster was never registered, or it changed after
+    /// [`Self::tables_present`] encoded a bitmap against a different roster; or if the chunk
+    /// breaks block continuity (see [`WorkerAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
         let write_schema_id = self.write_schema_id.context("write_schema_id must be set")?;
@@ -725,6 +752,17 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             self.p.write_schemas.contains_key(&write_schema_id),
             "write schema {write_schema_id} is not registered"
         );
+        let tables_present = match self.tables_present {
+            Some((encoded_against, offset)) => {
+                anyhow::ensure!(
+                    encoded_against == write_schema_id,
+                    "tables_present is a bitmap over write schema {encoded_against}'s roster, \
+                     but the chunk declares write schema {write_schema_id}"
+                );
+                Some(offset)
+            }
+            None => None,
+        };
         let offset = assignment_fb::WorkerAssignmentChunk::create(
             &mut self.p.builder,
             &assignment_fb::WorkerAssignmentChunkArgs {
@@ -734,7 +772,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
                 size: self.size.expect("Size must be set"),
                 dataset_base_url: self.dataset_base_url,
                 write_schema_id,
-                tables_present: self.tables_present,
+                tables_present,
                 worker_indexes: self.worker_indexes,
             },
         );

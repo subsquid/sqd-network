@@ -336,17 +336,15 @@ impl WorkerAssignment {
     /// Bits beyond the roster are ignored, so a malformed buffer can't name a table outside it.
     pub fn chunk_tables<'a>(
         &'a self,
-        chunk: &assignment_fb::WorkerAssignmentChunk<'a>,
+        chunk: assignment_fb::WorkerAssignmentChunk<'a>,
     ) -> Option<impl Iterator<Item = &'a str> + 'a> {
         let roster = self.get_write_schema(chunk.write_schema_id())?;
-        let bits = chunk.tables_present();
-        Some(roster.tables().iter().enumerate().filter_map(move |(index, table)| match bits {
-            None => Some(table),
-            Some(bits) => {
-                let byte = index / 8;
-                let present = byte < bits.len() && bits.get(byte) & (1u8 << (index % 8)) != 0;
-                present.then_some(table)
-            }
+        let bits = chunk.tables_present().map(|bits| bits.bytes());
+        Some(roster.tables().iter().enumerate().filter_map(move |(index, table)| {
+            let present = bits.is_none_or(|bits| {
+                bits.get(index / 8).is_some_and(|byte| byte & (1u8 << (index % 8)) != 0)
+            });
+            present.then_some(table)
         }))
     }
 }

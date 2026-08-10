@@ -7,7 +7,6 @@ edition = "2021"
 [features]
 reader = ["serde_json", "ouroboros"]
 builder = ["base64", "curve25519-dalek", "hmac", "serde_json", "url"]
-mvcc-chunks = []
 
 [dependencies]
 anyhow = { version = "1.0" }
