@@ -45,13 +45,13 @@ pub use common::{NetworkAssignment, NetworkState, SchemaBundle, WorkerStatus};
 
 #[cfg(feature = "builder")]
 pub use builder::AssignmentBuilder;
-#[cfg(all(feature = "builder"))]
+#[cfg(feature = "builder")]
 pub use builder::{
     PortalAssignmentBuilder, PortalAssignmentChunkBuilder, WorkerAssignmentBuilder,
     WorkerAssignmentChunkBuilder,
 };
 
-#[cfg(all(feature = "reader"))]
+#[cfg(feature = "reader")]
 pub use reader::{AssignedWorker, PortalAssignment, PortalWorker, WorkerAssignment};
 #[cfg(feature = "reader")]
 pub use reader::{Assignment, ChunkNotFound, ChunkRef, Worker};

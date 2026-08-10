@@ -5,9 +5,9 @@
 
 use libp2p_identity::PeerId;
 
-pub(crate) use crate::assignment_generated::*;
-pub(crate) use crate::portal_assignment_generated::*;
-pub(crate) use crate::worker_assignment_generated::*;
+pub(crate) use crate::{
+    assignment_generated::*, portal_assignment_generated::*, worker_assignment_generated::*,
+};
 
 impl Eq for WorkerId {}
 
