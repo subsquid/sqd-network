@@ -322,6 +322,33 @@ impl WorkerAssignment {
         }
         Some(chunks.get(r.chunk_index as usize))
     }
+
+    /// The table roster of a write schema referenced by this assignment's chunks.
+    pub fn get_write_schema(&self, write_schema_id: u32) -> Option<assignment_fb::TableRoster<'_>> {
+        self.borrow_reader()
+            .schemas()
+            .lookup_by_key(write_schema_id, |roster, key| roster.key_compare_with_value(*key))
+    }
+
+    /// The tables a chunk contains: the whole roster when it sets no bitmap, otherwise the tables
+    /// its bits select. `None` if the chunk's `write_schema_id` has no roster here.
+    ///
+    /// Bits beyond the roster are ignored, so a malformed buffer can't name a table outside it.
+    pub fn chunk_tables<'a>(
+        &'a self,
+        chunk: &assignment_fb::WorkerAssignmentChunk<'a>,
+    ) -> Option<impl Iterator<Item = &'a str> + 'a> {
+        let roster = self.get_write_schema(chunk.write_schema_id())?;
+        let bits = chunk.tables_present();
+        Some(roster.tables().iter().enumerate().filter_map(move |(index, table)| match bits {
+            None => Some(table),
+            Some(bits) => {
+                let byte = index / 8;
+                let present = byte < bits.len() && bits.get(byte) & (1u8 << (index % 8)) != 0;
+                present.then_some(table)
+            }
+        }))
+    }
 }
 
 /// A worker's entry in a [`WorkerAssignment`]: identity, status, sealed auth headers, and the
@@ -382,7 +409,7 @@ impl AssignedWorker<'_> {
 //
 // Diverges from `Assignment`: no file/URL/`encrypted_headers` access at all (worker-only
 // concerns), chunks carry `last_block_hash`/`last_block_timestamp` instead, and each dataset
-// carries a `schema_id` (a reference, not resolved here — see NET-1180's out-of-scope note).
+// carries a `read_schema_id` — an unresolved reference, unlike the worker side's inline rosters.
 
 #[ouroboros::self_referencing]
 pub struct PortalAssignment {

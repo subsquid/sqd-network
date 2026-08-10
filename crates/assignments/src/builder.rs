@@ -1,5 +1,9 @@
-use std::{collections::HashMap, ops::RangeInclusive};
+use std::{
+    collections::{BTreeMap, HashMap},
+    ops::RangeInclusive,
+};
 
+use anyhow::Context as _;
 use crypto_box::{
     aead::{rand_core::CryptoRngCore, OsRng},
     SecretKey,
@@ -371,6 +375,8 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     common_identity: fb::WIPOffset<fb::Vector<'static, u8>>,
     common_secret_key: SecretKey,
     check_continuity: bool,
+    /// `BTreeMap` so `finish` emits rosters id-sorted, as `TableRoster`'s `(key)` lookup requires.
+    write_schemas: BTreeMap<u32, Vec<String>>,
 }
 
 impl WorkerAssignmentBuilder<OsRng> {
@@ -399,6 +405,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             common_identity,
             common_secret_key,
             check_continuity: true,
+            write_schemas: BTreeMap::new(),
         }
     }
 
@@ -406,6 +413,35 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     pub fn check_continuity(mut self, check: bool) -> Self {
         self.check_continuity = check;
         self
+    }
+
+    /// Register a write schema's table roster: the schema's full declared table list, which each
+    /// chunk's `tables_present` selects from. Every `write_schema_id` a chunk references must be
+    /// registered before [`Self::finish`]. `tables` must be sorted and duplicate-free.
+    ///
+    /// # Errors
+    ///
+    /// If `tables` is not strictly ascending, or if the id was already registered with a
+    /// different roster — staged chunks' bitmaps are already encoded against the old ordering.
+    pub fn register_write_schema<S: AsRef<str>>(
+        &mut self,
+        write_schema_id: u32,
+        tables: &[S],
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            tables.is_sorted_by(|a, b| a.as_ref() < b.as_ref()),
+            "write schema {write_schema_id}'s roster must be sorted and free of duplicates"
+        );
+        let tables: Vec<String> = tables.iter().map(|t| t.as_ref().to_owned()).collect();
+        if let Some(existing) = self.write_schemas.get(&write_schema_id) {
+            anyhow::ensure!(
+                *existing == tables,
+                "write schema {write_schema_id} re-registered with a different table roster"
+            );
+            return Ok(());
+        }
+        self.write_schemas.insert(write_schema_id, tables);
+        Ok(())
     }
 
     pub fn new_chunk(&mut self) -> WorkerAssignmentChunkBuilder<'_, Rng> {
@@ -468,6 +504,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     }
 
     pub fn finish(&mut self) -> Vec<u8> {
+        let schemas = self.create_write_schema_rosters();
         let datasets = self.builder.create_vector(&self.all_datasets);
         let workers = self
             .builder
@@ -478,11 +515,37 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             &assignment_fb::WorkerAssignmentArgs {
                 datasets: Some(datasets),
                 workers: Some(workers),
+                schemas: Some(schemas),
             },
         );
 
         self.builder.finish(root, None);
         self.builder.finished_data().to_vec()
+    }
+
+    fn create_write_schema_rosters(
+        &mut self,
+    ) -> fb::WIPOffset<fb::Vector<'static, fb::ForwardsUOffset<assignment_fb::TableRoster<'static>>>>
+    {
+        // Moved out and put back to read the rosters while `self.builder` is mutably borrowed.
+        let write_schemas = std::mem::take(&mut self.write_schemas);
+        let offsets: Vec<_> = write_schemas
+            .iter()
+            .map(|(write_schema_id, tables)| {
+                let table_offsets: Vec<_> =
+                    tables.iter().map(|t| self.builder.create_shared_string(t)).collect();
+                let tables = self.builder.create_vector(&table_offsets);
+                assignment_fb::TableRoster::create(
+                    &mut self.builder,
+                    &assignment_fb::TableRosterArgs {
+                        write_schema_id: *write_schema_id,
+                        tables: Some(tables),
+                    },
+                )
+            })
+            .collect();
+        self.write_schemas = write_schemas;
+        self.builder.create_vector(&offsets)
     }
 
     fn add_chunk(
@@ -546,8 +609,8 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     dataset_id: Option<fb::WIPOffset<&'static str>>,
     size: Option<u32>,
     dataset_base_url: Option<fb::WIPOffset<&'static str>>,
-    schema_id: Option<i32>,
-    tables_present: Option<fb::WIPOffset<fb::Vector<'static, fb::ForwardsUOffset<&'static str>>>>,
+    write_schema_id: Option<u32>,
+    tables_present: Option<fb::WIPOffset<fb::Vector<'static, u8>>>,
     worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
 }
 
@@ -560,7 +623,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             dataset_id: None,
             size: None,
             dataset_base_url: None,
-            schema_id: None,
+            write_schema_id: None,
             tables_present: None,
             worker_indexes: None,
         }
@@ -591,20 +654,57 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         self
     }
 
-    /// The schema the chunk was written under. See docs/mvcc-schema.md (network-scheduler) —
-    /// resolving this id to schema content is out of scope here (NET-1180).
-    pub fn schema_id(mut self, schema_id: i32) -> Self {
-        self.schema_id = Some(schema_id);
+    /// The write schema the chunk was written under — the one covering every table and column
+    /// physically present in it. Must be registered with
+    /// [`WorkerAssignmentBuilder::register_write_schema`], and set before [`Self::tables_present`].
+    pub fn write_schema_id(mut self, write_schema_id: u32) -> Self {
+        self.write_schema_id = Some(write_schema_id);
         self
     }
 
-    /// Table names present in this chunk, resolved against `schema_id`'s tables. Omit (leave
-    /// unset) when every table is present.
-    pub fn tables_present<S: AsRef<str>>(mut self, tables: &[S]) -> Self {
-        let offsets: Vec<_> =
-            tables.iter().map(|t| self.p.builder.create_string(t.as_ref())).collect();
-        self.tables_present = Some(self.p.builder.create_vector(&offsets));
-        self
+    /// The subset of the write schema's tables this chunk contains, encoded as a bitmap over its
+    /// roster. Omit when every table is present. `tables` must be sorted and duplicate-free like
+    /// the roster, so the two merge in one pass; only debug builds assert it, but an unsorted
+    /// list still errors below rather than yielding a wrong bitmap.
+    ///
+    /// # Errors
+    ///
+    /// If [`Self::write_schema_id`] is unset or names an unregistered schema, or a table is
+    /// absent from that schema's roster — which means chunk and write schema disagree.
+    pub fn tables_present<S: AsRef<str>>(mut self, tables: &[S]) -> anyhow::Result<Self> {
+        debug_assert!(
+            tables.is_sorted_by(|a, b| a.as_ref() < b.as_ref()),
+            "tables_present must be sorted and free of duplicates"
+        );
+        let write_schema_id = self
+            .write_schema_id
+            .context("write_schema_id must be set before tables_present")?;
+        let bits = {
+            let roster = self
+                .p
+                .write_schemas
+                .get(&write_schema_id)
+                .with_context(|| format!("write schema {write_schema_id} is not registered"))?;
+            let mut bits = vec![0u8; roster.len().div_ceil(8)];
+            // Both sides are sorted, so one pass over each suffices: the roster cursor only ever
+            // moves forward.
+            let mut index = 0;
+            for table in tables {
+                let name = table.as_ref();
+                while index < roster.len() && roster[index].as_str() < name {
+                    index += 1;
+                }
+                anyhow::ensure!(
+                    roster.get(index).is_some_and(|t| t == name),
+                    "table '{name}' is absent from write schema {write_schema_id}'s roster"
+                );
+                bits[index / 8] |= 1u8 << (index % 8);
+                index += 1;
+            }
+            bits
+        };
+        self.tables_present = Some(self.p.builder.create_vector(&bits));
+        Ok(self)
     }
 
     pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
@@ -612,8 +712,19 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         self
     }
 
+    /// # Errors
+    ///
+    /// If `write_schema_id` is unset or its roster was never registered, or if the chunk breaks
+    /// block continuity (see [`WorkerAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
+        let write_schema_id = self.write_schema_id.context("write_schema_id must be set")?;
+        // Chunks with every table present never call `tables_present`, so this is the only place
+        // their schema reference gets checked.
+        anyhow::ensure!(
+            self.p.write_schemas.contains_key(&write_schema_id),
+            "write schema {write_schema_id} is not registered"
+        );
         let offset = assignment_fb::WorkerAssignmentChunk::create(
             &mut self.p.builder,
             &assignment_fb::WorkerAssignmentChunkArgs {
@@ -622,7 +733,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
                 dataset_id: self.dataset_id,
                 size: self.size.expect("Size must be set"),
                 dataset_base_url: self.dataset_base_url,
-                schema_id: self.schema_id.expect("schema_id must be set"),
+                write_schema_id,
                 tables_present: self.tables_present,
                 worker_indexes: self.worker_indexes,
             },
@@ -671,15 +782,15 @@ impl PortalAssignmentBuilder {
         PortalAssignmentChunkBuilder::new(self)
     }
 
-    /// `schema_id` is the dataset's current read schema at publication time — a single
-    /// per-dataset reference, not a per-chunk write-schema pin (contrast with
-    /// `WorkerAssignmentChunkBuilder::schema_id`).
+    /// `read_schema_id` is the dataset's current read schema — a client-facing view that may hide
+    /// tables, in a separate id space from
+    /// [`WorkerAssignmentChunkBuilder::write_schema_id`].
     ///
     /// `last_block_hash` is the head hash of the dataset (i.e. of its last chunk) — a
     /// dataset-level value, since no query needs a per-chunk hash (contrast with
     /// `PortalAssignmentChunkBuilder::last_block_timestamp`, which the timestamp lookup needs on
     /// every chunk).
-    pub fn finish_dataset(&mut self, schema_id: i32, last_block_hash: Option<&str>) {
+    pub fn finish_dataset(&mut self, read_schema_id: u32, last_block_hash: Option<&str>) {
         let last_block_hash = last_block_hash.map(|hash| self.builder.create_string(hash));
         let chunks = self.builder.create_vector(&self.current_chunks);
         let offset = assignment_fb::PortalAssignmentDataset::create(
@@ -692,7 +803,7 @@ impl PortalAssignmentBuilder {
                     .take()
                     .expect("At least one chunk should be present in the dataset"),
                 last_block_hash,
-                schema_id,
+                read_schema_id,
             },
         );
         self.all_datasets.push(offset);

@@ -10,12 +10,22 @@ include "assignment.fbs";
 // docs/assignment-wire-format.md in network-scheduler for the field-by-field trace). Published as
 // NetworkState's `worker_assignment` blob.
 //
-// How a chunk's `schema_id`/`tables_present` resolve to actual schema content is explicitly out
-// of scope here (NET-1180) -- they travel as opaque references for now.
+// A chunk's `write_schema_id` names its write schema -- the one covering every table and column
+// physically present in the chunk. The portal's `read_schema_id` is a client-facing view that may
+// hide tables; the two are separate id spaces. Column-level schema content stays out of scope
+// here (NET-1180) and lives in NetworkState's schema bundle.
 
 table WorkerAssignment {
   datasets: [WorkerAssignmentDataset] (required);
   workers: [WorkerEntry] (required);
+  schemas: [TableRoster] (required);  // sorted by id, as (key) lookup requires
+}
+
+// Ordering is fixed at publication and travels with the bitmap, so a schema that gains tables
+// later cannot change what an already published blob means.
+table TableRoster {
+  write_schema_id: uint32 (key);
+  tables: [string] (required);  // sorted; bit i of `tables_present` <-> tables[i]
 }
 
 table WorkerAssignmentDataset {
@@ -33,9 +43,10 @@ table WorkerAssignmentChunk {
   // No per-chunk base_url: the legacy field was always just `id` restated
   // (see sqd-assignments builder.rs), so the worker builds the download prefix from
   // dataset_base_url + id directly.
-  schema_id: int32;
-  // Table names present, resolved against schema_id's tables. Absent (null) = all tables present.
-  tables_present: [string];
+  write_schema_id: uint32;
+  // Bitmap over `schemas[write_schema_id].tables`: bit i (byte i/8, LSB-first) set = tables[i]
+  // present. Absent (null) = every table present.
+  tables_present: [ubyte];
   worker_indexes: [uint16] (required);
 }
 

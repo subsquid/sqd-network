@@ -9,6 +9,7 @@ fn test_worker_assignment_round_trip() {
     let mut builder =
         WorkerAssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0))
             .check_continuity(false);
+    builder.register_write_schema(7, &["blocks", "logs", "transactions"]).unwrap();
 
     builder
         .new_chunk()
@@ -17,8 +18,9 @@ fn test_worker_assignment_round_trip() {
         .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .block_range(221000000..=221000649)
         .size(1000000)
-        .schema_id(7)
+        .write_schema_id(7)
         .tables_present(&["blocks", "transactions"])
+        .unwrap()
         .worker_indexes(&[0])
         .finish()
         .unwrap();
@@ -29,7 +31,7 @@ fn test_worker_assignment_round_trip() {
         .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .block_range(221000650..=221001549)
         .size(1000000)
-        .schema_id(7)
+        .write_schema_id(7)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
@@ -56,12 +58,160 @@ fn test_worker_assignment_round_trip() {
     assert_eq!(chunks.len(), 2);
     assert_eq!(chunks[0].id(), "0221000000/0221000000-0221000649-BQJdx");
     assert_eq!(chunks[0].dataset_base_url(), "https://solana-mainnet-2.sqd-datasets.io");
-    assert_eq!(chunks[0].schema_id(), 7);
+    assert_eq!(chunks[0].write_schema_id(), 7);
     assert_eq!(
-        chunks[0].tables_present().unwrap().iter().collect::<Vec<_>>(),
+        assignment.chunk_tables(&chunks[0]).unwrap().collect::<Vec<_>>(),
         vec!["blocks", "transactions"]
     );
     assert!(chunks[1].tables_present().is_none(), "unset tables_present means all present");
+    assert_eq!(
+        assignment.chunk_tables(&chunks[1]).unwrap().collect::<Vec<_>>(),
+        vec!["blocks", "logs", "transactions"],
+        "an unset bitmap resolves to the write schema's whole roster"
+    );
+    assert_eq!(
+        assignment.get_write_schema(7).unwrap().tables().iter().collect::<Vec<_>>(),
+        vec!["blocks", "logs", "transactions"]
+    );
+    assert!(assignment.get_write_schema(8).is_none());
+}
+
+/// A chunk builder with everything but the write-schema fields set.
+#[cfg(feature = "builder")]
+fn staged_chunk<Rng: rand::CryptoRng + rand::RngCore>(
+    builder: &mut sqd_assignments::WorkerAssignmentBuilder<Rng>,
+) -> sqd_assignments::WorkerAssignmentChunkBuilder<'_, Rng> {
+    builder
+        .new_chunk()
+        .id("0221000000/0221000000-0221000649-BQJdx")
+        .dataset_id("s3://solana-mainnet-2")
+        .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
+        .block_range(221000000..=221000649)
+        .size(1000000)
+        .worker_indexes(&[0])
+}
+
+#[cfg(feature = "builder")]
+#[test]
+fn test_tables_present_rejects_table_outside_write_schema() {
+    use rand::{rngs::StdRng, SeedableRng};
+    use sqd_assignments::WorkerAssignmentBuilder;
+
+    let mut builder =
+        WorkerAssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0));
+    builder.register_write_schema(7, &["blocks", "transactions"]).unwrap();
+
+    let Err(error) = staged_chunk(&mut builder)
+        .write_schema_id(7)
+        .tables_present(&["blocks", "traces"])
+    else {
+        panic!("a table outside the write schema's roster must be rejected");
+    };
+
+    assert!(
+        error.to_string().contains("'traces' is absent from write schema 7's roster"),
+        "unexpected error: {error}"
+    );
+}
+
+#[cfg(feature = "builder")]
+#[test]
+fn test_tables_present_requires_write_schema_id_first() {
+    use rand::{rngs::StdRng, SeedableRng};
+    use sqd_assignments::WorkerAssignmentBuilder;
+
+    let mut builder =
+        WorkerAssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0));
+    builder.register_write_schema(7, &["blocks"]).unwrap();
+
+    let Err(error) = staged_chunk(&mut builder).tables_present(&["blocks"]) else {
+        panic!("tables_present encodes against the roster, so it needs the schema id");
+    };
+
+    assert!(
+        error.to_string().contains("write_schema_id must be set"),
+        "unexpected error: {error}"
+    );
+}
+
+/// The roster defines the bit order, so unlike `tables_present` it is validated in release too.
+#[cfg(feature = "builder")]
+#[test]
+fn test_unsorted_roster_is_rejected() {
+    use rand::{rngs::StdRng, SeedableRng};
+    use sqd_assignments::WorkerAssignmentBuilder;
+
+    let mut builder =
+        WorkerAssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0));
+
+    let error = builder
+        .register_write_schema(7, &["blocks", "transactions", "logs"])
+        .expect_err("an unsorted roster must be rejected");
+    assert!(error.to_string().contains("must be sorted"), "unexpected error: {error}");
+
+    let error = builder
+        .register_write_schema(7, &["blocks", "blocks"])
+        .expect_err("a duplicate table would claim two bits for one table");
+    assert!(error.to_string().contains("free of duplicates"), "unexpected error: {error}");
+}
+
+#[cfg(all(feature = "builder", debug_assertions))]
+#[test]
+#[should_panic(expected = "tables_present must be sorted")]
+fn test_unsorted_tables_present_trips_debug_assertion() {
+    use rand::{rngs::StdRng, SeedableRng};
+    use sqd_assignments::WorkerAssignmentBuilder;
+
+    let mut builder =
+        WorkerAssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0));
+    builder.register_write_schema(7, &["blocks", "logs", "transactions"]).unwrap();
+
+    let _ = staged_chunk(&mut builder)
+        .write_schema_id(7)
+        .tables_present(&["transactions", "blocks"]);
+}
+
+/// Without the debug assertion the merge still rejects it: the roster cursor has already passed
+/// the out-of-order name.
+#[cfg(all(feature = "builder", not(debug_assertions)))]
+#[test]
+fn test_unsorted_tables_present_still_fails_without_debug_assertions() {
+    use rand::{rngs::StdRng, SeedableRng};
+    use sqd_assignments::WorkerAssignmentBuilder;
+
+    let mut builder =
+        WorkerAssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0));
+    builder.register_write_schema(7, &["blocks", "logs", "transactions"]).unwrap();
+
+    let Err(error) = staged_chunk(&mut builder)
+        .write_schema_id(7)
+        .tables_present(&["transactions", "blocks"])
+    else {
+        panic!("an unsorted tables_present must not yield a bitmap");
+    };
+    assert!(error.to_string().contains("'blocks' is absent"), "unexpected error: {error}");
+}
+
+/// A chunk holding every table never encodes a bitmap, so `finish` is the only place its schema
+/// reference gets checked.
+#[cfg(feature = "builder")]
+#[test]
+fn test_finish_rejects_unregistered_write_schema() {
+    use rand::{rngs::StdRng, SeedableRng};
+    use sqd_assignments::WorkerAssignmentBuilder;
+
+    let mut builder =
+        WorkerAssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0));
+
+    let error = staged_chunk(&mut builder)
+        .write_schema_id(7)
+        .finish()
+        .expect_err("a chunk may not reference a write schema with no roster in the blob");
+
+    assert!(
+        error.to_string().contains("write schema 7 is not registered"),
+        "unexpected error: {error}"
+    );
 }
 
 #[cfg(all(feature = "builder", feature = "reader"))]
@@ -100,7 +250,7 @@ fn test_portal_assignment_round_trip() {
 
     let dataset = assignment.get_dataset("s3://solana-mainnet-2").unwrap();
     assert_eq!(dataset.last_block(), 221001549);
-    assert_eq!(dataset.schema_id(), 7);
+    assert_eq!(dataset.read_schema_id(), 7);
     assert_eq!(dataset.last_block_hash(), Some("BQJdx"));
 
     assert_eq!(assignment.get_worker_id(0).unwrap(), peer_id);
