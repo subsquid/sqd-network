@@ -44,8 +44,10 @@ table WorkerAssignmentChunk {
   // (see sqd-assignments builder.rs), so the worker builds the download prefix from
   // dataset_base_url + id directly.
   write_schema_id: uint32;
-  // Bitmap over `schemas[write_schema_id].tables`: bit i (byte i/8, LSB-first) set = tables[i]
-  // present. Absent (null) = every table present.
+  // Bitmap over the tables of the `schemas` entry whose `write_schema_id` equals this one --
+  // found by key lookup, NOT by indexing `schemas` positionally: ids are sparse, so the entry
+  // for id 140000 is not at offset 140000. Bit i (byte i/8, LSB-first) set = that roster's
+  // tables[i] present. Absent (null) = every table present.
   tables_present: [ubyte];
   worker_indexes: [uint16] (required);
 }
