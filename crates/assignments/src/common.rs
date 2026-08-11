@@ -32,10 +32,21 @@ pub struct SchemaBundle {
     pub url: String,
 }
 
+/// The published network state.
+///
+/// Migrating to split assignments walks a state through three shapes: `assignment` alone, then
+/// `assignment` alongside `worker_assignment`/`portal_assignment` while consumers switch over,
+/// then the split pair alone. Every field but `network` is therefore optional — which shapes are
+/// actually valid is the publisher's call, not this type's.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NetworkState {
     pub network: String,
-    pub assignment: NetworkAssignment,
+
+    /// The combined assignment served identically to workers and portals. Optional: a network
+    /// that has finished migrating stops publishing it, leaving the split blobs below as the
+    /// only source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assignment: Option<NetworkAssignment>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_assignment: Option<NetworkAssignment>,
