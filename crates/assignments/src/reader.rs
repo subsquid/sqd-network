@@ -230,7 +230,6 @@ impl Worker<'_> {
 // portal concern), no `last_block_hash`/`last_block_timestamp` on chunks (portal-only). Otherwise
 // mirrors `Assignment`/`Worker` — see docs/assignment-wire-format.md in network-scheduler.
 
-#[cfg(feature = "mvcc-chunks")]
 #[ouroboros::self_referencing]
 pub struct WorkerAssignment {
     buf: Vec<u8>,
@@ -240,7 +239,6 @@ pub struct WorkerAssignment {
     reader: assignment_fb::WorkerAssignment<'this>,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl WorkerAssignment {
     pub fn from_owned(buf: Vec<u8>) -> Result<Self, flatbuffers::InvalidFlatbuffer> {
         let opts = flatbuffers::VerifierOptions {
@@ -324,18 +322,41 @@ impl WorkerAssignment {
         }
         Some(chunks.get(r.chunk_index as usize))
     }
+
+    /// The table roster of a write schema referenced by this assignment's chunks.
+    pub fn get_write_schema(&self, write_schema_id: u32) -> Option<assignment_fb::TableRoster<'_>> {
+        self.borrow_reader()
+            .schemas()
+            .lookup_by_key(write_schema_id, |roster, key| roster.key_compare_with_value(*key))
+    }
+
+    /// The tables a chunk contains: the whole roster when it sets no bitmap, otherwise the tables
+    /// its bits select. `None` if the chunk's `write_schema_id` has no roster here.
+    ///
+    /// Bits beyond the roster are ignored, so a malformed buffer can't name a table outside it.
+    pub fn chunk_tables<'a>(
+        &'a self,
+        chunk: assignment_fb::WorkerAssignmentChunk<'a>,
+    ) -> Option<impl Iterator<Item = &'a str> + 'a> {
+        let roster = self.get_write_schema(chunk.write_schema_id())?;
+        let bits = chunk.tables_present().map(|bits| bits.bytes());
+        Some(roster.tables().iter().enumerate().filter_map(move |(index, table)| {
+            let present = bits.is_none_or(|bits| {
+                bits.get(index / 8).is_some_and(|byte| byte & (1u8 << (index % 8)) != 0)
+            });
+            present.then_some(table)
+        }))
+    }
 }
 
 /// A worker's entry in a [`WorkerAssignment`]: identity, status, sealed auth headers, and the
 /// chunks it's assigned (via each chunk's `worker_indexes`).
-#[cfg(feature = "mvcc-chunks")]
 pub struct AssignedWorker<'f> {
     assignment: assignment_fb::WorkerAssignment<'f>,
     reader: assignment_fb::WorkerEntry<'f>,
     index: u16,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl AssignedWorker<'_> {
     pub fn iter_chunks(
         &self,
@@ -386,9 +407,8 @@ impl AssignedWorker<'_> {
 //
 // Diverges from `Assignment`: no file/URL/`encrypted_headers` access at all (worker-only
 // concerns), chunks carry `last_block_hash`/`last_block_timestamp` instead, and each dataset
-// carries a `schema_id` (a reference, not resolved here — see NET-1180's out-of-scope note).
+// carries a `read_schema_id` — an unresolved reference, unlike the worker side's inline rosters.
 
-#[cfg(feature = "mvcc-chunks")]
 #[ouroboros::self_referencing]
 pub struct PortalAssignment {
     buf: Vec<u8>,
@@ -398,7 +418,6 @@ pub struct PortalAssignment {
     reader: assignment_fb::PortalAssignment<'this>,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl PortalAssignment {
     pub fn from_owned(buf: Vec<u8>) -> Result<Self, flatbuffers::InvalidFlatbuffer> {
         let opts = flatbuffers::VerifierOptions {
@@ -534,12 +553,10 @@ impl PortalAssignment {
 /// A worker's entry in a [`PortalAssignment`]: just identity and routing eligibility — no
 /// `encrypted_headers`/chunk iteration; a portal never downloads and never needs a specific
 /// worker's whole chunk list.
-#[cfg(feature = "mvcc-chunks")]
 pub struct PortalWorker<'f> {
     reader: assignment_fb::PortalEntry<'f>,
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl PortalWorker<'_> {
     pub fn peer_id(&self) -> Result<PeerId, anyhow::Error> {
         Ok((*self.reader.worker_id()).try_into()?)
@@ -584,11 +601,9 @@ fn decrypt_headers(
     Ok(map)
 }
 
-#[cfg(feature = "mvcc-chunks")]
 #[derive(Copy, Clone)]
 struct PortalChunks<'a>(&'a Vector<'a, ForwardsUOffset<assignment_fb::PortalAssignmentChunk<'a>>>);
 
-#[cfg(feature = "mvcc-chunks")]
 impl<'a> IndexGet for PortalChunks<'a> {
     type Item = assignment_fb::PortalAssignmentChunk<'a>;
 

@@ -7,7 +7,6 @@ edition = "2021"
 [features]
 reader = ["serde_json", "ouroboros"]
 builder = ["base64", "curve25519-dalek", "hmac", "serde_json", "url"]
-mvcc-chunks = []
 
 [dependencies]
 anyhow = { version = "1.0" }
@@ -15,7 +14,7 @@ base64 = { version = "0.22.1", optional = true }
 crypto_box = { version = "0.9.1", features = ["std"] }
 curve25519-dalek = { version = "4.1.3", optional = true }
 hmac = { version = "0.12.1", optional = true }
-flatbuffers = "25.2.10"
+flatbuffers = "25.12.19"
 libp2p-identity = { workspace = true, features = ["rand", "ed25519"] }
 ouroboros = { version = "0.18.5", optional = true }
 serde = { version = "1", features = ["derive"] }

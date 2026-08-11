@@ -5,11 +5,9 @@
 
 use libp2p_identity::PeerId;
 
-pub(crate) use crate::assignment_generated::*;
-#[cfg(feature = "mvcc-chunks")]
-pub(crate) use crate::portal_assignment_generated::*;
-#[cfg(feature = "mvcc-chunks")]
-pub(crate) use crate::worker_assignment_generated::*;
+pub(crate) use crate::{
+    assignment_generated::*, portal_assignment_generated::*, worker_assignment_generated::*,
+};
 
 impl Eq for WorkerId {}
 
@@ -49,7 +47,6 @@ impl Dataset<'_> {
     }
 }
 
-#[cfg(feature = "mvcc-chunks")]
 impl PortalAssignmentDataset<'_> {
     pub fn first_block(&self) -> u64 {
         self.chunks().get(0).first_block()
