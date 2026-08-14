@@ -3,15 +3,12 @@
 
 include "assignment.fbs";
 
-// --- NET-1180: portal-oriented assignment ---
+// The portal-facing assignment: what a portal needs to route a query to a worker, and nothing
+// else -- no download or auth fields at all. Published as NetworkState's `portal_assignment`
+// blob; see docs/assignment-wire-format.md in network-scheduler for the field-by-field trace.
 //
-// The legacy `Assignment` (assignment.fbs) is served identically to both workers and portals
-// today. This root type diverges that content to carry only what a portal actually reads (see
-// docs/assignment-wire-format.md in network-scheduler for the field-by-field trace). No
-// download/auth fields at all. Published as NetworkState's `portal_assignment` blob.
-//
-// How a dataset's `schema_id` resolves to actual schema content is explicitly out of scope here
-// (NET-1180) -- it travels as an opaque reference for now.
+// A dataset's `read_schema_id` travels as an opaque reference; the schema content it names lives
+// in NetworkState's schema bundle.
 
 table PortalAssignment {
   datasets: [PortalAssignmentDataset] (required);
@@ -34,8 +31,8 @@ table PortalAssignmentChunk {
   first_block: uint64 (key);
   id: string (required);
   dataset_id: string (required);
-  // Which copy of the chunk workers serve: 0 is the ingested one, any other value a copy some
-  // batch job rewrote (see GenerationEntry in worker_assignment.fbs). A portal never downloads, so
+  // Which copy of the chunk workers serve: 0 is the ingested one, any other value a copy a batch
+  // job writes (see GenerationEntry in worker_assignment.fbs). A portal never downloads, so
   // it gets the version without a storage prefix -- enough to tell apart answers computed from
   // different copies of the same block range.
   version: uint32;

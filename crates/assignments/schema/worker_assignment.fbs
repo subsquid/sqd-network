@@ -3,17 +3,14 @@
 
 include "assignment.fbs";
 
-// --- NET-1180: worker-oriented assignment ---
-//
-// The legacy `Assignment` (assignment.fbs) is served identically to both workers and portals
-// today. This root type diverges that content to carry only what a worker actually reads (see
-// docs/assignment-wire-format.md in network-scheduler for the field-by-field trace). Published as
-// NetworkState's `worker_assignment` blob.
+// The worker-facing assignment: what a worker needs to download and serve its chunks, and nothing
+// else. Published as NetworkState's `worker_assignment` blob; see docs/assignment-wire-format.md
+// in network-scheduler for the field-by-field trace.
 //
 // A chunk's `write_schema_id` names its write schema -- the one covering every table and column
 // physically present in the chunk. The portal's `read_schema_id` is a client-facing view that may
-// hide tables; the two are separate id spaces. Column-level schema content stays out of scope
-// here (NET-1180) and lives in NetworkState's schema bundle.
+// hide tables; the two are separate id spaces. Column-level schema content lives in NetworkState's
+// schema bundle.
 
 table WorkerAssignment {
   datasets: [WorkerAssignmentDataset] (required);
@@ -71,9 +68,7 @@ table WorkerAssignmentChunk {
   dataset_base_url: string (required);  // shared across all chunks of the dataset
   // Which copy of the chunk to download: 0 is the ingested one at dataset_base_url + id and has no
   // `GenerationEntry`, any other value names the one whose prefix goes between those two parts.
-  //
-  // No per-chunk base_url: the legacy field was always just `id` restated
-  // (see sqd-assignments builder.rs), so the download prefix is built from those parts directly.
+  // Those parts are the whole download prefix -- a chunk carries no base_url of its own.
   version: uint32;
   write_schema_id: uint32;
   // Bitmap over the tables of the `schemas` entry whose `write_schema_id` equals this one --
