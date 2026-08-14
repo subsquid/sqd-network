@@ -1250,6 +1250,50 @@ mod test {
     }
 }
 
+#[cfg(test)]
+mod chunk_id_format {
+    use super::{push_chunk_id, push_padded};
+
+    /// The hand-rolled padding exists because `{:010}` costs ~35ns a value, so it has to agree
+    /// with `{:010}` exactly — including where mainnet cannot reach it. The largest block number
+    /// in the whole assignment is about 70 million, so nothing there exercises a value wide enough
+    /// to overflow the pad, which is precisely where a hand-rolled formatter would be wrong.
+    #[test]
+    fn padding_matches_std_fmt() {
+        for value in [
+            0,
+            1,
+            9,
+            10,
+            99,
+            1_000_000_000,
+            9_999_999_999,  // the widest the pad holds
+            10_000_000_000, // one wider: `{:010}` prints all eleven digits
+            123_456_789_012_345,
+            u64::MAX,
+        ] {
+            let mut ours = String::new();
+            push_padded(&mut ours, value);
+            assert_eq!(ours, format!("{value:010}"), "padding {value}");
+        }
+    }
+
+    #[test]
+    fn ids_match_std_fmt() {
+        for (top, first, last, hash) in [
+            (0, 0, 0, "a"),
+            (221_000_000, 221_000_000, 221_000_649, "9QgFD"),
+            (0, 116_400, 127_899, "274f02d8"),
+            (9_999_999_999, 9_999_999_999, 9_999_999_999, "abcdefgh"),
+            (10_000_000_000, u64::MAX, u64::MAX, "z"),
+        ] {
+            let mut ours = String::new();
+            push_chunk_id(&mut ours, top, first, last, hash);
+            assert_eq!(ours, format!("{top:010}/{first:010}-{last:010}-{hash}"));
+        }
+    }
+}
+
 #[cfg(all(test, feature = "reader"))]
 mod malformed {
     use super::WorkerAssignment as ReadWorkerAssignment;
