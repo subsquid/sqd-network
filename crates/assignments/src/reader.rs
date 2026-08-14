@@ -570,8 +570,11 @@ impl PortalAssignment {
 
     /// The first chunk whose timestamp is at or after `ts`.
     ///
-    /// A dataset carrying no `ts_offsets` column reads as every chunk sitting at timestamp 0,
-    /// which is what the per-chunk optional timestamp amounted to before.
+    /// A dataset carrying no `timestamps` column reads as every chunk sitting at timestamp 0.
+    ///
+    /// Bisecting assumes the column ascends. Ingest doesn't guarantee it — a chunk whose timestamp
+    /// was never recorded carries 0, and a few step backwards outright — and around one of those a
+    /// lookup lands on a neighbouring chunk.
     pub fn find_chunk_by_timestamp(
         &self,
         dataset: &str,
@@ -619,11 +622,9 @@ impl<'a> PortalChunk<'a> {
         self.first_block() + self.dataset.block_deltas().get(self.index as usize) as u64
     }
 
-    /// `None` when the dataset carries no timestamps at all.
+    /// Absolute epoch milliseconds; `None` when the dataset carries no timestamps at all.
     pub fn last_block_timestamp(&self) -> Option<u64> {
-        self.dataset
-            .ts_offsets()
-            .map(|offsets| self.dataset.base_timestamp() + offsets.get(self.index as usize) as u64)
+        self.dataset.timestamps().map(|column| column.get(self.index as usize))
     }
 
     /// Which copy of the chunk workers serve; 0 is the ingested one.
@@ -691,8 +692,7 @@ impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
 
     /// The timestamp of chunk `index`, or 0 when the dataset carries no timestamps.
     fn timestamp_at(&self, index: u32) -> u64 {
-        self.ts_offsets()
-            .map_or(0, |offsets| self.base_timestamp() + offsets.get(index as usize) as u64)
+        self.timestamps().map_or(0, |column| column.get(index as usize))
     }
 
     /// The top directory chunk `index` lives under: the last run starting at or before it.

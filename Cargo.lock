@@ -5020,6 +5020,7 @@ dependencies = [
  "crypto_box",
  "curve25519-dalek",
  "flatbuffers",
+ "flate2",
  "hmac",
  "libp2p-identity",
  "ouroboros",

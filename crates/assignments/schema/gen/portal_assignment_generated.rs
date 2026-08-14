@@ -350,12 +350,11 @@ impl<'a> PortalAssignmentDataset<'a> {
   pub const VT_BLOCK_DELTAS: ::flatbuffers::VOffsetT = 12;
   pub const VT_HASHES: ::flatbuffers::VOffsetT = 14;
   pub const VT_TOPS: ::flatbuffers::VOffsetT = 16;
-  pub const VT_BASE_TIMESTAMP: ::flatbuffers::VOffsetT = 18;
-  pub const VT_TS_OFFSETS: ::flatbuffers::VOffsetT = 20;
-  pub const VT_VERSIONS: ::flatbuffers::VOffsetT = 22;
-  pub const VT_WORKER_OFFSETS: ::flatbuffers::VOffsetT = 24;
-  pub const VT_WORKER_INDEXES: ::flatbuffers::VOffsetT = 26;
-  pub const VT_LAST_BLOCK_HASH: ::flatbuffers::VOffsetT = 28;
+  pub const VT_TIMESTAMPS: ::flatbuffers::VOffsetT = 18;
+  pub const VT_VERSIONS: ::flatbuffers::VOffsetT = 20;
+  pub const VT_WORKER_OFFSETS: ::flatbuffers::VOffsetT = 22;
+  pub const VT_WORKER_INDEXES: ::flatbuffers::VOffsetT = 24;
+  pub const VT_LAST_BLOCK_HASH: ::flatbuffers::VOffsetT = 26;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -367,13 +366,12 @@ impl<'a> PortalAssignmentDataset<'a> {
     args: &'args PortalAssignmentDatasetArgs<'args>
   ) -> ::flatbuffers::WIPOffset<PortalAssignmentDataset<'bldr>> {
     let mut builder = PortalAssignmentDatasetBuilder::new(_fbb);
-    builder.add_base_timestamp(args.base_timestamp);
     builder.add_last_block(args.last_block);
     if let Some(x) = args.last_block_hash { builder.add_last_block_hash(x); }
     if let Some(x) = args.worker_indexes { builder.add_worker_indexes(x); }
     if let Some(x) = args.worker_offsets { builder.add_worker_offsets(x); }
     if let Some(x) = args.versions { builder.add_versions(x); }
-    if let Some(x) = args.ts_offsets { builder.add_ts_offsets(x); }
+    if let Some(x) = args.timestamps { builder.add_timestamps(x); }
     if let Some(x) = args.tops { builder.add_tops(x); }
     if let Some(x) = args.hashes { builder.add_hashes(x); }
     if let Some(x) = args.block_deltas { builder.add_block_deltas(x); }
@@ -444,18 +442,11 @@ impl<'a> PortalAssignmentDataset<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, TopRun>>>(PortalAssignmentDataset::VT_TOPS, None).unwrap()}
   }
   #[inline]
-  pub fn base_timestamp(&self) -> u64 {
+  pub fn timestamps(&self) -> Option<::flatbuffers::Vector<'a, u64>> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<u64>(PortalAssignmentDataset::VT_BASE_TIMESTAMP, Some(0)).unwrap()}
-  }
-  #[inline]
-  pub fn ts_offsets(&self) -> Option<::flatbuffers::Vector<'a, u32>> {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u32>>>(PortalAssignmentDataset::VT_TS_OFFSETS, None)}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u64>>>(PortalAssignmentDataset::VT_TIMESTAMPS, None)}
   }
   #[inline]
   pub fn versions(&self) -> Option<::flatbuffers::Vector<'a, u32>> {
@@ -500,8 +491,7 @@ impl ::flatbuffers::Verifiable for PortalAssignmentDataset<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("block_deltas", Self::VT_BLOCK_DELTAS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ChunkHash>>>("hashes", Self::VT_HASHES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, TopRun>>>("tops", Self::VT_TOPS, true)?
-     .visit_field::<u64>("base_timestamp", Self::VT_BASE_TIMESTAMP, false)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("ts_offsets", Self::VT_TS_OFFSETS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("timestamps", Self::VT_TIMESTAMPS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("versions", Self::VT_VERSIONS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("worker_offsets", Self::VT_WORKER_OFFSETS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("worker_indexes", Self::VT_WORKER_INDEXES, true)?
@@ -518,8 +508,7 @@ pub struct PortalAssignmentDatasetArgs<'a> {
     pub block_deltas: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
     pub hashes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ChunkHash>>>,
     pub tops: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, TopRun>>>,
-    pub base_timestamp: u64,
-    pub ts_offsets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
+    pub timestamps: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u64>>>,
     pub versions: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
     pub worker_offsets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
     pub worker_indexes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
@@ -536,8 +525,7 @@ impl<'a> Default for PortalAssignmentDatasetArgs<'a> {
       block_deltas: None, // required field
       hashes: None, // required field
       tops: None, // required field
-      base_timestamp: 0,
-      ts_offsets: None,
+      timestamps: None,
       versions: None,
       worker_offsets: None, // required field
       worker_indexes: None, // required field
@@ -580,12 +568,8 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PortalAssignmentDatasetBuilde
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PortalAssignmentDataset::VT_TOPS, tops);
   }
   #[inline]
-  pub fn add_base_timestamp(&mut self, base_timestamp: u64) {
-    self.fbb_.push_slot::<u64>(PortalAssignmentDataset::VT_BASE_TIMESTAMP, base_timestamp, 0);
-  }
-  #[inline]
-  pub fn add_ts_offsets(&mut self, ts_offsets: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u32>>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PortalAssignmentDataset::VT_TS_OFFSETS, ts_offsets);
+  pub fn add_timestamps(&mut self, timestamps: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u64>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PortalAssignmentDataset::VT_TIMESTAMPS, timestamps);
   }
   #[inline]
   pub fn add_versions(&mut self, versions: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u32>>) {
@@ -635,8 +619,7 @@ impl ::core::fmt::Debug for PortalAssignmentDataset<'_> {
       ds.field("block_deltas", &self.block_deltas());
       ds.field("hashes", &self.hashes());
       ds.field("tops", &self.tops());
-      ds.field("base_timestamp", &self.base_timestamp());
-      ds.field("ts_offsets", &self.ts_offsets());
+      ds.field("timestamps", &self.timestamps());
       ds.field("versions", &self.versions());
       ds.field("worker_offsets", &self.worker_offsets());
       ds.field("worker_indexes", &self.worker_indexes());

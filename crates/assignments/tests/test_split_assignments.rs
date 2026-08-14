@@ -629,7 +629,7 @@ fn test_portal_tops_are_runs_and_hashes_keep_their_length() {
     assert_eq!(dataset.chunk(0).unwrap().hash(), Some("abcde"), "5 characters, NUL-padded");
     assert_eq!(dataset.chunk(1).unwrap().hash(), Some("274f02d8"), "8 characters, unpadded");
     assert!(dataset.versions().is_none(), "a dataset no batch job touched carries no column");
-    assert!(dataset.ts_offsets().is_none(), "nor timestamps it was never given");
+    assert!(dataset.timestamps().is_none(), "nor timestamps it was never given");
     assert_eq!(dataset.chunk(2).unwrap().last_block_timestamp(), None);
     assert!(dataset.chunk(3).is_none(), "past the end of the columns");
 }

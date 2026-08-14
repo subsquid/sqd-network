@@ -46,7 +46,7 @@ table PortalAssignmentDataset {
   // The head block's full hash. `hashes` holds short hashes truncated for chunk ids, so the whole
   // value lives here, once per dataset. Declared beside `last_block` while holding the highest id,
   // which is what the ids are for.
-  last_block_hash: string (id: 12);
+  last_block_hash: string (id: 11);
   // The dataset's current read schema, for query validation -- a client-facing view that may hide
   // tables, resolved through NetworkState's schema bundle. Separate id space from the worker
   // assignment's `write_schema_id`.
@@ -56,6 +56,10 @@ table PortalAssignmentDataset {
   //
   // That index comes from bisecting `first_blocks`, so every value is absolute and a lookup
   // reaches any chunk in one step. `tops` is the exception, above.
+  //
+  // `timestamps` is bisected the same way, which asks that it ascend. Ingest does not always
+  // deliver that -- a handful of mainnet chunks step backwards, and some carry 0 for a timestamp
+  // that was never recorded -- and a lookup near one of those returns a neighbouring chunk.
 
   first_blocks: [uint64] (required, id: 3);  // ascending
   // last_block - first_block, so each chunk carries its own end. Gaps between chunks are legal
@@ -65,23 +69,23 @@ table PortalAssignmentDataset {
   hashes: [ChunkHash] (required, id: 5);
   tops: [TopRun] (required, id: 6);
 
-  // A base plus offsets, absolute against the base for the reason above: the timestamp lookup
-  // bisects them too.
-  base_timestamp: uint64 (id: 7);
-  ts_offsets: [uint32] (id: 8);  // absent = the dataset carries no timestamps
+  // Absolute epoch milliseconds, as ingest records them. Milliseconds outgrew uint32 in 1970 and
+  // a per-dataset base doesn't rescue them either -- uint32 spans 49.7 days, and 241 of 245
+  // mainnet datasets hold more history than that -- so the column is as wide as the value.
+  timestamps: [uint64] (id: 7);  // absent = the dataset carries no timestamps
 
   // One entry per chunk. A run entry costs 8 bytes against this column's 4, so runs pay while one
   // covers more than two chunks, which fragmented backfills cut short; a dense column holds a
   // predictable ceiling. The column appears with the first backfill.
-  versions: [uint32] (id: 9);  // absent = every chunk at version 0
+  versions: [uint32] (id: 8);  // absent = every chunk at version 0
 
   // Confirmed routing: which workers a portal sends the query to. CSR expresses a column of
   // variable-length lists -- chunk i's workers run from worker_offsets[i] to
   // worker_offsets[i + 1], which makes worker_offsets one longer than the other columns.
   // Run-length encoding on top waits on measurement: it pays once a worker's chunks form
   // contiguous slices.
-  worker_offsets: [uint32] (required, id: 10);
-  worker_indexes: [uint16] (required, id: 11);
+  worker_offsets: [uint32] (required, id: 9);
+  worker_indexes: [uint16] (required, id: 10);
 }
 
 table PortalEntry {

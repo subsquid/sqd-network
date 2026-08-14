@@ -586,6 +586,52 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         self.worker_entries.push((worker_id, offset));
     }
 
+    /// Adds a worker carrying headers already sealed by someone else, copied byte for byte.
+    ///
+    /// [`Self::add_worker`] mints headers from the Cloudflare secret, which an assignment being
+    /// re-emitted from another one doesn't have — the secret never travels with the blob. The
+    /// sealed bytes do, and they stay valid for the worker that owns the key: `identity` is the
+    /// public half of the ephemeral key they were sealed under, and the ciphertext is bound to it.
+    ///
+    /// The signature inside carries whatever timestamp it was minted with, so headers copied from
+    /// an old assignment are as expired as their source.
+    pub fn add_worker_with_sealed_headers(
+        &mut self,
+        id: PeerId,
+        status: common::WorkerStatus,
+        identity: &[u8],
+        nonce: &[u8],
+        ciphertext: &[u8],
+    ) {
+        if let Some(last) = self.last_peer_id {
+            assert!(last < id, "Workers must be added in ascending order of their PeerIDs");
+        }
+        self.last_peer_id = Some(id);
+
+        let identity = self.builder.create_vector(identity);
+        let nonce = self.builder.create_vector(nonce);
+        let ciphertext = self.builder.create_vector(ciphertext);
+        let encrypted_headers = assignment_fb::EncryptedHeaders::create(
+            &mut self.builder,
+            &assignment_fb::EncryptedHeadersArgs {
+                identity: Some(identity),
+                nonce: Some(nonce),
+                ciphertext: Some(ciphertext),
+            },
+        );
+
+        let worker_id = WorkerId::from(id);
+        let offset = assignment_fb::WorkerEntry::create(
+            &mut self.builder,
+            &assignment_fb::WorkerEntryArgs {
+                worker_id: Some(&worker_id),
+                status: status_to_fb(status),
+                encrypted_headers: Some(encrypted_headers),
+            },
+        );
+        self.worker_entries.push((worker_id, offset));
+    }
+
     pub fn finish(&mut self) -> Vec<u8> {
         let schemas = self.create_write_schema_rosters();
         let datasets = self.builder.create_vector(&self.all_datasets);
@@ -900,8 +946,8 @@ struct PortalDatasetColumns {
     /// One entry per run, appended only when a chunk's top differs from the previous chunk's --
     /// which is what makes the first run start at index 0 and the rest strictly ascend.
     tops: Vec<assignment_fb::TopRun>,
-    base_timestamp: Option<u64>,
-    ts_offsets: Vec<u32>,
+    /// Absolute epoch milliseconds, as given. A dataset either times every chunk or none of them.
+    timestamps: Vec<u64>,
     /// How many chunks carried a timestamp. The column is all-or-nothing, so by `finish_dataset`
     /// this is either 0 or the chunk count.
     timestamped: usize,
@@ -989,8 +1035,8 @@ impl PortalAssignmentBuilder {
         let block_deltas = self.builder.create_vector(&columns.block_deltas);
         let hashes = self.builder.create_vector(&columns.hashes);
         let tops = self.builder.create_vector(&columns.tops);
-        let ts_offsets =
-            (columns.timestamped > 0).then(|| self.builder.create_vector(&columns.ts_offsets));
+        let timestamps =
+            (columns.timestamped > 0).then(|| self.builder.create_vector(&columns.timestamps));
         let versions = columns
             .versions
             .iter()
@@ -1017,8 +1063,7 @@ impl PortalAssignmentBuilder {
                 block_deltas: Some(block_deltas),
                 hashes: Some(hashes),
                 tops: Some(tops),
-                base_timestamp: columns.base_timestamp.unwrap_or(0),
-                ts_offsets,
+                timestamps,
                 versions,
                 worker_offsets: Some(worker_offsets),
                 worker_indexes: Some(worker_indexes),
@@ -1108,17 +1153,11 @@ impl PortalAssignmentBuilder {
         self.columns.versions.push(version);
         match timestamp {
             Some(timestamp) => {
-                let base = *self.columns.base_timestamp.get_or_insert(timestamp);
-                let offset = timestamp
-                    .checked_sub(base)
-                    .context("chunk timestamps must not decrease within a dataset")?
-                    .try_into()
-                    .context("chunk timestamp is more than u32::MAX past the dataset's base")?;
-                self.columns.ts_offsets.push(offset);
+                self.columns.timestamps.push(timestamp);
                 self.columns.timestamped += 1;
             }
             // Keeps the column aligned with the others; `finish_dataset` rejects the mix anyway.
-            None => self.columns.ts_offsets.push(0),
+            None => self.columns.timestamps.push(0),
         }
         self.columns.worker_indexes.extend_from_slice(worker_indexes);
         let end = self
