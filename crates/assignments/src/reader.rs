@@ -433,13 +433,9 @@ impl<'a> WorkerChunk<'a> {
     /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`, rebuilt from the columns it
     /// was split into. `None` on the same terms as [`Self::hash`].
     pub fn id(&self) -> Option<String> {
-        Some(format!(
-            "{:010}/{:010}-{:010}-{}",
-            self.top(),
-            self.first_block(),
-            self.last_block(),
-            self.hash()?
-        ))
+        let mut id = String::with_capacity(URL_CAPACITY);
+        push_chunk_id(&mut id, self.top(), self.first_block(), self.last_block(), self.hash()?);
+        Some(id)
     }
 
     /// This chunk's bitmap, or `None` when it holds every table of its write schema — which is
@@ -458,11 +454,16 @@ impl<'a> WorkerChunk<'a> {
     /// `None` if a non-zero version names a generation the dataset doesn't carry, or if the hash
     /// isn't UTF-8.
     pub fn url(&self) -> Option<String> {
-        let mut url = self.dataset.base_url().to_owned();
+        let hash = self.hash()?;
+        let mut url = String::with_capacity(URL_CAPACITY);
+        url.push_str(self.dataset.base_url());
         if self.version() != 0 {
             push_segment(&mut url, self.dataset.get_generation(self.version())?.base_url());
         }
-        push_segment(&mut url, &self.id()?);
+        if !url.ends_with('/') {
+            url.push('/');
+        }
+        push_chunk_id(&mut url, self.top(), self.first_block(), self.last_block(), hash);
         Some(url)
     }
 
@@ -780,13 +781,9 @@ impl<'a> PortalChunk<'a> {
     ///
     /// `None` on the same terms as [`Self::hash`].
     pub fn id(&self) -> Option<String> {
-        Some(format!(
-            "{:010}/{:010}-{:010}-{}",
-            self.top(),
-            self.first_block(),
-            self.last_block(),
-            self.hash()?
-        ))
+        let mut id = String::with_capacity(URL_CAPACITY);
+        push_chunk_id(&mut id, self.top(), self.first_block(), self.last_block(), self.hash()?);
+        Some(id)
     }
 
     /// The workers to route to — the chunk's slice of the dataset's flattened routing column.
@@ -824,6 +821,40 @@ impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
         Some(tops.get(above.checked_sub(1)?).top())
     }
 }
+
+/// Writes `value` zero-padded to ten digits, as `{:010}` would but without going through
+/// `std::fmt` — which costs about 35ns a value, several times what the surrounding column reads
+/// do. Values too wide for the pad print in full, again matching `{:010}`.
+fn push_padded(out: &mut String, value: u64) {
+    const PAD: u64 = 10_000_000_000;
+    if value >= PAD {
+        out.push_str(&value.to_string());
+        return;
+    }
+    let mut digits = [b'0'; 10];
+    let mut rest = value;
+    let mut at = digits.len();
+    while rest > 0 {
+        at -= 1;
+        digits[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+    }
+    out.push_str(std::str::from_utf8(&digits).expect("ascii digits"));
+}
+
+/// Appends `top/first_block-last_block-hash`, the chunk id both formats split into columns.
+fn push_chunk_id(out: &mut String, top: u64, first_block: u64, last_block: u64, hash: &str) {
+    push_padded(out, top);
+    out.push('/');
+    push_padded(out, first_block);
+    out.push('-');
+    push_padded(out, last_block);
+    out.push('-');
+    out.push_str(hash);
+}
+
+/// Room for a base url, a generation prefix and an id, so a url is built in one allocation.
+const URL_CAPACITY: usize = 128;
 
 /// `slice::partition_point` over anything subscriptable: the number of leading positions for
 /// which `pred` holds. `pred` must be true for a prefix and false thereafter.
