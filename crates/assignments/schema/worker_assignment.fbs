@@ -33,9 +33,12 @@ table WorkerAssignmentDataset {
   id: string (key, id: 0);  // e.g. "s3://solana-mainnet-2"
   chunks: [WorkerAssignmentChunk] (required, id: 1);
   last_block: uint64 (id: 2);
+  // Where the dataset's files live, e.g. "https://solana-mainnet-2.sqd-datasets.io". Every chunk
+  // hangs off it, so it sits here and a chunk names only what distinguishes it.
+  base_url: string (required, id: 4);
   // Storage prefixes of the dataset's chunk versions, sorted by version as the (key) lookup
-  // requires. A version-0 chunk is the ingested one, resolved straight from dataset_base_url, so
-  // this covers versions 1 and up and appears with the first rewrite.
+  // requires. A version-0 chunk is the ingested one, resolved straight from the dataset's base
+  // url, so this covers versions 1 and up and appears with the first rewrite.
   generations: [GenerationEntry] (id: 3);
 }
 
@@ -44,8 +47,8 @@ table WorkerAssignmentDataset {
 // private until it is published.
 //
 // A chunk's files therefore live at
-//   dataset_base_url + id                                   (version 0, straight from ingest)
-//   dataset_base_url + generations[version].base_url + id   (any other version)
+//   base_url + id                                   (version 0, straight from ingest)
+//   base_url + generations[version].base_url + id   (any other version)
 //
 // which for a dataset laid out as
 //
@@ -61,27 +64,26 @@ table WorkerAssignmentDataset {
 // means a `_bf/01HQZK3M7X8P2NVWTC4RYFGDS9` entry, whose version the rewritten chunks carry.
 table GenerationEntry {
   version: uint32 (key, id: 0);
-  base_url: string (required, id: 1);  // relative to dataset_base_url, e.g. "_bf/01HQZK..."
+  base_url: string (required, id: 1);  // relative to the dataset's, e.g. "_bf/01HQZK..."
 }
 
-// A chunk is reached through the dataset holding it, which is where its dataset id stays: one per
-// chunk costs 8 bytes each, 8% of the blob.
+// A chunk is reached through the dataset holding it, so whatever the dataset already says -- its
+// id, its base url -- stays there. One such field per chunk costs 8 bytes each, 8% of the blob.
 table WorkerAssignmentChunk {
   first_block: uint64 (key, id: 0);
   id: string (required, id: 1);
   size: uint32 (id: 2);
-  dataset_base_url: string (required, id: 3);  // shared across all chunks of the dataset
-  // Which copy of the chunk to download. Version 0 is the ingested one, at dataset_base_url + id;
-  // any other value names the `GenerationEntry` whose prefix goes between those two parts, which
-  // together form the whole download prefix.
-  version: uint32 (id: 4);
-  write_schema_id: uint32 (id: 5);
+  // Which copy of the chunk to download. Version 0 is the ingested one, at the dataset's base_url
+  // + id; any other value names the `GenerationEntry` whose prefix goes between those two parts,
+  // which together form the whole download prefix.
+  version: uint32 (id: 3);
+  write_schema_id: uint32 (id: 4);
   // Bitmap over the tables of the `schemas` entry whose `write_schema_id` equals this one, found
   // by key lookup: ids are sparse, so the entry for id 140000 sits wherever the sort puts it. Bit
   // i (byte i/8, LSB-first) set = that roster's tables[i] present. Absent (null) = every table
   // present.
-  tables_present: [ubyte] (id: 6);
-  worker_indexes: [uint16] (required, id: 7);
+  tables_present: [ubyte] (id: 5);
+  worker_indexes: [uint16] (required, id: 6);
 }
 
 root_type WorkerAssignment;

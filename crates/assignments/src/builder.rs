@@ -375,6 +375,10 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     common_identity: fb::WIPOffset<fb::Vector<'static, u8>>,
     common_secret_key: SecretKey,
     check_continuity: bool,
+    /// The base url every chunk of the dataset hangs off, staged with the chunks and emitted once.
+    /// Kept as a string so a second chunk naming a different one is caught rather than silently
+    /// dropped.
+    current_base_url: Option<(String, fb::WIPOffset<&'static str>)>,
     /// `BTreeMap` so `finish` emits rosters id-sorted, as `TableRoster`'s `(key)` lookup requires.
     write_schemas: BTreeMap<u32, Vec<String>>,
     /// Generation prefixes of the dataset being staged, cleared by `finish_dataset` — unlike write
@@ -412,6 +416,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             common_identity,
             common_secret_key,
             check_continuity: true,
+            current_base_url: None,
             write_schemas: BTreeMap::new(),
             current_generations: BTreeMap::new(),
             tables_present_offsets: HashMap::new(),
@@ -501,6 +506,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
                     .last_block
                     .take()
                     .expect("At least one chunk should be present in the dataset"),
+                base_url: self.current_base_url.take().map(|(_, offset)| offset),
                 generations,
             },
         );
@@ -700,7 +706,7 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     id: Option<fb::WIPOffset<&'static str>>,
     dataset_id: Option<fb::WIPOffset<&'static str>>,
     size: Option<u32>,
-    dataset_base_url: Option<fb::WIPOffset<&'static str>>,
+    dataset_base_url: Option<String>,
     version: u32,
     write_schema_id: Option<u32>,
     /// The bitmap and the write schema it was encoded against — they can diverge if
@@ -747,8 +753,10 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         self
     }
 
+    /// Where the dataset's files live. Held once on the dataset, so every chunk of one must name
+    /// the same url — [`Self::finish`] rejects a chunk that disagrees.
     pub fn dataset_base_url(mut self, url: &str) -> Self {
-        self.dataset_base_url = Some(self.p.builder.create_shared_string(url));
+        self.dataset_base_url = Some(url.to_owned());
         self
     }
 
@@ -849,13 +857,23 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             }
             None => None,
         };
+        let base_url = self.dataset_base_url.context("dataset_base_url must be set")?;
+        match &self.p.current_base_url {
+            Some((staged, _)) => anyhow::ensure!(
+                *staged == base_url,
+                "chunks of one dataset must share a base url, got '{staged}' then '{base_url}'"
+            ),
+            None => {
+                let offset = self.p.builder.create_shared_string(&base_url);
+                self.p.current_base_url = Some((base_url, offset));
+            }
+        }
         let offset = assignment_fb::WorkerAssignmentChunk::create(
             &mut self.p.builder,
             &assignment_fb::WorkerAssignmentChunkArgs {
                 id: self.id,
                 first_block: *block_range.start(),
                 size: self.size.expect("Size must be set"),
-                dataset_base_url: self.dataset_base_url,
                 version: self.version,
                 write_schema_id,
                 tables_present,

@@ -95,7 +95,11 @@ fn test_worker_assignment_round_trip() {
     let chunks = worker.iter_chunks().collect::<Vec<_>>();
     assert_eq!(chunks.len(), 3);
     assert_eq!(chunks[0].id(), "0221000000/0221000000-0221000649-BQJdx");
-    assert_eq!(chunks[0].dataset_base_url(), "https://solana-mainnet-2.sqd-datasets.io");
+    assert_eq!(
+        dataset.base_url(),
+        "https://solana-mainnet-2.sqd-datasets.io",
+        "the base url is the dataset's, named once"
+    );
     assert_eq!(chunks[0].write_schema_id(), 7);
     assert_eq!(
         assignment.chunk_tables(chunks[0]).unwrap().collect::<Vec<_>>(),
@@ -234,6 +238,22 @@ fn test_chunk_generations_round_trip() {
         other.generations().is_none(),
         "generations are staged per dataset, not carried over by the builder"
     );
+}
+
+#[cfg(feature = "builder")]
+#[test]
+fn test_chunks_of_a_dataset_must_share_a_base_url() {
+    let mut builder = test_builder().check_continuity(false);
+    builder.register_write_schema(7, &["blocks"]).unwrap();
+    staged_chunk(&mut builder).write_schema_id(7).finish().unwrap();
+
+    let error = staged_chunk(&mut builder)
+        .dataset_base_url("https://elsewhere.sqd-datasets.io")
+        .write_schema_id(7)
+        .finish()
+        .expect_err("the dataset holds one base url, so its chunks cannot name two");
+
+    assert!(error.to_string().contains("share a base url"), "unexpected error: {error}");
 }
 
 #[cfg(feature = "builder")]
