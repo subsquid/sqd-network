@@ -15,36 +15,89 @@ include "assignment.fbs";
 //
 // A dataset's `read_schema_id` travels as an opaque reference; the schema content it names lives
 // in NetworkState's schema bundle.
+//
+// Chunks are columns on the dataset rather than a vector of chunk tables: a portal reads whole
+// columns and never a whole chunk, and the table-per-chunk shape costs an offset, a vtable
+// pointer and padding on every one of millions of chunks.
 
 table PortalAssignment {
   datasets: [PortalAssignmentDataset] (required, id: 0);
   workers: [PortalEntry] (required, id: 1);
 }
 
-table PortalAssignmentDataset {
-  id: string (key, id: 0);
-  chunks: [PortalAssignmentChunk] (required, id: 1);
-  last_block: uint64 (id: 2);
-  // The head hash of the dataset (i.e. of its last chunk). Only ever meaningful at the dataset
-  // level -- unlike last_block_timestamp, no query needs a per-chunk hash.
-  last_block_hash: string (id: 3);
-  // The dataset's current read schema, for query validation -- a client-facing view that may hide
-  // tables. Separate id space from the worker assignment's `write_schema_id`.
-  read_schema_id: uint32 (id: 4);
+// A chunk's short hash, zero-padded to a fixed width so the column is a flat array with no
+// per-element offset.
+//
+// The padding is NUL, not '0': '0' is a valid hash character, so a '0'-padded hash could not be
+// told from a shorter one. Writers emit between 5 and 8 characters -- `short_hash` truncates with
+// `saturating_sub(8)`, squid-sdk falls back to a 6-character literal, and the worker's parser
+// accepts `\w{5,8}` -- so the width has to be 8 and shorter hashes have to be distinguishable.
+// Trailing NULs are trimmed when a chunk id is assembled.
+struct ChunkHash {
+  bytes: [ubyte:8];
 }
 
-// No dataset_id: a chunk is only ever reached through the dataset holding it, so the caller
-// already has one -- `find_chunk` and `find_chunk_by_timestamp` are given it outright.
-table PortalAssignmentChunk {
-  first_block: uint64 (key, id: 0);
-  id: string (required, id: 1);
-  // Which copy of the chunk workers serve: 0 is the ingested one, any other value a copy a batch
-  // job writes (see GenerationEntry in worker_assignment.fbs). A portal never downloads, so
-  // it gets the version without a storage prefix -- enough to tell apart answers computed from
-  // different copies of the same block range.
-  version: uint32 (id: 2);
-  last_block_timestamp: uint64 = null (id: 3);
-  worker_indexes: [uint16] (required, id: 4);  // confirmed routing, not the raw ideal placement
+// The top-level directory a run of chunks lives under: the `0221000000` of
+// "0221000000/0221000000-0221000649-9QgFD".
+//
+// It can't be derived from block numbers -- ChunkTracker closes a top directory on a chunk count
+// (1000 in subsquid/data, 500 in squid-sdk, older datasets differ), not on a block boundary -- so
+// it has to travel. It is constant across a whole directory, so it travels as runs of ~N/1000
+// entries rather than a dense column: 80 KB against 40 MB on 5M chunks.
+//
+// A run applies from its `first_chunk_index` until the next run's. Unlike every other column,
+// the chunk index is searched for here rather than used as a subscript:
+//
+//   let i = tops.partition_point(|r| r.first_chunk_index <= idx) - 1;
+//
+// which is why the first run must start at index 0 and the rest must strictly ascend -- the
+// builder enforces both, since otherwise that `- 1` underflows.
+struct TopRun {
+  first_chunk_index: uint32;
+  top: uint64;
+}
+
+table PortalAssignmentDataset {
+  id: string (key, id: 0);
+  last_block: uint64 (id: 1);
+  // The dataset's current read schema, for query validation -- a client-facing view that may hide
+  // tables. Separate id space from the worker assignment's `write_schema_id`.
+  read_schema_id: uint32 (id: 2);
+
+  // --- chunk columns, all subscripted by the same chunk index ---
+  //
+  // That index comes from bisecting `first_blocks`, so these are stored absolute rather than as
+  // deltas against the previous chunk: prefix sums would turn both lookups linear. `tops` is the
+  // one exception -- see TopRun.
+
+  first_blocks: [uint64] (required, id: 3);  // ascending
+  // last_block - first_block. A chunk's end has to be carried, not inferred from the next chunk's
+  // start: gaps between chunks are legal (archive.py asserts `self.next_block <= first_block`,
+  // non-strict), and inferring would make a portal claim blocks the dataset doesn't hold. Fits in
+  // uint32 because a chunk's span is bounded by --chunk-size.
+  block_deltas: [uint32] (required, id: 4);
+  hashes: [ChunkHash] (required, id: 5);
+  tops: [TopRun] (required, id: 6);
+
+  // Timestamps, split into a base and uint32 offsets. Also absolute against the base rather than
+  // chained, because find_chunk_by_timestamp bisects them.
+  base_timestamp: uint64 (id: 7);
+  ts_offsets: [uint32] (id: 8);  // absent = the dataset carries no timestamps
+
+  // Dense, not runs and not a sparse (index, version) pair: a run entry is 8 bytes against this
+  // column's 4, so runs only pay while one covers more than two chunks, and fragmented backfills
+  // degenerate them into twice the cost. Dense has a predictable ceiling, and the common case --
+  // a dataset no batch job has touched -- carries no column at all.
+  versions: [uint32] (id: 9);  // absent = every chunk at version 0
+
+  // Confirmed routing, not the raw ideal placement. A column of variable-length lists, which CSR
+  // is how you express at all -- the alternative is a vector of wrapper tables, dearer and
+  // wordier -- rather than an optimization over one. Chunk i's workers are
+  // `worker_indexes[worker_offsets[i]..worker_offsets[i + 1]]`, so `worker_offsets` is one longer
+  // than the other columns. No RLE layered on top for now: whether that pays depends on whether a
+  // worker's chunks form contiguous slices, which wants measuring on a live assignment.
+  worker_offsets: [uint32] (required, id: 10);
+  worker_indexes: [uint16] (required, id: 11);
 }
 
 table PortalEntry {

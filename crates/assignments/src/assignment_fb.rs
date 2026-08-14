@@ -48,8 +48,13 @@ impl Dataset<'_> {
 }
 
 impl PortalAssignmentDataset<'_> {
+    /// How many chunks the dataset's columns hold.
+    pub fn chunk_count(&self) -> usize {
+        self.first_blocks().len()
+    }
+
     pub fn first_block(&self) -> u64 {
-        self.chunks().get(0).first_block()
+        self.first_blocks().get(0)
     }
 }
 

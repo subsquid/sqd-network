@@ -867,24 +867,43 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     }
 }
 
-// ===== Portal-facing assignment (NET-1180) =====
+// ===== Portal-facing assignment =====
 //
-// No encryption, no RNG: portals never see `encrypted_headers`. `PortalEntry` carries only
-// identity + status. Chunks carry `last_block_hash`/`last_block_timestamp` instead of
-// files/URLs; the dataset (not the chunk) carries `schema_id` — the portal's current read schema
-// reference, not a per-chunk write-schema pin.
+// No encryption, no RNG: portals never see `encrypted_headers`. Chunks are not built as tables at
+// all -- each one appends a row across the dataset's columns, which `finish_dataset` then emits.
+// See portal_assignment.fbs for why the columns are shaped the way they are.
+
+/// The columns of the dataset currently being staged, taken by [`PortalAssignmentBuilder::finish_dataset`].
+#[derive(Default)]
+struct PortalDatasetColumns {
+    first_blocks: Vec<u64>,
+    block_deltas: Vec<u32>,
+    hashes: Vec<assignment_fb::ChunkHash>,
+    /// One entry per run, appended only when a chunk's top differs from the previous chunk's --
+    /// which is what makes the first run start at index 0 and the rest strictly ascend.
+    tops: Vec<assignment_fb::TopRun>,
+    base_timestamp: Option<u64>,
+    ts_offsets: Vec<u32>,
+    /// How many chunks carried a timestamp. The column is all-or-nothing, so by `finish_dataset`
+    /// this is either 0 or the chunk count.
+    timestamped: usize,
+    versions: Vec<u32>,
+    /// Where each chunk's worker slice *ends*; the emitted CSR column is a leading 0 followed by
+    /// these, one longer than the other columns.
+    worker_ends: Vec<u32>,
+    worker_indexes: Vec<u16>,
+}
 
 #[derive(Default)]
 pub struct PortalAssignmentBuilder {
     builder: fb::FlatBufferBuilder<'static>,
-    all_chunks: Vec<fb::WIPOffset<assignment_fb::PortalAssignmentChunk<'static>>>,
     last_block: Option<u64>,
-    current_chunks: Vec<fb::WIPOffset<assignment_fb::PortalAssignmentChunk<'static>>>,
     current_dataset_id_offset: Option<fb::WIPOffset<&'static str>>,
     all_datasets: Vec<fb::WIPOffset<assignment_fb::PortalAssignmentDataset<'static>>>,
     worker_entries: Vec<(WorkerId, fb::WIPOffset<assignment_fb::PortalEntry<'static>>)>,
     last_peer_id: Option<PeerId>,
     check_continuity: bool,
+    columns: PortalDatasetColumns,
 }
 
 impl PortalAssignmentBuilder {
@@ -896,7 +915,8 @@ impl PortalAssignmentBuilder {
         }
     }
 
-    /// See [`AssignmentBuilder::check_continuity`].
+    /// See [`AssignmentBuilder::check_continuity`]. Note that a gap only trips this check; it is
+    /// no longer something the reader can misread, since `block_deltas` carries each chunk's end.
     pub fn check_continuity(mut self, check: bool) -> Self {
         self.check_continuity = check;
         self
@@ -906,32 +926,81 @@ impl PortalAssignmentBuilder {
         PortalAssignmentChunkBuilder::new(self)
     }
 
-    /// `read_schema_id` is the dataset's current read schema — a client-facing view that may hide
-    /// tables, in a separate id space from
-    /// [`WorkerAssignmentChunkBuilder::write_schema_id`].
+    /// Emits the staged chunks as the dataset's columns.
     ///
-    /// `last_block_hash` is the head hash of the dataset (i.e. of its last chunk) — a
-    /// dataset-level value, since no query needs a per-chunk hash (contrast with
-    /// `PortalAssignmentChunkBuilder::last_block_timestamp`, which the timestamp lookup needs on
-    /// every chunk).
-    pub fn finish_dataset(&mut self, read_schema_id: u32, last_block_hash: Option<&str>) {
-        let last_block_hash = last_block_hash.map(|hash| self.builder.create_string(hash));
-        let chunks = self.builder.create_vector(&self.current_chunks);
+    /// `read_schema_id` is the dataset's current read schema — a client-facing view that may hide
+    /// tables, in a separate id space from [`WorkerAssignmentChunkBuilder::write_schema_id`].
+    /// The head hash of the dataset is no longer passed in: it is the last chunk's, and the
+    /// `hashes` column already carries it.
+    ///
+    /// # Errors
+    ///
+    /// If no chunk was staged, or if only some of them carried a timestamp — `ts_offsets` is one
+    /// column over all chunks, so it is all or nothing.
+    pub fn finish_dataset(&mut self, read_schema_id: u32) -> anyhow::Result<()> {
+        let columns = std::mem::take(&mut self.columns);
+        let chunk_count = columns.first_blocks.len();
+        anyhow::ensure!(chunk_count > 0, "At least one chunk should be present in the dataset");
+        anyhow::ensure!(
+            columns.timestamped == 0 || columns.timestamped == chunk_count,
+            "either every chunk of a dataset carries a timestamp or none does, got {} of {}",
+            columns.timestamped,
+            chunk_count
+        );
+        // Guaranteed by how `push_chunk` appends runs, but the reader's `- 1` underflows if it
+        // ever stops holding, so it is checked rather than assumed.
+        anyhow::ensure!(
+            columns.tops.first().is_some_and(|run| run.first_chunk_index() == 0),
+            "the first top run must start at chunk 0"
+        );
+        anyhow::ensure!(
+            columns
+                .tops
+                .windows(2)
+                .all(|w| w[0].first_chunk_index() < w[1].first_chunk_index()),
+            "top runs must strictly ascend by first_chunk_index"
+        );
+
+        let first_blocks = self.builder.create_vector(&columns.first_blocks);
+        let block_deltas = self.builder.create_vector(&columns.block_deltas);
+        let hashes = self.builder.create_vector(&columns.hashes);
+        let tops = self.builder.create_vector(&columns.tops);
+        let ts_offsets =
+            (columns.timestamped > 0).then(|| self.builder.create_vector(&columns.ts_offsets));
+        let versions = columns
+            .versions
+            .iter()
+            .any(|&version| version != 0)
+            .then(|| self.builder.create_vector(&columns.versions));
+        // A leading 0, so slot i is the start of chunk i's slice and slot i + 1 its end.
+        let mut worker_offsets = Vec::with_capacity(columns.worker_ends.len() + 1);
+        worker_offsets.push(0);
+        worker_offsets.extend_from_slice(&columns.worker_ends);
+        let worker_offsets = self.builder.create_vector(&worker_offsets);
+        let worker_indexes = self.builder.create_vector(&columns.worker_indexes);
+
         let offset = assignment_fb::PortalAssignmentDataset::create(
             &mut self.builder,
             &assignment_fb::PortalAssignmentDatasetArgs {
                 id: self.current_dataset_id_offset.take(),
-                chunks: Some(chunks),
                 last_block: self
                     .last_block
                     .take()
                     .expect("At least one chunk should be present in the dataset"),
-                last_block_hash,
                 read_schema_id,
+                first_blocks: Some(first_blocks),
+                block_deltas: Some(block_deltas),
+                hashes: Some(hashes),
+                tops: Some(tops),
+                base_timestamp: columns.base_timestamp.unwrap_or(0),
+                ts_offsets,
+                versions,
+                worker_offsets: Some(worker_offsets),
+                worker_indexes: Some(worker_indexes),
             },
         );
         self.all_datasets.push(offset);
-        self.current_chunks.clear();
+        Ok(())
     }
 
     pub fn add_worker(&mut self, id: PeerId, status: common::WorkerStatus) {
@@ -969,13 +1038,21 @@ impl PortalAssignmentBuilder {
         self.builder.finished_data().to_vec()
     }
 
-    fn add_chunk(
+    /// Appends one row across every column. Returns the continuity error, if any, on the same
+    /// terms as [`AssignmentBuilder::check_continuity`]: with the check off the row is still
+    /// appended and the error only reported.
+    #[allow(clippy::too_many_arguments)]
+    fn push_chunk(
         &mut self,
-        offset: fb::WIPOffset<assignment_fb::PortalAssignmentChunk<'static>>,
         dataset: WIPOffset<&'static str>,
+        top: u64,
         block_range: RangeInclusive<u64>,
+        hash: assignment_fb::ChunkHash,
+        version: u32,
+        timestamp: Option<u64>,
+        worker_indexes: &[u16],
     ) -> anyhow::Result<()> {
-        let result = match self.last_block {
+        let continuity = match self.last_block {
             Some(last) if last + 1 != *block_range.start() => Err(anyhow::anyhow!(
                 "Chunks in the dataset must be contiguous, got {} -> {}",
                 last,
@@ -983,25 +1060,106 @@ impl PortalAssignmentBuilder {
             )),
             _ => Ok(()),
         };
-        if result.is_ok() || !self.check_continuity {
-            self.all_chunks.push(offset);
-            self.last_block = Some(*block_range.end());
-            self.current_chunks.push(offset);
-            self.current_dataset_id_offset = Some(dataset);
+        if continuity.is_err() && self.check_continuity {
+            return continuity;
         }
-        result
+
+        let index: u32 = self
+            .columns
+            .first_blocks
+            .len()
+            .try_into()
+            .context("a dataset may hold at most u32::MAX chunks")?;
+        let delta: u32 = (block_range.end() - block_range.start())
+            .try_into()
+            .context("a chunk may span at most u32::MAX blocks")?;
+
+        if self.columns.tops.last().is_none_or(|run| run.top() != top) {
+            self.columns.tops.push(assignment_fb::TopRun::new(index, top));
+        }
+        self.columns.first_blocks.push(*block_range.start());
+        self.columns.block_deltas.push(delta);
+        self.columns.hashes.push(hash);
+        self.columns.versions.push(version);
+        match timestamp {
+            Some(timestamp) => {
+                let base = *self.columns.base_timestamp.get_or_insert(timestamp);
+                let offset = timestamp
+                    .checked_sub(base)
+                    .context("chunk timestamps must not decrease within a dataset")?
+                    .try_into()
+                    .context("chunk timestamp is more than u32::MAX past the dataset's base")?;
+                self.columns.ts_offsets.push(offset);
+                self.columns.timestamped += 1;
+            }
+            // Keeps the column aligned with the others; `finish_dataset` rejects the mix anyway.
+            None => self.columns.ts_offsets.push(0),
+        }
+        self.columns.worker_indexes.extend_from_slice(worker_indexes);
+        let end = self
+            .columns
+            .worker_indexes
+            .len()
+            .try_into()
+            .context("a dataset may hold at most u32::MAX worker references")?;
+        self.columns.worker_ends.push(end);
+
+        self.last_block = Some(*block_range.end());
+        self.current_dataset_id_offset = Some(dataset);
+        continuity
     }
+}
+
+/// The pieces a chunk id is made of. The reader puts them back together the same way, so this is
+/// the only place the format is written down for the portal assignment.
+struct ParsedChunkId {
+    top: u64,
+    first_block: u64,
+    last_block: u64,
+    hash: assignment_fb::ChunkHash,
+}
+
+/// Splits `"0221000000/0221000000-0221000649-9QgFD"` into the parts the columns hold.
+fn parse_chunk_id(id: &str) -> anyhow::Result<ParsedChunkId> {
+    let (top, rest) = id
+        .split_once('/')
+        .with_context(|| format!("chunk id '{id}' has no top directory"))?;
+    let mut parts = rest.splitn(3, '-');
+    let (Some(first_block), Some(last_block), Some(hash)) =
+        (parts.next(), parts.next(), parts.next())
+    else {
+        anyhow::bail!("chunk id '{id}' is not <top>/<first_block>-<last_block>-<hash>");
+    };
+    // A hash is `\w{5,8}` to every writer and to the worker's parser, so it never contains the
+    // separator and always fits the fixed-width column.
+    anyhow::ensure!(
+        (1..=8).contains(&hash.len())
+            && hash.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
+        "chunk id '{id}' has a hash that is not 1 to 8 word characters"
+    );
+    let mut bytes = [0u8; 8];
+    bytes[..hash.len()].copy_from_slice(hash.as_bytes());
+    Ok(ParsedChunkId {
+        top: top.parse().with_context(|| format!("chunk id '{id}' has a non-numeric top"))?,
+        first_block: first_block
+            .parse()
+            .with_context(|| format!("chunk id '{id}' has a non-numeric first block"))?,
+        last_block: last_block
+            .parse()
+            .with_context(|| format!("chunk id '{id}' has a non-numeric last block"))?,
+        hash: assignment_fb::ChunkHash::new(&bytes),
+    })
 }
 
 pub struct PortalAssignmentChunkBuilder<'b> {
     p: &'b mut PortalAssignmentBuilder,
 
     block_range: Option<RangeInclusive<u64>>,
-    id: Option<fb::WIPOffset<&'static str>>,
+    id: Option<String>,
     dataset_id: Option<fb::WIPOffset<&'static str>>,
     version: u32,
     last_block_timestamp: Option<u64>,
-    worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
+    worker_indexes: Vec<u16>,
 }
 
 impl<'b> PortalAssignmentChunkBuilder<'b> {
@@ -1013,15 +1171,20 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
             dataset_id: None,
             version: 0,
             last_block_timestamp: None,
-            worker_indexes: None,
+            worker_indexes: Vec::new(),
         }
     }
 
+    /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`. Not stored as such: it is
+    /// split into the `tops`, `first_blocks`, `block_deltas` and `hashes` columns and reassembled
+    /// on read, so it must parse — see [`Self::finish`].
     pub fn id(mut self, id: &str) -> Self {
-        self.id = Some(self.p.builder.create_string(id));
+        self.id = Some(id.to_owned());
         self
     }
 
+    /// Which dataset the chunk belongs to. Names the dataset it is staged into; chunks don't
+    /// carry the id themselves, since they are only ever read through that dataset.
     pub fn dataset_id(mut self, dataset_id: &str) -> Self {
         self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
         self
@@ -1047,23 +1210,35 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
 
     /// Confirmed routing (which workers portals should route to), not the raw ideal placement.
     pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
-        self.worker_indexes = Some(self.p.builder.create_vector(indexes));
+        self.worker_indexes = indexes.to_vec();
         self
     }
 
+    /// # Errors
+    ///
+    /// If the id is unset or malformed, if it disagrees with `block_range` — the two encode the
+    /// same block numbers, and the id is rebuilt from the range on read — or if the chunk breaks
+    /// block continuity (see [`PortalAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
-        let offset = assignment_fb::PortalAssignmentChunk::create(
-            &mut self.p.builder,
-            &assignment_fb::PortalAssignmentChunkArgs {
-                id: self.id,
-                first_block: *block_range.start(),
-                version: self.version,
-                last_block_timestamp: self.last_block_timestamp,
-                worker_indexes: self.worker_indexes,
-            },
+        let id = self.id.context("Chunk id must be set")?;
+        let parsed = parse_chunk_id(&id)?;
+        anyhow::ensure!(
+            parsed.first_block == *block_range.start() && parsed.last_block == *block_range.end(),
+            "chunk id '{id}' names blocks {}-{}, but the chunk covers {}-{}",
+            parsed.first_block,
+            parsed.last_block,
+            block_range.start(),
+            block_range.end()
         );
-        self.p
-            .add_chunk(offset, self.dataset_id.expect("Dataset ID must be set"), block_range)
+        self.p.push_chunk(
+            self.dataset_id.expect("Dataset ID must be set"),
+            parsed.top,
+            block_range,
+            parsed.hash,
+            self.version,
+            self.last_block_timestamp,
+            &self.worker_indexes,
+        )
     }
 }

@@ -38,9 +38,7 @@ mod portal_assignment_generated {
 pub mod fb {
     pub use crate::{
         assignment_generated::{Chunk, Dataset, EncryptedHeaders, FileUrl, WorkerEntry, WorkerId},
-        portal_assignment_generated::{
-            PortalAssignmentChunk, PortalAssignmentDataset, PortalEntry,
-        },
+        portal_assignment_generated::{ChunkHash, PortalAssignmentDataset, PortalEntry, TopRun},
         worker_assignment_generated::{
             GenerationEntry, TableRoster, WorkerAssignmentChunk, WorkerAssignmentDataset,
         },
@@ -67,6 +65,6 @@ pub use builder::{
 };
 
 #[cfg(feature = "reader")]
-pub use reader::{AssignedWorker, PortalAssignment, PortalWorker, WorkerAssignment};
+pub use reader::{AssignedWorker, PortalAssignment, PortalChunk, PortalWorker, WorkerAssignment};
 #[cfg(feature = "reader")]
 pub use reader::{Assignment, ChunkNotFound, ChunkRef, Worker};

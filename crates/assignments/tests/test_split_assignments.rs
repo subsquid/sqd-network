@@ -406,7 +406,7 @@ fn test_finish_rejects_write_schema_changed_after_tables_present() {
 /// Taking the chunk by type, not just calling a method on it: a portal has to be able to pass one
 /// around to decide what its version means for a query.
 #[cfg(feature = "reader")]
-fn version_of(chunk: sqd_assignments::fb::PortalAssignmentChunk<'_>) -> u32 {
+fn version_of(chunk: sqd_assignments::PortalChunk<'_>) -> u32 {
     chunk.version()
 }
 
@@ -436,7 +436,7 @@ fn test_portal_assignment_round_trip() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset(7, Some("BQJdx"));
+    builder.finish_dataset(7).unwrap();
 
     let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
@@ -448,7 +448,11 @@ fn test_portal_assignment_round_trip() {
     let dataset = assignment.get_dataset("s3://solana-mainnet-2").unwrap();
     assert_eq!(dataset.last_block(), 221001549);
     assert_eq!(dataset.read_schema_id(), 7);
-    assert_eq!(dataset.last_block_hash(), Some("BQJdx"));
+    assert_eq!(
+        dataset.last_block_hash(),
+        Some("AuRE1"),
+        "the head hash is the last chunk's, read off the hashes column"
+    );
 
     assert_eq!(assignment.get_worker_id(0).unwrap(), peer_id);
     let worker = assignment.get_worker_by_index(0);
@@ -456,16 +460,306 @@ fn test_portal_assignment_round_trip() {
     assert_eq!(worker.status(), sqd_assignments::WorkerStatus::Ok);
 
     let chunk1 = assignment.find_chunk("s3://solana-mainnet-2", 221000000).unwrap();
-    assert_eq!(chunk1.id(), "0221000000/0221000000-0221000649-BQJdx");
+    assert_eq!(
+        chunk1.id().unwrap(),
+        "0221000000/0221000000-0221000649-BQJdx",
+        "the id is rebuilt from the columns it was split into"
+    );
+    assert_eq!(chunk1.first_block(), 221000000);
+    assert_eq!(
+        chunk1.last_block(),
+        221000649,
+        "the end comes from block_deltas, not the neighbour"
+    );
     assert_eq!(chunk1.last_block_timestamp(), Some(1696192039));
-    assert_eq!(chunk1.worker_indexes().iter().collect::<Vec<_>>(), vec![0]);
+    assert_eq!(chunk1.worker_indexes().collect::<Vec<_>>(), vec![0]);
     assert_eq!(version_of(chunk1), 0, "an unset version means the ingested copy");
 
     let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
+    assert_eq!(chunk2.id().unwrap(), "0221000000/0221000650-0221001549-AuRE1");
+    assert_eq!(chunk2.last_block_timestamp(), Some(1696193050));
     assert_eq!(version_of(chunk2), 2, "the portal sees the version but not its storage prefix");
 
     assert_eq!(
-        assignment.find_chunk("s3://dummy", 0),
-        Err(sqd_assignments::ChunkNotFound::UnknownDataset)
+        assignment.find_chunk("s3://dummy", 0).unwrap_err(),
+        sqd_assignments::ChunkNotFound::UnknownDataset
     );
+    assert_eq!(
+        assignment.find_chunk("s3://solana-mainnet-2", 220999999).unwrap_err(),
+        sqd_assignments::ChunkNotFound::BeforeFirst
+    );
+    assert_eq!(
+        assignment.find_chunk("s3://solana-mainnet-2", 221001550).unwrap_err(),
+        sqd_assignments::ChunkNotFound::AfterLast
+    );
+
+    let by_ts = assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 1696192040).unwrap();
+    assert_eq!(by_ts.index(), 1, "the first chunk at or after the timestamp");
+    assert_eq!(
+        assignment.find_chunk_by_timestamp("s3://solana-mainnet-2", 1).unwrap().index(),
+        0,
+        "a timestamp before the first chunk lands on it"
+    );
+    assert_eq!(
+        assignment
+            .find_chunk_by_timestamp("s3://solana-mainnet-2", u64::MAX)
+            .unwrap_err(),
+        sqd_assignments::ChunkNotFound::AfterLast
+    );
+}
+
+/// A block between two chunks belongs to neither. Inferring a chunk's end from the next one's
+/// start would hand it back the earlier chunk, claiming blocks the dataset doesn't hold.
+#[cfg(all(feature = "builder", feature = "reader"))]
+#[test]
+fn test_portal_find_chunk_reports_a_gap() {
+    use sqd_assignments::PortalAssignmentBuilder;
+
+    // The gap is why continuity has to be off — the check and the format disagree on whether
+    // gaps are legal, and archive.py's `assert self.next_block <= first_block` says they are.
+    let mut builder = PortalAssignmentBuilder::new().check_continuity(false);
+    builder
+        .new_chunk()
+        .id("0000000000/0000000000-0000000099-274f02d8")
+        .dataset_id("s3://ethereum-mainnet")
+        .block_range(0..=99)
+        .worker_indexes(&[0])
+        .finish()
+        .unwrap();
+    // With the check off the chunk is still staged; the error is only reported, as
+    // `check_continuity` documents.
+    let gap = builder
+        .new_chunk()
+        .id("0000000000/0000000200-0000000299-9QgFD")
+        .dataset_id("s3://ethereum-mainnet")
+        .block_range(200..=299)
+        .worker_indexes(&[0])
+        .finish();
+    assert!(gap.is_err(), "the gap is still reported for logging");
+    builder.finish_dataset(1).unwrap();
+    builder.add_worker(
+        common::get_test_keypair().public().to_peer_id(),
+        sqd_assignments::WorkerStatus::Ok,
+    );
+
+    let assignment = sqd_assignments::PortalAssignment::from_owned(builder.finish()).unwrap();
+
+    assert_eq!(assignment.find_chunk("s3://ethereum-mainnet", 99).unwrap().index(), 0);
+    assert_eq!(assignment.find_chunk("s3://ethereum-mainnet", 200).unwrap().index(), 1);
+    assert_eq!(
+        assignment.find_chunk("s3://ethereum-mainnet", 150).unwrap_err(),
+        sqd_assignments::ChunkNotFound::InGap,
+        "a block in the hole is not the previous chunk's"
+    );
+}
+
+/// Tops collapse to runs, and hashes survive the fixed-width column at both ends of the length
+/// range writers emit.
+#[cfg(all(feature = "builder", feature = "reader"))]
+#[test]
+fn test_portal_tops_are_runs_and_hashes_keep_their_length() {
+    use sqd_assignments::PortalAssignmentBuilder;
+
+    let mut builder = PortalAssignmentBuilder::new();
+    // Two chunks under one top, then a third that opens a new one.
+    for (id, range) in [
+        ("0000000000/0000000000-0000000099-abcde", 0..=99u64),
+        ("0000000000/0000000100-0000000199-274f02d8", 100..=199),
+        ("0000000200/0000000200-0000000299-ab_de123", 200..=299),
+    ] {
+        builder
+            .new_chunk()
+            .id(id)
+            .dataset_id("s3://ethereum-mainnet")
+            .block_range(range)
+            .worker_indexes(&[0])
+            .finish()
+            .unwrap();
+    }
+    builder.finish_dataset(1).unwrap();
+    builder.add_worker(
+        common::get_test_keypair().public().to_peer_id(),
+        sqd_assignments::WorkerStatus::Ok,
+    );
+
+    let assignment = sqd_assignments::PortalAssignment::from_owned(builder.finish()).unwrap();
+    let dataset = assignment.get_dataset("s3://ethereum-mainnet").unwrap();
+
+    assert_eq!(dataset.tops().len(), 2, "one run per top directory, not one entry per chunk");
+    let ids: Vec<_> = dataset.chunks().map(|chunk| chunk.id().unwrap()).collect();
+    assert_eq!(
+        ids,
+        vec![
+            "0000000000/0000000000-0000000099-abcde",
+            "0000000000/0000000100-0000000199-274f02d8",
+            "0000000200/0000000200-0000000299-ab_de123",
+        ],
+        "every chunk resolves its top through the run it falls in"
+    );
+    assert_eq!(dataset.chunk(0).unwrap().hash(), Some("abcde"), "5 characters, NUL-padded");
+    assert_eq!(dataset.chunk(1).unwrap().hash(), Some("274f02d8"), "8 characters, unpadded");
+    assert!(dataset.versions().is_none(), "a dataset no batch job touched carries no column");
+    assert!(dataset.ts_offsets().is_none(), "nor timestamps it was never given");
+    assert_eq!(dataset.chunk(2).unwrap().last_block_timestamp(), None);
+    assert!(dataset.chunk(3).is_none(), "past the end of the columns");
+}
+
+/// The routing column is flattened, so the offsets are what keep chunks' worker lists apart.
+#[cfg(all(feature = "builder", feature = "reader"))]
+#[test]
+fn test_portal_worker_slices_stay_separate() {
+    use sqd_assignments::PortalAssignmentBuilder;
+
+    let mut builder = PortalAssignmentBuilder::new();
+    for (id, range, workers) in [
+        ("0000000000/0000000000-0000000099-abcde", 0..=99u64, &[0u16, 2][..]),
+        ("0000000000/0000000100-0000000199-bcdef", 100..=199, &[][..]),
+        ("0000000000/0000000200-0000000299-cdefa", 200..=299, &[1][..]),
+    ] {
+        builder
+            .new_chunk()
+            .id(id)
+            .dataset_id("s3://ethereum-mainnet")
+            .block_range(range)
+            .worker_indexes(workers)
+            .finish()
+            .unwrap();
+    }
+    builder.finish_dataset(1).unwrap();
+    builder.add_worker(
+        common::get_test_keypair().public().to_peer_id(),
+        sqd_assignments::WorkerStatus::Ok,
+    );
+
+    let assignment = sqd_assignments::PortalAssignment::from_owned(builder.finish()).unwrap();
+    let dataset = assignment.get_dataset("s3://ethereum-mainnet").unwrap();
+
+    let slices: Vec<Vec<u16>> =
+        dataset.chunks().map(|chunk| chunk.worker_indexes().collect()).collect();
+    assert_eq!(
+        slices,
+        vec![vec![0, 2], vec![], vec![1]],
+        "including the empty one in the middle"
+    );
+    assert_eq!(
+        dataset.worker_offsets().len(),
+        dataset.chunk_count() + 1,
+        "one offset per chunk plus the closing end"
+    );
+}
+
+#[cfg(all(feature = "builder", feature = "reader"))]
+#[test]
+fn test_portal_versions_column_appears_only_once_something_is_backfilled() {
+    use sqd_assignments::PortalAssignmentBuilder;
+
+    let mut builder = PortalAssignmentBuilder::new();
+    builder
+        .new_chunk()
+        .id("0000000000/0000000000-0000000099-abcde")
+        .dataset_id("s3://ethereum-mainnet")
+        .block_range(0..=99)
+        .version(4)
+        .worker_indexes(&[0])
+        .finish()
+        .unwrap();
+    builder
+        .new_chunk()
+        .id("0000000000/0000000100-0000000199-bcdef")
+        .dataset_id("s3://ethereum-mainnet")
+        .block_range(100..=199)
+        .worker_indexes(&[0])
+        .finish()
+        .unwrap();
+    builder.finish_dataset(1).unwrap();
+    builder.add_worker(
+        common::get_test_keypair().public().to_peer_id(),
+        sqd_assignments::WorkerStatus::Ok,
+    );
+
+    let assignment = sqd_assignments::PortalAssignment::from_owned(builder.finish()).unwrap();
+    let dataset = assignment.get_dataset("s3://ethereum-mainnet").unwrap();
+
+    assert!(dataset.versions().is_some(), "one backfilled chunk brings the whole column");
+    assert_eq!(
+        dataset.chunks().map(|chunk| chunk.version()).collect::<Vec<_>>(),
+        vec![4, 0],
+        "dense, so an untouched chunk still occupies its slot"
+    );
+}
+
+#[cfg(feature = "builder")]
+#[test]
+fn test_portal_timestamps_are_all_or_nothing() {
+    use sqd_assignments::PortalAssignmentBuilder;
+
+    let mut builder = PortalAssignmentBuilder::new();
+    builder
+        .new_chunk()
+        .id("0000000000/0000000000-0000000099-abcde")
+        .dataset_id("s3://ethereum-mainnet")
+        .block_range(0..=99)
+        .last_block_timestamp(1696192039)
+        .worker_indexes(&[0])
+        .finish()
+        .unwrap();
+    builder
+        .new_chunk()
+        .id("0000000000/0000000100-0000000199-bcdef")
+        .dataset_id("s3://ethereum-mainnet")
+        .block_range(100..=199)
+        .worker_indexes(&[0])
+        .finish()
+        .unwrap();
+
+    let error = builder
+        .finish_dataset(1)
+        .expect_err("one column over all chunks can't cover only some of them");
+    assert!(error.to_string().contains("every chunk"), "unexpected error: {error}");
+}
+
+#[cfg(feature = "builder")]
+#[test]
+fn test_portal_chunk_id_must_agree_with_the_block_range() {
+    use sqd_assignments::PortalAssignmentBuilder;
+
+    let mut builder = PortalAssignmentBuilder::new();
+    let error = builder
+        .new_chunk()
+        .id("0000000000/0000000000-0000000099-abcde")
+        .dataset_id("s3://ethereum-mainnet")
+        .block_range(0..=100)
+        .worker_indexes(&[0])
+        .finish()
+        .expect_err("the id is rebuilt from the range, so the two must say the same thing");
+    assert!(error.to_string().contains("names blocks"), "unexpected error: {error}");
+}
+
+#[cfg(feature = "builder")]
+#[test]
+fn test_portal_rejects_a_malformed_chunk_id() {
+    use sqd_assignments::PortalAssignmentBuilder;
+
+    for (id, expected) in [
+        ("0000000000-0000000099-abcde", "no top directory"),
+        ("0000000000/0000000000-abcde", "is not <top>"),
+        ("0000000000/0000000000-0000000099-", "1 to 8 word characters"),
+        ("0000000000/0000000000-0000000099-toolonghash", "1 to 8 word characters"),
+        ("0000000000/0000000000-0000000099-has-dash", "1 to 8 word characters"),
+        ("000000000x/0000000000-0000000099-abcde", "non-numeric top"),
+    ] {
+        let mut builder = PortalAssignmentBuilder::new();
+        let error = builder
+            .new_chunk()
+            .id(id)
+            .dataset_id("s3://ethereum-mainnet")
+            .block_range(0..=99)
+            .worker_indexes(&[0])
+            .finish()
+            .unwrap_err();
+        assert!(
+            error.to_string().contains(expected),
+            "id '{id}': expected {expected:?}, got {error}"
+        );
+    }
 }

@@ -166,6 +166,10 @@ pub enum ChunkNotFound {
     UnknownDataset,
     BeforeFirst,
     AfterLast,
+    /// The block falls between two chunks. Gaps are legal, so this is a real answer rather than a
+    /// malformed dataset — only the portal assignment can tell, since only it carries each
+    /// chunk's own end.
+    InGap,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -456,11 +460,11 @@ impl AssignedWorker<'_> {
     }
 }
 
-// ===== Portal-facing assignment (NET-1180) =====
+// ===== Portal-facing assignment =====
 //
-// Diverges from `Assignment`: no file/URL/`encrypted_headers` access at all (worker-only
-// concerns), chunks carry `last_block_hash`/`last_block_timestamp` instead, and each dataset
-// carries a `read_schema_id` — an unresolved reference, unlike the worker side's inline rosters.
+// A portal reads no files, URLs or `encrypted_headers` at all, and its chunks are columns on the
+// dataset rather than tables (see portal_assignment.fbs). [`PortalChunk`] is the cursor over one
+// row of those columns; nothing here hands back a chunk table, because there isn't one.
 
 #[ouroboros::self_referencing]
 pub struct PortalAssignment {
@@ -530,77 +534,195 @@ impl PortalAssignment {
             .lookup_by_key(dataset, |ds, key| ds.key_compare_with_value(key))
     }
 
-    pub fn get_chunk(&self, r: ChunkRef) -> Option<assignment_fb::PortalAssignmentChunk<'_>> {
+    pub fn get_chunk(&self, r: ChunkRef) -> Option<PortalChunk<'_>> {
         let datasets = self.borrow_reader().datasets();
         if (r.dataset_index as usize) >= datasets.len() {
             return None;
         }
-        let chunks = datasets.get(r.dataset_index as usize).chunks();
-        if (r.chunk_index as usize) >= chunks.len() {
-            return None;
-        }
-        Some(chunks.get(r.chunk_index as usize))
+        datasets.get(r.dataset_index as usize).chunk(r.chunk_index)
     }
 
-    pub fn find_chunk(
-        &self,
-        dataset: &str,
-        block: u64,
-    ) -> Result<assignment_fb::PortalAssignmentChunk<'_>, ChunkNotFound> {
+    /// The chunk holding `block`.
+    ///
+    /// Unlike the worker side there is no inference from the next chunk's start: `block_deltas`
+    /// gives each chunk its own end, so a block falling in a gap between chunks is reported as
+    /// [`ChunkNotFound::InGap`] rather than silently attributed to the chunk before it.
+    pub fn find_chunk(&self, dataset: &str, block: u64) -> Result<PortalChunk<'_>, ChunkNotFound> {
         let Some(dataset) = self.get_dataset(dataset) else {
             return Err(ChunkNotFound::UnknownDataset);
         };
-
         if block > dataset.last_block() {
             return Err(ChunkNotFound::AfterLast);
         }
 
-        let chunks = dataset.chunks();
-
-        // find last chunk with first_block <= block
-        binary_search_by(PortalChunks(&chunks), |itm| itm.first_block().cmp(&block))
-            .or_else(|e| match e {
-                Some(idx) => Ok(idx),
-                None => Err(ChunkNotFound::BeforeFirst),
-            })
-            .map(|idx| chunks.get(idx))
+        let first_blocks = dataset.first_blocks();
+        // One past the last chunk starting at or before `block`.
+        let above = partition_point(first_blocks.len(), |i| first_blocks.get(i) <= block);
+        let Some(index) = above.checked_sub(1) else {
+            return Err(ChunkNotFound::BeforeFirst);
+        };
+        let chunk = dataset.chunk(index as u32).expect("index came from the column's own length");
+        if block > chunk.last_block() {
+            return Err(ChunkNotFound::InGap);
+        }
+        Ok(chunk)
     }
 
+    /// The first chunk whose timestamp is at or after `ts`.
+    ///
+    /// A dataset carrying no `ts_offsets` column reads as every chunk sitting at timestamp 0,
+    /// which is what the per-chunk optional timestamp amounted to before.
     pub fn find_chunk_by_timestamp(
         &self,
         dataset: &str,
         ts: u64,
-    ) -> Result<assignment_fb::PortalAssignmentChunk<'_>, ChunkNotFound> {
+    ) -> Result<PortalChunk<'_>, ChunkNotFound> {
         let Some(dataset) = self.get_dataset(dataset) else {
             return Err(ChunkNotFound::UnknownDataset);
         };
 
-        let chunks = dataset.chunks();
+        let count = dataset.chunk_count();
+        // Bisecting on `< ts` lands on the first chunk at or after it, so runs of equal
+        // timestamps resolve to their first member without walking back.
+        let index = partition_point(count, |i| dataset.timestamp_at(i as u32) < ts);
+        if index == count {
+            return Err(ChunkNotFound::AfterLast);
+        }
+        Ok(dataset.chunk(index as u32).expect("index is below the chunk count"))
+    }
+}
 
-        // find first chunk with last_block_timestamp >= ts
-        binary_search_by(PortalChunks(&chunks), |itm| {
-            itm.last_block_timestamp().unwrap_or(0).cmp(&ts) // 0-timestamps are problematic
-        })
-        .or_else(|e| match e {
-            Some(idx) if idx + 1 < chunks.len() => Ok(idx + 1),
-            None if !chunks.is_empty() => Ok(0), // this is the case BeforeFirst
-            _ => Err(ChunkNotFound::AfterLast),
-        })
-        .map(|idx| {
-            // for the case that the timestamps are equal,
-            // we walk to the first of the sequence; this is clumsy but safe.
-            if chunks.get(idx).last_block_timestamp() == Some(ts) {
-                for i in (0..idx + 1).rev() {
-                    if chunks.get(i).last_block_timestamp() != Some(ts) {
-                        return chunks.get(i + 1);
-                    } else if i == 0 {
-                        return chunks.get(0);
-                    }
-                }
-            }
-            chunks.get(idx)
+/// One row of a [`PortalAssignmentDataset`](assignment_fb::PortalAssignmentDataset)'s columns.
+///
+/// Cheap to copy — it is a dataset handle plus an index, and every accessor is a subscript into
+/// the column it names.
+#[derive(Clone, Copy, Debug)]
+pub struct PortalChunk<'a> {
+    dataset: assignment_fb::PortalAssignmentDataset<'a>,
+    index: u32,
+}
+
+impl<'a> PortalChunk<'a> {
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    pub fn dataset(&self) -> assignment_fb::PortalAssignmentDataset<'a> {
+        self.dataset
+    }
+
+    pub fn first_block(&self) -> u64 {
+        self.dataset.first_blocks().get(self.index as usize)
+    }
+
+    pub fn last_block(&self) -> u64 {
+        self.first_block() + self.dataset.block_deltas().get(self.index as usize) as u64
+    }
+
+    /// `None` when the dataset carries no timestamps at all.
+    pub fn last_block_timestamp(&self) -> Option<u64> {
+        self.dataset
+            .ts_offsets()
+            .map(|offsets| self.dataset.base_timestamp() + offsets.get(self.index as usize) as u64)
+    }
+
+    /// Which copy of the chunk workers serve; 0 is the ingested one.
+    pub fn version(&self) -> u32 {
+        self.dataset.versions().map_or(0, |versions| versions.get(self.index as usize))
+    }
+
+    /// The top-level directory the chunk lives under, resolved through the run it falls in.
+    pub fn top(&self) -> u64 {
+        self.dataset
+            .top_at(self.index)
+            .expect("the first top run covers chunk 0 onwards")
+    }
+
+    /// The chunk's short hash, trailing NUL padding trimmed.
+    ///
+    /// `None` only if the stored bytes aren't UTF-8, which a well-formed blob's never are — the
+    /// builder only accepts word characters.
+    pub fn hash(&self) -> Option<&'a str> {
+        let hash = self.dataset.hashes().get(self.index as usize);
+        let bytes = &hash.0[..hash.0.iter().position(|&b| b == 0).unwrap_or(hash.0.len())];
+        std::str::from_utf8(bytes).ok()
+    }
+
+    /// The chunk id a query names, e.g. `"0221000000/0221000000-0221000649-9QgFD"`, rebuilt from
+    /// the columns it was split into. Unchanged in form, so it drops straight into
+    /// `Query.chunk_id`.
+    ///
+    /// `None` on the same terms as [`Self::hash`].
+    pub fn id(&self) -> Option<String> {
+        Some(format!(
+            "{:010}/{:010}-{:010}-{}",
+            self.top(),
+            self.first_block(),
+            self.last_block(),
+            self.hash()?
+        ))
+    }
+
+    /// The workers to route to — the chunk's slice of the dataset's flattened routing column.
+    pub fn worker_indexes(&self) -> impl Iterator<Item = u16> + 'a {
+        let offsets = self.dataset.worker_offsets();
+        let start = offsets.get(self.index as usize) as usize;
+        let end = offsets.get(self.index as usize + 1) as usize;
+        let indexes = self.dataset.worker_indexes();
+        (start..end.min(indexes.len())).map(move |i| indexes.get(i))
+    }
+}
+
+impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
+    /// The chunk at `index`, or `None` past the end of the columns.
+    pub fn chunk(&self, index: u32) -> Option<PortalChunk<'a>> {
+        ((index as usize) < self.chunk_count()).then_some(PortalChunk {
+            dataset: *self,
+            index,
         })
     }
+
+    pub fn chunks(&self) -> impl Iterator<Item = PortalChunk<'a>> + '_ {
+        (0..self.chunk_count() as u32).map(|index| PortalChunk {
+            dataset: *self,
+            index,
+        })
+    }
+
+    /// The head hash of the dataset, i.e. its last chunk's.
+    pub fn last_block_hash(&self) -> Option<&'a str> {
+        self.chunk(self.chunk_count().checked_sub(1)? as u32)?.hash()
+    }
+
+    /// The timestamp of chunk `index`, or 0 when the dataset carries no timestamps.
+    fn timestamp_at(&self, index: u32) -> u64 {
+        self.ts_offsets()
+            .map_or(0, |offsets| self.base_timestamp() + offsets.get(index as usize) as u64)
+    }
+
+    /// The top directory chunk `index` lives under: the last run starting at or before it.
+    ///
+    /// `None` only if the runs don't start at chunk 0, which the builder refuses to emit.
+    fn top_at(&self, index: u32) -> Option<u64> {
+        let tops = self.tops();
+        let above = partition_point(tops.len(), |i| tops.get(i).first_chunk_index() <= index);
+        Some(tops.get(above.checked_sub(1)?).top())
+    }
+}
+
+/// `slice::partition_point` over anything subscriptable: the number of leading positions for
+/// which `pred` holds. `pred` must be true for a prefix and false thereafter.
+fn partition_point(len: usize, pred: impl Fn(usize) -> bool) -> usize {
+    let (mut low, mut high) = (0, len);
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if pred(mid) {
+            low = mid + 1;
+        } else {
+            high = mid;
+        }
+    }
+    low
 }
 
 /// A worker's entry in a [`PortalAssignment`]: just identity and routing eligibility — no
@@ -652,21 +774,6 @@ fn decrypt_headers(
         .filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned())))
         .collect();
     Ok(map)
-}
-
-#[derive(Copy, Clone)]
-struct PortalChunks<'a>(&'a Vector<'a, ForwardsUOffset<assignment_fb::PortalAssignmentChunk<'a>>>);
-
-impl<'a> IndexGet for PortalChunks<'a> {
-    type Item = assignment_fb::PortalAssignmentChunk<'a>;
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn get(&self, idx: usize) -> Self::Item {
-        self.0.get(idx)
-    }
 }
 
 fn lookup_index_by_key<'a, T: Follow<'a> + 'a>(
