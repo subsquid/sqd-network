@@ -361,12 +361,36 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
 // docs/assignment-wire-format.md in network-scheduler). `WorkerEntry` is shared with the legacy
 // format unchanged.
 
+/// The columns of the dataset currently being staged, taken by
+/// [`WorkerAssignmentBuilder::finish_dataset`].
+#[derive(Default)]
+struct WorkerDatasetColumns {
+    first_blocks: Vec<u64>,
+    block_deltas: Vec<u32>,
+    hashes: Vec<assignment_fb::ChunkHash>,
+    /// One entry per run, appended only when a chunk's top differs from the previous chunk's.
+    tops: Vec<assignment_fb::TopRun>,
+    sizes: Vec<u32>,
+    /// Likewise, appended only when a chunk's write schema differs from the previous chunk's.
+    write_schemas: Vec<assignment_fb::SchemaRun>,
+    versions: Vec<u32>,
+    /// Bit i of chunk c sits at `tables_present[c * stride + i / 8]`. The stride is the widest
+    /// roster any of this dataset's chunks uses, so the column stays indexable when they differ.
+    tables_present: Vec<u8>,
+    /// Whether any chunk actually trimmed its tables; if none did, the column is dropped.
+    any_tables_trimmed: bool,
+    /// Where each chunk's worker slice ends; the emitted CSR column is a leading 0 then these.
+    worker_ends: Vec<u32>,
+    worker_indexes: Vec<u16>,
+    /// The base url every chunk of the dataset hangs off, kept as a string so a second chunk
+    /// naming a different one is caught rather than silently dropped.
+    base_url: Option<(String, fb::WIPOffset<&'static str>)>,
+}
+
 pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     builder: fb::FlatBufferBuilder<'static>,
     rng: Rng,
-    all_chunks: Vec<fb::WIPOffset<assignment_fb::WorkerAssignmentChunk<'static>>>,
     last_block: Option<u64>,
-    current_chunks: Vec<fb::WIPOffset<assignment_fb::WorkerAssignmentChunk<'static>>>,
     current_dataset_id_offset: Option<fb::WIPOffset<&'static str>>,
     all_datasets: Vec<fb::WIPOffset<assignment_fb::WorkerAssignmentDataset<'static>>>,
     worker_entries: Vec<(WorkerId, fb::WIPOffset<assignment_fb::WorkerEntry<'static>>)>,
@@ -375,19 +399,13 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     common_identity: fb::WIPOffset<fb::Vector<'static, u8>>,
     common_secret_key: SecretKey,
     check_continuity: bool,
-    /// The base url every chunk of the dataset hangs off, staged with the chunks and emitted once.
-    /// Kept as a string so a second chunk naming a different one is caught rather than silently
-    /// dropped.
-    current_base_url: Option<(String, fb::WIPOffset<&'static str>)>,
     /// `BTreeMap` so `finish` emits rosters id-sorted, as `TableRoster`'s `(key)` lookup requires.
     write_schemas: BTreeMap<u32, Vec<String>>,
     /// Generation prefixes of the dataset being staged, cleared by `finish_dataset` — unlike write
     /// schemas, they are per-dataset. `BTreeMap` so they reach the blob version-sorted, as
     /// `GenerationEntry`'s `(key)` lookup requires.
     current_generations: BTreeMap<u32, String>,
-    /// Whole datasets usually share one bitmap, so chunks reuse a single vector for it — the same
-    /// deduplication `AssignmentBuilder` does for file lists.
-    tables_present_offsets: HashMap<Vec<u8>, fb::WIPOffset<fb::Vector<'static, u8>>>,
+    columns: WorkerDatasetColumns,
 }
 
 impl WorkerAssignmentBuilder<OsRng> {
@@ -405,9 +423,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         Self {
             builder,
             rng,
-            all_chunks: Vec::new(),
             last_block: None,
-            current_chunks: Vec::new(),
             current_dataset_id_offset: None,
             all_datasets: Vec::new(),
             worker_entries: Vec::new(),
@@ -416,21 +432,21 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             common_identity,
             common_secret_key,
             check_continuity: true,
-            current_base_url: None,
             write_schemas: BTreeMap::new(),
             current_generations: BTreeMap::new(),
-            tables_present_offsets: HashMap::new(),
+            columns: WorkerDatasetColumns::default(),
         }
     }
 
-    /// See [`AssignmentBuilder::check_continuity`].
+    /// See [`AssignmentBuilder::check_continuity`]. Note that a gap only trips this check; it is
+    /// no longer something the reader can misread, since `block_deltas` carries each chunk's end.
     pub fn check_continuity(mut self, check: bool) -> Self {
         self.check_continuity = check;
         self
     }
 
     /// Register a write schema's table roster: the schema's full declared table list, which each
-    /// chunk's `tables_present` selects from. Every `write_schema_id` a chunk references must be
+    /// chunk's `tables_present` selects from. Every write schema a chunk references must be
     /// registered before [`Self::finish`]. `tables` must be sorted and duplicate-free.
     ///
     /// # Errors
@@ -464,7 +480,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     }
 
     /// Register the storage prefix a batch job wrote a generation of chunks under, relative to
-    /// their `dataset_base_url` (e.g. `_bf/01HQZK3M7X8P2NVWTC4RYFGDS9`). Applies to the dataset
+    /// the dataset's base url (e.g. `_bf/01HQZK3M7X8P2NVWTC4RYFGDS9`). Applies to the dataset
     /// currently being staged, so it must be called before the chunks carrying that version and
     /// re-registered for every dataset the generation covers.
     ///
@@ -494,25 +510,75 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         WorkerAssignmentChunkBuilder::new(self)
     }
 
-    pub fn finish_dataset(&mut self) {
+    /// Emits the staged chunks as the dataset's columns.
+    ///
+    /// # Errors
+    ///
+    /// If no chunk was staged, or if the run columns don't start at chunk 0 and ascend — which
+    /// the way chunks are staged already guarantees, but the reader's search depends on it.
+    pub fn finish_dataset(&mut self) -> anyhow::Result<()> {
+        let columns = std::mem::take(&mut self.columns);
         let generations = self.create_generations();
-        let chunks = self.builder.create_vector(&self.current_chunks);
+        let chunk_count = columns.first_blocks.len();
+        anyhow::ensure!(chunk_count > 0, "At least one chunk should be present in the dataset");
+        check_runs(columns.tops.iter().map(|run| run.first_chunk_index()), "top")?;
+        check_runs(
+            columns.write_schemas.iter().map(|run| run.first_chunk_index()),
+            "write schema",
+        )?;
+
+        let stride = if chunk_count == 0 {
+            0
+        } else {
+            columns.tables_present.len() / chunk_count
+        };
+        let first_blocks = self.builder.create_vector(&columns.first_blocks);
+        let block_deltas = self.builder.create_vector(&columns.block_deltas);
+        let hashes = self.builder.create_vector(&columns.hashes);
+        let tops = self.builder.create_vector(&columns.tops);
+        let sizes = self.builder.create_vector(&columns.sizes);
+        let write_schemas = self.builder.create_vector(&columns.write_schemas);
+        let tables_present = columns
+            .any_tables_trimmed
+            .then(|| self.builder.create_vector(&columns.tables_present));
+        let versions = columns
+            .versions
+            .iter()
+            .any(|&version| version != 0)
+            .then(|| self.builder.create_vector(&columns.versions));
+        // A leading 0, so slot i is the start of chunk i's slice and slot i + 1 its end.
+        let mut worker_offsets = Vec::with_capacity(columns.worker_ends.len() + 1);
+        worker_offsets.push(0);
+        worker_offsets.extend_from_slice(&columns.worker_ends);
+        let worker_offsets = self.builder.create_vector(&worker_offsets);
+        let worker_indexes = self.builder.create_vector(&columns.worker_indexes);
+
         let offset = assignment_fb::WorkerAssignmentDataset::create(
             &mut self.builder,
             &assignment_fb::WorkerAssignmentDatasetArgs {
                 id: self.current_dataset_id_offset.take(),
-                chunks: Some(chunks),
                 last_block: self
                     .last_block
                     .take()
                     .expect("At least one chunk should be present in the dataset"),
-                base_url: self.current_base_url.take().map(|(_, offset)| offset),
+                base_url: columns.base_url.map(|(_, offset)| offset),
                 generations,
+                first_blocks: Some(first_blocks),
+                block_deltas: Some(block_deltas),
+                hashes: Some(hashes),
+                tops: Some(tops),
+                sizes: Some(sizes),
+                write_schemas: Some(write_schemas),
+                tables_present,
+                tables_present_stride: stride as u8,
+                versions,
+                worker_offsets: Some(worker_offsets),
+                worker_indexes: Some(worker_indexes),
             },
         );
         self.all_datasets.push(offset);
-        self.current_chunks.clear();
         self.current_generations.clear();
+        Ok(())
     }
 
     /// `None` for a dataset whose chunks are all version 0, so the common case stores nothing.
@@ -572,9 +638,6 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
                 tracing::warn!("Failed to encrypt headers for worker {}: {}", id, e);
             })
             .ok();
-        // The deprecated per-worker `chunks` field is excluded from `WorkerEntryArgs` entirely —
-        // chunks carry their holders via `worker_indexes` instead (see
-        // `WorkerAssignmentChunkBuilder`).
         let offset = assignment_fb::WorkerEntry::create(
             &mut self.builder,
             &assignment_fb::WorkerEntryArgs {
@@ -680,41 +743,6 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         builder.create_vector(&offsets)
     }
 
-    /// Interns a `tables_present` bitmap, so chunks sharing one share a single vector.
-    fn cache_tables_bitmap(&mut self, bits: Vec<u8>) -> fb::WIPOffset<fb::Vector<'static, u8>> {
-        match self.tables_present_offsets.get(&bits) {
-            Some(&offset) => offset,
-            None => {
-                let offset = self.builder.create_vector(&bits);
-                self.tables_present_offsets.insert(bits, offset);
-                offset
-            }
-        }
-    }
-
-    fn add_chunk(
-        &mut self,
-        offset: fb::WIPOffset<assignment_fb::WorkerAssignmentChunk<'static>>,
-        dataset: WIPOffset<&'static str>,
-        block_range: RangeInclusive<u64>,
-    ) -> anyhow::Result<()> {
-        let result = match self.last_block {
-            Some(last) if last + 1 != *block_range.start() => Err(anyhow::anyhow!(
-                "Chunks in the dataset must be contiguous, got {} -> {}",
-                last,
-                block_range.start()
-            )),
-            _ => Ok(()),
-        };
-        if result.is_ok() || !self.check_continuity {
-            self.all_chunks.push(offset);
-            self.last_block = Some(*block_range.end());
-            self.current_chunks.push(offset);
-            self.current_dataset_id_offset = Some(dataset);
-        }
-        result
-    }
-
     fn generate_encrypted_headers(
         &mut self,
         peer_id: &PeerId,
@@ -745,20 +773,34 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     }
 }
 
+/// A searched run column is only sound if it starts at chunk 0 and ascends; otherwise the reader's
+/// "last run at or before this chunk" has nothing to land on.
+fn check_runs(mut starts: impl Iterator<Item = u32>, what: &str) -> anyhow::Result<()> {
+    let Some(first) = starts.next() else {
+        anyhow::bail!("a dataset with chunks must have at least one {what} run");
+    };
+    anyhow::ensure!(first == 0, "the first {what} run must start at chunk 0");
+    let mut previous = first;
+    for start in starts {
+        anyhow::ensure!(start > previous, "{what} runs must strictly ascend by first_chunk_index");
+        previous = start;
+    }
+    Ok(())
+}
+
 pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     p: &'b mut WorkerAssignmentBuilder<Rng>,
 
     block_range: Option<RangeInclusive<u64>>,
-    id: Option<fb::WIPOffset<&'static str>>,
+    id: Option<String>,
     dataset_id: Option<fb::WIPOffset<&'static str>>,
     size: Option<u32>,
     dataset_base_url: Option<String>,
     version: u32,
     write_schema_id: Option<u32>,
-    /// The bitmap and the write schema it was encoded against — they can diverge if
-    /// `write_schema_id` is set again afterwards, which `finish` rejects.
-    tables_present: Option<(u32, fb::WIPOffset<fb::Vector<'static, u8>>)>,
-    worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
+    /// The tables the chunk holds, resolved against its schema's roster by `finish`.
+    tables_present: Option<Vec<String>>,
+    worker_indexes: Vec<u16>,
 }
 
 impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
@@ -773,12 +815,15 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             version: 0,
             write_schema_id: None,
             tables_present: None,
-            worker_indexes: None,
+            worker_indexes: Vec::new(),
         }
     }
 
+    /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`. Not stored as such: it is
+    /// split into the `tops`, `first_blocks`, `block_deltas` and `hashes` columns and reassembled
+    /// on read, so it must parse — see [`Self::finish`].
     pub fn id(mut self, id: &str) -> Self {
-        self.id = Some(self.p.builder.create_string(id));
+        self.id = Some(id.to_owned());
         self
     }
 
@@ -816,118 +861,212 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
 
     /// The write schema the chunk was written under — the one covering every table and column
     /// physically present in it. Must be registered with
-    /// [`WorkerAssignmentBuilder::register_write_schema`], and set before [`Self::tables_present`].
+    /// [`WorkerAssignmentBuilder::register_write_schema`].
     pub fn write_schema_id(mut self, write_schema_id: u32) -> Self {
         self.write_schema_id = Some(write_schema_id);
         self
     }
 
-    /// The subset of the write schema's tables this chunk contains, encoded as a bitmap over its
-    /// roster. Omit when every table is present. `tables` must be sorted and duplicate-free like
-    /// the roster, so the two merge in one pass; only debug builds assert it, but an unsorted
-    /// list still errors below rather than yielding a wrong bitmap.
-    ///
-    /// # Errors
-    ///
-    /// If [`Self::write_schema_id`] is unset or names an unregistered schema, or a table is
-    /// absent from that schema's roster — which means chunk and write schema disagree.
-    pub fn tables_present<S: AsRef<str>>(mut self, tables: &[S]) -> anyhow::Result<Self> {
+    /// The subset of the write schema's tables this chunk contains. Omit when every table is
+    /// present. `tables` must be sorted and duplicate-free like the roster, so the two merge in
+    /// one pass.
+    pub fn tables_present<S: AsRef<str>>(mut self, tables: &[S]) -> Self {
         debug_assert!(
             tables.is_sorted_by(|a, b| a.as_ref() < b.as_ref()),
             "tables_present must be sorted and free of duplicates"
         );
-        let write_schema_id = self
-            .write_schema_id
-            .context("write_schema_id must be set before tables_present")?;
-        let bits = {
-            let roster = self
-                .p
-                .write_schemas
-                .get(&write_schema_id)
-                .with_context(|| format!("write schema {write_schema_id} is not registered"))?;
-            let mut bits = vec![0u8; roster.len().div_ceil(8)];
-            // Both sides are sorted, so one pass over each suffices: the roster cursor only ever
-            // moves forward.
-            let mut index = 0;
-            for table in tables {
-                let name = table.as_ref();
-                while index < roster.len() && roster[index].as_str() < name {
-                    index += 1;
-                }
-                anyhow::ensure!(
-                    roster.get(index).is_some_and(|t| t == name),
-                    "table '{name}' is absent from write schema {write_schema_id}'s roster"
-                );
-                bits[index / 8] |= 1u8 << (index % 8);
-                index += 1;
-            }
-            bits
-        };
-        self.tables_present = Some((write_schema_id, self.p.cache_tables_bitmap(bits)));
-        Ok(self)
+        self.tables_present = Some(tables.iter().map(|t| t.as_ref().to_owned()).collect());
+        self
     }
 
     pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
-        self.worker_indexes = Some(self.p.builder.create_vector(indexes));
+        self.worker_indexes = indexes.to_vec();
         self
     }
 
     /// # Errors
     ///
-    /// If `write_schema_id` is unset, its roster was never registered, or it changed after
-    /// [`Self::tables_present`] encoded a bitmap against a different roster; if a non-zero
-    /// `version` has no generation registered for this dataset; or if the chunk breaks block
-    /// continuity (see [`WorkerAssignmentBuilder::check_continuity`]).
+    /// If the id is unset or malformed, or disagrees with `block_range`; if `write_schema_id` is
+    /// unset or names an unregistered schema; if a table isn't in that schema's roster; if a
+    /// non-zero `version` has no generation registered for this dataset; if the chunk names a
+    /// different base url than the dataset's other chunks; or if it breaks block continuity (see
+    /// [`WorkerAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
+        let id = self.id.context("Chunk id must be set")?;
+        let parsed = parse_chunk_id(&id)?;
+        anyhow::ensure!(
+            parsed.first_block == *block_range.start() && parsed.last_block == *block_range.end(),
+            "chunk id '{id}' names blocks {}-{}, but the chunk covers {}-{}",
+            parsed.first_block,
+            parsed.last_block,
+            block_range.start(),
+            block_range.end()
+        );
         let write_schema_id = self.write_schema_id.context("write_schema_id must be set")?;
+        let roster = self
+            .p
+            .write_schemas
+            .get(&write_schema_id)
+            .with_context(|| format!("write schema {write_schema_id} is not registered"))?;
         anyhow::ensure!(
             self.version == 0 || self.p.current_generations.contains_key(&self.version),
             "generation {} is not registered for this dataset",
             self.version
         );
-        // Chunks with every table present never call `tables_present`, so this is the only place
-        // their schema reference gets checked.
-        anyhow::ensure!(
-            self.p.write_schemas.contains_key(&write_schema_id),
-            "write schema {write_schema_id} is not registered"
-        );
-        let tables_present = match self.tables_present {
-            Some((encoded_against, offset)) => {
-                anyhow::ensure!(
-                    encoded_against == write_schema_id,
-                    "tables_present is a bitmap over write schema {encoded_against}'s roster, \
-                     but the chunk declares write schema {write_schema_id}"
-                );
-                Some(offset)
+
+        // Bits over this chunk's own roster, widened to the dataset's stride when appended.
+        let mut bits = vec![0u8; roster.len().div_ceil(8)];
+        let trimmed = match &self.tables_present {
+            None => {
+                bits.iter_mut().for_each(|byte| *byte = 0xff);
+                // Bits past the roster stay clear, so a full chunk reads back as its whole roster.
+                if roster.len() % 8 != 0 {
+                    let last = bits.len() - 1;
+                    bits[last] = (1u8 << (roster.len() % 8)) - 1;
+                }
+                false
             }
-            None => None,
+            Some(tables) => {
+                let mut index = 0;
+                for table in tables {
+                    while index < roster.len() && roster[index].as_str() < table.as_str() {
+                        index += 1;
+                    }
+                    anyhow::ensure!(
+                        roster.get(index).is_some_and(|t| t == table),
+                        "table '{table}' is absent from write schema {write_schema_id}'s roster"
+                    );
+                    bits[index / 8] |= 1u8 << (index % 8);
+                    index += 1;
+                }
+                tables.len() != roster.len()
+            }
         };
+
         let base_url = self.dataset_base_url.context("dataset_base_url must be set")?;
-        match &self.p.current_base_url {
+        let dataset = self.dataset_id.expect("Dataset ID must be set");
+        self.p.push_chunk(PushChunk {
+            dataset,
+            base_url,
+            top: parsed.top,
+            block_range,
+            hash: parsed.hash,
+            size: self.size.expect("Size must be set"),
+            write_schema_id,
+            version: self.version,
+            bits,
+            trimmed,
+            worker_indexes: &self.worker_indexes,
+        })
+    }
+}
+
+/// One row across every column, assembled by the chunk builder and appended by the parent.
+struct PushChunk<'a> {
+    dataset: WIPOffset<&'static str>,
+    base_url: String,
+    top: u64,
+    block_range: RangeInclusive<u64>,
+    hash: assignment_fb::ChunkHash,
+    size: u32,
+    write_schema_id: u32,
+    version: u32,
+    bits: Vec<u8>,
+    trimmed: bool,
+    worker_indexes: &'a [u16],
+}
+
+impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
+    /// Returns the continuity error, if any, on the same terms as
+    /// [`AssignmentBuilder::check_continuity`]: with the check off the row is still appended and
+    /// the error only reported.
+    fn push_chunk(&mut self, chunk: PushChunk<'_>) -> anyhow::Result<()> {
+        let continuity = match self.last_block {
+            Some(last) if last + 1 != *chunk.block_range.start() => Err(anyhow::anyhow!(
+                "Chunks in the dataset must be contiguous, got {} -> {}",
+                last,
+                chunk.block_range.start()
+            )),
+            _ => Ok(()),
+        };
+        if continuity.is_err() && self.check_continuity {
+            return continuity;
+        }
+
+        match &self.columns.base_url {
             Some((staged, _)) => anyhow::ensure!(
-                *staged == base_url,
-                "chunks of one dataset must share a base url, got '{staged}' then '{base_url}'"
+                *staged == chunk.base_url,
+                "chunks of one dataset must share a base url, got '{staged}' then '{}'",
+                chunk.base_url
             ),
             None => {
-                let offset = self.p.builder.create_shared_string(&base_url);
-                self.p.current_base_url = Some((base_url, offset));
+                let offset = self.builder.create_shared_string(&chunk.base_url);
+                self.columns.base_url = Some((chunk.base_url, offset));
             }
         }
-        let offset = assignment_fb::WorkerAssignmentChunk::create(
-            &mut self.p.builder,
-            &assignment_fb::WorkerAssignmentChunkArgs {
-                id: self.id,
-                first_block: *block_range.start(),
-                size: self.size.expect("Size must be set"),
-                version: self.version,
-                write_schema_id,
-                tables_present,
-                worker_indexes: self.worker_indexes,
-            },
-        );
-        self.p
-            .add_chunk(offset, self.dataset_id.expect("Dataset ID must be set"), block_range)
+
+        let index: u32 = self
+            .columns
+            .first_blocks
+            .len()
+            .try_into()
+            .context("a dataset may hold at most u32::MAX chunks")?;
+        let delta: u32 = (chunk.block_range.end() - chunk.block_range.start())
+            .try_into()
+            .context("a chunk may span at most u32::MAX blocks")?;
+
+        if self.columns.tops.last().is_none_or(|run| run.top() != chunk.top) {
+            self.columns.tops.push(assignment_fb::TopRun::new(index, chunk.top));
+        }
+        if self
+            .columns
+            .write_schemas
+            .last()
+            .is_none_or(|run| run.write_schema_id() != chunk.write_schema_id)
+        {
+            self.columns
+                .write_schemas
+                .push(assignment_fb::SchemaRun::new(index, chunk.write_schema_id));
+        }
+        self.columns.first_blocks.push(*chunk.block_range.start());
+        self.columns.block_deltas.push(delta);
+        self.columns.hashes.push(chunk.hash);
+        self.columns.sizes.push(chunk.size);
+        self.columns.versions.push(chunk.version);
+        self.columns.any_tables_trimmed |= chunk.trimmed;
+        append_bitmap(&mut self.columns.tables_present, index as usize, &chunk.bits);
+        self.columns.worker_indexes.extend_from_slice(chunk.worker_indexes);
+        let end = self
+            .columns
+            .worker_indexes
+            .len()
+            .try_into()
+            .context("a dataset may hold at most u32::MAX worker references")?;
+        self.columns.worker_ends.push(end);
+
+        self.last_block = Some(*chunk.block_range.end());
+        self.current_dataset_id_offset = Some(chunk.dataset);
+        continuity
+    }
+}
+
+/// Appends one chunk's bits, widening the whole column if this chunk's roster is the widest yet —
+/// the stride has to hold for every chunk, and is only known once they have all been staged.
+fn append_bitmap(column: &mut Vec<u8>, index: usize, bits: &[u8]) {
+    let stride = if index == 0 { 0 } else { column.len() / index };
+    if bits.len() > stride {
+        let wider = bits.len();
+        let mut widened = vec![0u8; wider * index];
+        for chunk in 0..index {
+            widened[chunk * wider..chunk * wider + stride]
+                .copy_from_slice(&column[chunk * stride..(chunk + 1) * stride]);
+        }
+        *column = widened;
+        column.extend_from_slice(bits);
+    } else {
+        column.extend_from_slice(bits);
+        column.resize(column.len() + stride - bits.len(), 0);
     }
 }
 

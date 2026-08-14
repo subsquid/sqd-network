@@ -169,7 +169,7 @@ fn build() -> Fixture {
                 .expect("contiguous");
         }
         legacy.finish_dataset();
-        worker.finish_dataset();
+        worker.finish_dataset().expect("chunks staged");
         portal
             .finish_dataset(dataset as u32 + 1, Some(&format!("0x{:064x}", 0)))
             .expect("timestamped throughout");

@@ -44,7 +44,6 @@ fn test_worker_assignment_round_trip() {
         .size(1000000)
         .write_schema_id(7)
         .tables_present(&["blocks", "transactions"])
-        .unwrap()
         .worker_indexes(&[0])
         .finish()
         .unwrap();
@@ -69,11 +68,10 @@ fn test_worker_assignment_round_trip() {
         .size(1000000)
         .write_schema_id(7)
         .tables_present(&["blocks", "transactions"])
-        .unwrap()
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset();
+    builder.finish_dataset().unwrap();
 
     let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
@@ -85,7 +83,7 @@ fn test_worker_assignment_round_trip() {
 
     let dataset = assignment.get_dataset("s3://solana-mainnet-2").unwrap();
     assert_eq!(dataset.last_block(), 221001999);
-    assert_eq!(dataset.chunks().len(), 3);
+    assert_eq!(dataset.chunk_count(), 3);
 
     let worker = assignment.get_worker(&peer_id).unwrap();
     assert_eq!(worker.status(), sqd_assignments::WorkerStatus::Ok);
@@ -94,7 +92,7 @@ fn test_worker_assignment_round_trip() {
 
     let chunks = worker.iter_chunks().collect::<Vec<_>>();
     assert_eq!(chunks.len(), 3);
-    assert_eq!(chunks[0].id(), "0221000000/0221000000-0221000649-BQJdx");
+    assert_eq!(chunks[0].id().unwrap(), "0221000000/0221000000-0221000649-BQJdx");
     assert_eq!(
         dataset.base_url(),
         "https://solana-mainnet-2.sqd-datasets.io",
@@ -105,7 +103,11 @@ fn test_worker_assignment_round_trip() {
         assignment.chunk_tables(chunks[0]).unwrap().collect::<Vec<_>>(),
         vec!["blocks", "transactions"]
     );
-    assert!(chunks[1].tables_present().is_none(), "unset tables_present means all present");
+    assert_eq!(
+        assignment.chunk_tables(chunks[1]).unwrap().collect::<Vec<_>>(),
+        vec!["blocks", "logs", "transactions"],
+        "a chunk that set no tables holds its whole roster"
+    );
     assert_eq!(
         assignment.chunk_tables(chunks[1]).unwrap().collect::<Vec<_>>(),
         vec!["blocks", "logs", "transactions"],
@@ -133,7 +135,7 @@ fn test_worker_assignment_round_trip() {
         "a dataset of version-0 chunks stores no prefixes"
     );
     assert_eq!(
-        dataset.chunk_url(chunks[0]).unwrap(),
+        chunks[0].url().unwrap(),
         "https://solana-mainnet-2.sqd-datasets.io/0221000000/0221000000-0221000649-BQJdx"
     );
 }
@@ -157,7 +159,7 @@ fn test_chunk_generations_round_trip() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset();
+    builder.finish_dataset().unwrap();
 
     // Generations belong to the dataset being staged, so these apply to the one below only.
     builder.register_generation(4, "_bf/01HR2A9B4C6D8E0F2G4H6J8K0M").unwrap();
@@ -173,7 +175,7 @@ fn test_chunk_generations_round_trip() {
         .version(2)
         .finish()
         .unwrap();
-    builder.finish_dataset();
+    builder.finish_dataset().unwrap();
 
     builder.add_worker_with_timestamp(
         common::get_test_keypair().public().to_peer_id(),
@@ -194,15 +196,14 @@ fn test_chunk_generations_round_trip() {
 
     // Version 0 keeps meaning the ingested copy in a dataset that does have generations: it is a
     // normal version whose defining property is having no entry.
-    let chunks = dataset.chunks();
-    assert_eq!(chunks.get(0).version(), 0);
+    assert_eq!(dataset.chunk(0).unwrap().version(), 0);
     assert_eq!(
-        dataset.chunk_url(chunks.get(0)).unwrap(),
+        dataset.chunk(0).unwrap().url().unwrap(),
         "https://solana-mainnet-2.sqd-datasets.io/0221000000/0221000000-0221000649-BQJdx",
         "version 0 hangs straight off the dataset base url"
     );
     assert_eq!(
-        dataset.chunk_url(chunks.get(1)).unwrap(),
+        dataset.chunk(1).unwrap().url().unwrap(),
         "https://solana-mainnet-2.sqd-datasets.io/_bf/01HQZK3M7X8P2NVWTC4RYFGDS9\
          /0221000000/0221000650-0221001549-AuRE1",
         "a non-zero version puts its generation's prefix in between"
@@ -212,7 +213,7 @@ fn test_chunk_generations_round_trip() {
     let worker = assignment.get_worker_by_index(0);
     let (chunk_ref, _) = worker
         .iter_chunks_with_ref()
-        .find(|(_, chunk)| chunk.id() == "0221000000/0221000650-0221001549-AuRE1")
+        .find(|(_, chunk)| chunk.id().as_deref() == Some("0221000000/0221000650-0221001549-AuRE1"))
         .expect("the rewritten chunk is assigned to worker 0");
     assert_eq!(
         assignment.get_dataset_by_ref(chunk_ref).unwrap().id(),
@@ -226,12 +227,10 @@ fn test_chunk_generations_round_trip() {
     );
     let (paired_dataset, paired_chunk) = worker
         .iter_chunks_with_dataset()
-        .find(|(_, chunk)| chunk.id() == "0221000000/0221000650-0221001549-AuRE1")
+        .find(|(_, chunk)| chunk.id().as_deref() == Some("0221000000/0221000650-0221001549-AuRE1"))
         .expect("the same chunk, paired with its dataset");
-    assert_eq!(
-        paired_dataset.chunk_url(paired_chunk).unwrap(),
-        assignment.chunk_url(chunk_ref).unwrap()
-    );
+    assert_eq!(paired_chunk.url().unwrap(), assignment.chunk_url(chunk_ref).unwrap());
+    assert_eq!(paired_dataset.id(), "s3://solana-mainnet-2", "paired with its own dataset");
 
     let other = assignment.get_dataset("s3://ethereum-mainnet").unwrap();
     assert!(
@@ -310,6 +309,7 @@ fn test_tables_present_rejects_table_outside_write_schema() {
     let Err(error) = staged_chunk(&mut builder)
         .write_schema_id(7)
         .tables_present(&["blocks", "traces"])
+        .finish()
     else {
         panic!("a table outside the write schema's roster must be rejected");
     };
@@ -326,7 +326,7 @@ fn test_tables_present_requires_write_schema_id_first() {
     let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks"]).unwrap();
 
-    let Err(error) = staged_chunk(&mut builder).tables_present(&["blocks"]) else {
+    let Err(error) = staged_chunk(&mut builder).tables_present(&["blocks"]).finish() else {
         panic!("tables_present encodes against the roster, so it needs the schema id");
     };
 
@@ -400,26 +400,37 @@ fn test_finish_rejects_unregistered_write_schema() {
     );
 }
 
-/// A bitmap only means anything against the roster it was encoded from, so a later
-/// `write_schema_id` must not silently repoint it at another schema's tables.
-#[cfg(feature = "builder")]
+/// Order used to matter: the bitmap was encoded the moment `tables_present` was called, so a
+/// later `write_schema_id` left it pointing at another roster's bits, which `finish` had to
+/// reject. Columns resolve the names against the final schema instead, so the hazard is gone.
+#[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
-fn test_finish_rejects_write_schema_changed_after_tables_present() {
-    let mut builder = test_builder();
+fn test_tables_present_follows_a_later_write_schema_id() {
+    let mut builder = test_builder().check_continuity(false);
     builder.register_write_schema(7, &["blocks", "logs"]).unwrap();
     builder.register_write_schema(8, &["blocks", "traces"]).unwrap();
 
-    let error = staged_chunk(&mut builder)
+    staged_chunk(&mut builder)
         .write_schema_id(7)
         .tables_present(&["logs"])
-        .unwrap()
         .write_schema_id(8)
+        .tables_present(&["traces"])
         .finish()
-        .expect_err("the bitmap selects schema 7's 'logs', but schema 8 has 'traces' in that bit");
+        .expect("the names resolve against schema 8, which holds them");
+    builder.finish_dataset().unwrap();
+    builder.add_worker_with_timestamp(
+        common::get_test_keypair().public().to_peer_id(),
+        sqd_assignments::WorkerStatus::Ok,
+        1750000000,
+    );
 
-    assert!(
-        error.to_string().contains("bitmap over write schema 7's roster"),
-        "unexpected error: {error}"
+    let assignment = sqd_assignments::WorkerAssignment::from_owned(builder.finish()).unwrap();
+    let chunk = assignment.get_dataset("s3://solana-mainnet-2").unwrap().chunk(0).unwrap();
+    assert_eq!(chunk.write_schema_id(), 8);
+    assert_eq!(
+        assignment.chunk_tables(chunk).unwrap().collect::<Vec<_>>(),
+        vec!["traces"],
+        "the bitmap indexes schema 8's roster, not the one set first"
     );
 }
 

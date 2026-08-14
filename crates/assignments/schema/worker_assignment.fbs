@@ -8,7 +8,9 @@
 include "assignment.fbs";
 
 // The worker-facing assignment: what a worker needs to download and serve its chunks. Published as
-// NetworkState's `worker_assignment` blob; see docs/assignment-wire-format.md in network-scheduler
+// NetworkState's `worker_assignment` blob. Chunks travel as columns on the dataset — a table per
+// chunk spends 28 bytes on its own header, vtable pointer and vector slot before any content, and
+// pads every uint32 to 8 bytes besides; see docs/assignment-wire-format.md in network-scheduler
 // for the field-by-field trace.
 //
 // A chunk's `write_schema_id` names its write schema -- the one covering every table and column
@@ -27,19 +29,6 @@ table WorkerAssignment {
 table TableRoster {
   write_schema_id: uint32 (key, id: 0);
   tables: [string] (required, id: 1);  // sorted; bit i of `tables_present` <-> tables[i]
-}
-
-table WorkerAssignmentDataset {
-  id: string (key, id: 0);  // e.g. "s3://solana-mainnet-2"
-  chunks: [WorkerAssignmentChunk] (required, id: 1);
-  last_block: uint64 (id: 2);
-  // Where the dataset's files live, e.g. "https://solana-mainnet-2.sqd-datasets.io". Every chunk
-  // hangs off it, so it sits here and a chunk names only what distinguishes it.
-  base_url: string (required, id: 4);
-  // Storage prefixes of the dataset's chunk versions, sorted by version as the (key) lookup
-  // requires. A version-0 chunk is the ingested one, resolved straight from the dataset's base
-  // url, so this covers versions 1 and up and appears with the first rewrite.
-  generations: [GenerationEntry] (id: 3);
 }
 
 // A batch job writes its copy of a chunk under its own prefix and publishes it by bumping the
@@ -67,23 +56,56 @@ table GenerationEntry {
   base_url: string (required, id: 1);  // relative to the dataset's, e.g. "_bf/01HQZK..."
 }
 
-// A chunk is reached through the dataset holding it, so whatever the dataset already says -- its
-// id, its base url -- stays there. One such field per chunk costs 8 bytes each, 8% of the blob.
-table WorkerAssignmentChunk {
-  first_block: uint64 (key, id: 0);
-  id: string (required, id: 1);
-  size: uint32 (id: 2);
-  // Which copy of the chunk to download. Version 0 is the ingested one, at the dataset's base_url
-  // + id; any other value names the `GenerationEntry` whose prefix goes between those two parts,
-  // which together form the whole download prefix.
-  version: uint32 (id: 3);
-  write_schema_id: uint32 (id: 4);
-  // Bitmap over the tables of the `schemas` entry whose `write_schema_id` equals this one, found
-  // by key lookup: ids are sparse, so the entry for id 140000 sits wherever the sort puts it. Bit
-  // i (byte i/8, LSB-first) set = that roster's tables[i] present. Absent (null) = every table
-  // present.
-  tables_present: [ubyte] (id: 5);
-  worker_indexes: [uint16] (required, id: 6);
+// A run of chunks sharing one write schema. Schemas hold for a whole dataset until it evolves and
+// then hold again, so runs cost nothing where a dense column would cost 4 bytes a chunk. Searched
+// like `tops`, under the same invariant: the first run starts at chunk 0, the rest strictly ascend.
+struct SchemaRun {
+  first_chunk_index: uint32;
+  write_schema_id: uint32;
+}
+
+table WorkerAssignmentDataset {
+  id: string (key, id: 0);  // e.g. "s3://solana-mainnet-2"
+  last_block: uint64 (id: 1);
+  // Where the dataset's files live, e.g. "https://solana-mainnet-2.sqd-datasets.io". Every chunk
+  // hangs off it, so it sits here and a chunk names only what distinguishes it.
+  base_url: string (required, id: 2);
+  // Storage prefixes of the dataset's chunk versions, sorted by version as the (key) lookup
+  // requires. A version-0 chunk is the ingested one, resolved straight from the dataset's base
+  // url, so this covers versions 1 and up and appears with the first rewrite.
+  generations: [GenerationEntry] (id: 3);
+
+  // --- chunk columns, all subscripted by the same chunk index ---
+  //
+  // A chunk's id is not stored: it is `top/first_block-last_block-hash`, rebuilt from the four
+  // columns below. As a string it costs 40 bytes a chunk, as columns 12.
+
+  first_blocks: [uint64] (required, id: 4);  // ascending
+  // last_block - first_block, so each chunk carries its own end rather than borrowing the next
+  // chunk's start. uint32 because --chunk-size bounds a chunk's span.
+  block_deltas: [uint32] (required, id: 5);
+  hashes: [ChunkHash] (required, id: 6);
+  tops: [TopRun] (required, id: 7);
+  sizes: [uint32] (required, id: 8);
+  write_schemas: [SchemaRun] (required, id: 9);
+
+  // Bitmaps over the tables of each chunk's write schema, `tables_present_stride` bytes per chunk
+  // so the column stays indexable even where a dataset's schemas differ in table count. Bit i
+  // (byte i/8, LSB-first) set = that roster's tables[i] present. Absent = every chunk holds every
+  // table of its schema, which is every dataset nothing has trimmed.
+  tables_present: [ubyte] (id: 10);
+  tables_present_stride: uint8 (id: 11);
+
+  // Dense, not runs: a run entry costs 8 bytes against this column's 4, so it pays only while one
+  // covers more than two chunks, which fragmented backfills break. The column appears with the
+  // first backfill.
+  versions: [uint32] (id: 12);  // absent = every chunk at version 0
+
+  // Which workers hold each chunk. CSR expresses a column of variable-length lists — chunk i's
+  // workers run from worker_offsets[i] to worker_offsets[i + 1], which makes worker_offsets one
+  // longer than the other columns.
+  worker_offsets: [uint32] (required, id: 13);
+  worker_indexes: [uint16] (required, id: 14);
 }
 
 root_type WorkerAssignment;

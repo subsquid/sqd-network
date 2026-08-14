@@ -49,6 +49,27 @@ table Chunk {
   worker_indexes: [uint16] (required);
 }
 
+// A chunk's short hash at fixed width, which keeps a hash column a flat array. Writers emit 5 to 8
+// characters and NUL pads the rest, since '0' is itself a valid hash character. Assembling a chunk
+// id trims the trailing NULs. Shared by both split formats, which describe the same chunks.
+struct ChunkHash {
+  bytes: [ubyte:8];
+}
+
+// The top-level directory a run of chunks lives under: the `0221000000` of
+// "0221000000/0221000000-0221000649-9QgFD". Writers close a top directory on a chunk count (1000
+// in subsquid/data, 500 in squid-sdk, older datasets differ), so the top follows the chunk sequence
+// and travels on the wire. It holds constant across a directory, so it travels as runs: ~N/1000
+// entries, 80 KB against 40 MB on 5M chunks.
+//
+// A run covers chunks from its `first_chunk_index` until the next run's, so a lookup searches this
+// column for the chunk index that subscripts the others. The first run starts at chunk 0 and the
+// rest strictly ascend, which gives that search a run to land on; the builder enforces both.
+struct TopRun {
+  first_chunk_index: uint32;
+  top: uint64;
+}
+
 table FileUrl {
   filename: string (required);
   url: string (required);  // may be a relative url added to dataset_base_url + base_url

@@ -6,7 +6,7 @@ use flatbuffers::{Follow, ForwardsUOffset, Vector};
 use libp2p_identity::{Keypair, PeerId};
 use sha2::{digest::generic_array::GenericArray, Digest, Sha512};
 
-use crate::{assignment_fb, WorkerStatus};
+use crate::{assignment_fb, assignment_fb::push_segment, WorkerStatus};
 
 #[ouroboros::self_referencing]
 pub struct Assignment {
@@ -327,16 +327,8 @@ impl WorkerAssignment {
             .lookup_by_key(dataset, |ds, key| ds.key_compare_with_value(key))
     }
 
-    pub fn get_chunk(&self, r: ChunkRef) -> Option<assignment_fb::WorkerAssignmentChunk<'_>> {
-        let datasets = self.borrow_reader().datasets();
-        if (r.dataset_index as usize) >= datasets.len() {
-            return None;
-        }
-        let chunks = datasets.get(r.dataset_index as usize).chunks();
-        if (r.chunk_index as usize) >= chunks.len() {
-            return None;
-        }
-        Some(chunks.get(r.chunk_index as usize))
+    pub fn get_chunk(&self, r: ChunkRef) -> Option<WorkerChunk<'_>> {
+        self.get_dataset_by_ref(r)?.chunk(r.chunk_index)
     }
 
     /// The dataset a [`ChunkRef`] points into — how a caller recovers a chunk's dataset, which
@@ -350,15 +342,10 @@ impl WorkerAssignment {
             .then(|| datasets.get(r.dataset_index as usize))
     }
 
-    /// Where the referenced chunk's files live — see
-    /// [`WorkerAssignmentDataset::chunk_url`](assignment_fb::WorkerAssignmentDataset::chunk_url),
-    /// which this resolves the dataset for.
+    /// Where the referenced chunk's files live — see [`WorkerChunk::url`], which this resolves the
+    /// dataset for.
     pub fn chunk_url(&self, r: ChunkRef) -> Option<String> {
-        let dataset = self.get_dataset_by_ref(r)?;
-        let chunks = dataset.chunks();
-        let chunk = ((r.chunk_index as usize) < chunks.len())
-            .then(|| chunks.get(r.chunk_index as usize))?;
-        dataset.chunk_url(chunk)
+        self.get_chunk(r)?.url()
     }
 
     /// The table roster of a write schema referenced by this assignment's chunks.
@@ -368,22 +355,161 @@ impl WorkerAssignment {
             .lookup_by_key(write_schema_id, |roster, key| roster.key_compare_with_value(*key))
     }
 
-    /// The tables a chunk contains: the whole roster when it sets no bitmap, otherwise the tables
-    /// its bits select. `None` if the chunk's `write_schema_id` has no roster here.
+    /// The tables a chunk contains: the whole roster when the dataset carries no bitmap column,
+    /// otherwise the tables its bits select. `None` if the chunk's write schema has no roster here.
     ///
     /// Bits beyond the roster are ignored, so a malformed buffer can't name a table outside it.
     pub fn chunk_tables<'a>(
         &'a self,
-        chunk: assignment_fb::WorkerAssignmentChunk<'a>,
+        chunk: WorkerChunk<'a>,
     ) -> Option<impl Iterator<Item = &'a str> + 'a> {
         let roster = self.get_write_schema(chunk.write_schema_id())?;
-        let bits = chunk.tables_present().map(|bits| bits.bytes());
+        let bits = chunk.tables_present();
         Some(roster.tables().iter().enumerate().filter_map(move |(index, table)| {
             let present = bits.is_none_or(|bits| {
                 bits.get(index / 8).is_some_and(|byte| byte & (1u8 << (index % 8)) != 0)
             });
             present.then_some(table)
         }))
+    }
+}
+
+/// One row of a [`WorkerAssignmentDataset`](assignment_fb::WorkerAssignmentDataset)'s columns.
+///
+/// Cheap to copy — a dataset handle plus an index, with every accessor a subscript into the column
+/// it names.
+#[derive(Clone, Copy, Debug)]
+pub struct WorkerChunk<'a> {
+    dataset: assignment_fb::WorkerAssignmentDataset<'a>,
+    index: u32,
+}
+
+impl<'a> WorkerChunk<'a> {
+    pub fn index(&self) -> u32 {
+        self.index
+    }
+
+    pub fn dataset(&self) -> assignment_fb::WorkerAssignmentDataset<'a> {
+        self.dataset
+    }
+
+    pub fn first_block(&self) -> u64 {
+        self.dataset.first_blocks().get(self.index as usize)
+    }
+
+    pub fn last_block(&self) -> u64 {
+        self.first_block() + self.dataset.block_deltas().get(self.index as usize) as u64
+    }
+
+    pub fn size(&self) -> u32 {
+        self.dataset.sizes().get(self.index as usize)
+    }
+
+    /// Which copy of the chunk to download; 0 is the ingested one.
+    pub fn version(&self) -> u32 {
+        self.dataset.versions().map_or(0, |column| column.get(self.index as usize))
+    }
+
+    /// The write schema the chunk was written under, resolved through the run it falls in.
+    pub fn write_schema_id(&self) -> u32 {
+        self.dataset
+            .write_schema_at(self.index)
+            .expect("the first run covers chunk 0 onwards")
+    }
+
+    /// The top-level directory the chunk lives under, resolved through the run it falls in.
+    pub fn top(&self) -> u64 {
+        self.dataset
+            .top_at(self.index)
+            .expect("the first top run covers chunk 0 onwards")
+    }
+
+    /// The chunk's short hash, trailing NUL padding trimmed. `None` only if the stored bytes
+    /// aren't UTF-8, which a well-formed blob's never are.
+    pub fn hash(&self) -> Option<&'a str> {
+        let hash = self.dataset.hashes().get(self.index as usize);
+        let bytes = &hash.0[..hash.0.iter().position(|&b| b == 0).unwrap_or(hash.0.len())];
+        std::str::from_utf8(bytes).ok()
+    }
+
+    /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`, rebuilt from the columns it
+    /// was split into. `None` on the same terms as [`Self::hash`].
+    pub fn id(&self) -> Option<String> {
+        Some(format!(
+            "{:010}/{:010}-{:010}-{}",
+            self.top(),
+            self.first_block(),
+            self.last_block(),
+            self.hash()?
+        ))
+    }
+
+    /// This chunk's slice of the dataset's `tables_present` column, or `None` when the dataset
+    /// carries none and every chunk holds its whole roster.
+    pub fn tables_present(&self) -> Option<&'a [u8]> {
+        let column = self.dataset.tables_present()?.bytes();
+        let stride = self.dataset.tables_present_stride() as usize;
+        let start = self.index as usize * stride;
+        column.get(start..start + stride)
+    }
+
+    /// Where the chunk's files live: the dataset's `base_url`, then the prefix of the generation
+    /// its `version` names — nothing for version 0, the ingested layout — then the chunk id.
+    ///
+    /// `None` if a non-zero version names a generation the dataset doesn't carry, or if the hash
+    /// isn't UTF-8.
+    pub fn url(&self) -> Option<String> {
+        let mut url = self.dataset.base_url().to_owned();
+        if self.version() != 0 {
+            push_segment(&mut url, self.dataset.get_generation(self.version())?.base_url());
+        }
+        push_segment(&mut url, &self.id()?);
+        Some(url)
+    }
+
+    /// The workers holding this chunk — its slice of the dataset's flattened routing column.
+    pub fn worker_indexes(&self) -> impl Iterator<Item = u16> + 'a {
+        let offsets = self.dataset.worker_offsets();
+        let start = offsets.get(self.index as usize) as usize;
+        let end = offsets.get(self.index as usize + 1) as usize;
+        let indexes = self.dataset.worker_indexes();
+        (start..end.min(indexes.len())).map(move |i| indexes.get(i))
+    }
+}
+
+impl<'a> assignment_fb::WorkerAssignmentDataset<'a> {
+    /// How many chunks the dataset's columns hold.
+    pub fn chunk_count(&self) -> usize {
+        self.first_blocks().len()
+    }
+
+    /// The chunk at `index`, or `None` past the end of the columns.
+    pub fn chunk(&self, index: u32) -> Option<WorkerChunk<'a>> {
+        ((index as usize) < self.chunk_count()).then_some(WorkerChunk {
+            dataset: *self,
+            index,
+        })
+    }
+
+    pub fn chunks(self) -> impl Iterator<Item = WorkerChunk<'a>> {
+        (0..self.chunk_count() as u32).map(move |index| WorkerChunk {
+            dataset: self,
+            index,
+        })
+    }
+
+    /// The top directory chunk `index` lives under: the last run starting at or before it.
+    fn top_at(&self, index: u32) -> Option<u64> {
+        let tops = self.tops();
+        let above = partition_point(tops.len(), |i| tops.get(i).first_chunk_index() <= index);
+        Some(tops.get(above.checked_sub(1)?).top())
+    }
+
+    /// Likewise for the write schema.
+    fn write_schema_at(&self, index: u32) -> Option<u32> {
+        let runs = self.write_schemas();
+        let above = partition_point(runs.len(), |i| runs.get(i).first_chunk_index() <= index);
+        Some(runs.get(above.checked_sub(1)?).write_schema_id())
     }
 }
 
@@ -396,14 +522,11 @@ pub struct AssignedWorker<'f> {
 }
 
 impl AssignedWorker<'_> {
-    pub fn iter_chunks(
-        &self,
-    ) -> impl Iterator<Item = assignment_fb::WorkerAssignmentChunk<'_>> + '_ {
+    pub fn iter_chunks(&self) -> impl Iterator<Item = WorkerChunk<'_>> + '_ {
         self.assignment.datasets().iter().flat_map(move |dataset| {
             dataset
                 .chunks()
-                .iter()
-                .filter(move |chunk| chunk.worker_indexes().iter().any(|i| self.index == i))
+                .filter(move |chunk| chunk.worker_indexes().any(|i| self.index == i))
         })
     }
 
@@ -411,35 +534,26 @@ impl AssignedWorker<'_> {
     /// generations a chunk's `version` resolves against, and the id the chunk doesn't repeat.
     pub fn iter_chunks_with_dataset(
         &self,
-    ) -> impl Iterator<
-        Item = (
-            assignment_fb::WorkerAssignmentDataset<'_>,
-            assignment_fb::WorkerAssignmentChunk<'_>,
-        ),
-    > + '_ {
+    ) -> impl Iterator<Item = (assignment_fb::WorkerAssignmentDataset<'_>, WorkerChunk<'_>)> + '_
+    {
         self.assignment.datasets().iter().flat_map(move |dataset| {
             dataset
                 .chunks()
-                .iter()
-                .filter(move |chunk| chunk.worker_indexes().iter().any(|i| self.index == i))
+                .filter(move |chunk| chunk.worker_indexes().any(|i| self.index == i))
                 .map(move |chunk| (dataset, chunk))
         })
     }
 
-    pub fn iter_chunks_with_ref(
-        &self,
-    ) -> impl Iterator<Item = (ChunkRef, assignment_fb::WorkerAssignmentChunk<'_>)> + '_ {
+    pub fn iter_chunks_with_ref(&self) -> impl Iterator<Item = (ChunkRef, WorkerChunk<'_>)> + '_ {
         self.assignment.datasets().iter().enumerate().flat_map(move |(d, dataset)| {
             dataset
                 .chunks()
-                .iter()
-                .enumerate()
-                .filter(move |(_, chunk)| chunk.worker_indexes().iter().any(|i| self.index == i))
-                .map(move |(c, chunk)| {
+                .filter(move |chunk| chunk.worker_indexes().any(|i| self.index == i))
+                .map(move |chunk| {
                     (
                         ChunkRef {
                             dataset_index: d as u32,
-                            chunk_index: c as u32,
+                            chunk_index: chunk.index(),
                         },
                         chunk,
                     )
@@ -683,9 +797,9 @@ impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
         })
     }
 
-    pub fn chunks(&self) -> impl Iterator<Item = PortalChunk<'a>> + '_ {
-        (0..self.chunk_count() as u32).map(|index| PortalChunk {
-            dataset: *self,
+    pub fn chunks(self) -> impl Iterator<Item = PortalChunk<'a>> {
+        (0..self.chunk_count() as u32).map(move |index| PortalChunk {
+            dataset: self,
             index,
         })
     }

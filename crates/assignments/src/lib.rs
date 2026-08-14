@@ -37,10 +37,12 @@ mod portal_assignment_generated {
 /// one works without this, but writing a function or struct over it does not.
 pub mod fb {
     pub use crate::{
-        assignment_generated::{Chunk, Dataset, EncryptedHeaders, FileUrl, WorkerEntry, WorkerId},
-        portal_assignment_generated::{ChunkHash, PortalAssignmentDataset, PortalEntry, TopRun},
+        assignment_generated::{
+            Chunk, ChunkHash, Dataset, EncryptedHeaders, FileUrl, TopRun, WorkerEntry, WorkerId,
+        },
+        portal_assignment_generated::{PortalAssignmentDataset, PortalEntry},
         worker_assignment_generated::{
-            GenerationEntry, TableRoster, WorkerAssignmentChunk, WorkerAssignmentDataset,
+            GenerationEntry, SchemaRun, TableRoster, WorkerAssignmentDataset,
         },
     };
 }
@@ -65,6 +67,8 @@ pub use builder::{
 };
 
 #[cfg(feature = "reader")]
-pub use reader::{AssignedWorker, PortalAssignment, PortalChunk, PortalWorker, WorkerAssignment};
+pub use reader::{
+    AssignedWorker, PortalAssignment, PortalChunk, PortalWorker, WorkerAssignment, WorkerChunk,
+};
 #[cfg(feature = "reader")]
 pub use reader::{Assignment, ChunkNotFound, ChunkRef, Worker};

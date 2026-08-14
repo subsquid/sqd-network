@@ -35,8 +35,8 @@
 //!   the union of its chunks' tables, its `write_schema_id` is its 1-based ordinal, and a chunk
 //!   missing tables gets a `tables_present` bitmap. `read_schema_id` takes the same ordinal, in
 //!   its own id space.
-//! - **Chunk ids.** The worker keeps them whole. The portal splits each into the `tops`,
-//!   `first_blocks`, `block_deltas` and `hashes` columns and rebuilds it on read.
+//! - **Chunk ids.** Both formats split each into the `tops`, `first_blocks`, `block_deltas` and
+//!   `hashes` columns and rebuild it on read; neither stores the string.
 //! - **Sealed headers.** Copied byte for byte; the Cloudflare secret needed to mint fresh ones
 //!   doesn't travel with an assignment, and the signature keeps its original timestamp.
 //! - **Timestamps.** Copied as absolute milliseconds. Anomalies are reported, never repaired: a
@@ -239,11 +239,11 @@ fn build_worker(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
                 .worker_indexes(&chunk.worker_indexes().iter().collect::<Vec<_>>());
             // A chunk holding the whole roster leaves the bitmap off entirely.
             if tables.len() != roster.len() {
-                staged = staged.tables_present(&tables)?;
+                staged = staged.tables_present(&tables);
             }
             staged.finish()?;
         }
-        builder.finish_dataset();
+        builder.finish_dataset()?;
     }
 
     for index in 0..legacy.workers().len() {
@@ -338,7 +338,7 @@ fn verify(
         anyhow::ensure!(p.last_block_hash() == source.last_block_hash(), "{id}: head hash differs");
 
         let chunks = source.chunks();
-        anyhow::ensure!(w.chunks().len() == chunks.len(), "{id}: worker chunk count differs");
+        anyhow::ensure!(w.chunk_count() == chunks.len(), "{id}: worker chunk count differs");
         anyhow::ensure!(p.chunk_count() == chunks.len(), "{id}: portal chunk count differs");
         anyhow::ensure!(w.base_url() == chunks.get(0).dataset_base_url(), "{id}: base url differs");
 
@@ -346,15 +346,19 @@ fn verify(
             let chunk_id = source_chunk.id();
             let last_block = last_block_of(&source_chunk)?;
 
-            let wc = w.chunks().get(i);
-            anyhow::ensure!(wc.id() == chunk_id, "{id}: worker chunk {i} id differs");
+            let wc = w.chunk(i as u32).context("worker chunk missing")?;
             anyhow::ensure!(
-                wc.first_block() == source_chunk.first_block(),
-                "{chunk_id}: worker first_block differs"
+                wc.id().as_deref() == Some(chunk_id),
+                "{id}: worker chunk {i} id rebuilds as {:?}",
+                wc.id()
+            );
+            anyhow::ensure!(
+                wc.first_block() == source_chunk.first_block() && wc.last_block() == last_block,
+                "{chunk_id}: worker block range differs"
             );
             anyhow::ensure!(wc.size() == source_chunk.size(), "{chunk_id}: size differs");
             anyhow::ensure!(
-                w.chunk_url(wc).is_none_or(|url| url.ends_with(chunk_id)),
+                wc.url().is_none_or(|url| url.ends_with(chunk_id)),
                 "{chunk_id}: download url does not end in the chunk id"
             );
             let resolved: Vec<&str> =
@@ -382,7 +386,7 @@ fn verify(
             let source_workers: Vec<u16> = source_chunk.worker_indexes().iter().collect();
             anyhow::ensure!(
                 pc.worker_indexes().collect::<Vec<_>>() == source_workers
-                    && wc.worker_indexes().iter().collect::<Vec<_>>() == source_workers,
+                    && wc.worker_indexes().collect::<Vec<_>>() == source_workers,
                 "{chunk_id}: worker indexes differ"
             );
         }

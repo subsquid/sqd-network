@@ -8,7 +8,7 @@
 include "assignment.fbs";
 
 // The portal-facing assignment: the routing and block metadata a portal needs to send a query to
-// a worker. Published as NetworkState's `portal_assignment` blob; see
+// a worker. `ChunkHash` and `TopRun` come from assignment.fbs, shared with the worker format. Published as NetworkState's `portal_assignment` blob; see
 // docs/assignment-wire-format.md in network-scheduler for the field-by-field trace.
 //
 // Chunks travel as columns on the dataset. A portal reads whole columns, and a column costs
@@ -17,27 +17,6 @@ include "assignment.fbs";
 table PortalAssignment {
   datasets: [PortalAssignmentDataset] (required, id: 0);
   workers: [PortalEntry] (required, id: 1);
-}
-
-// A chunk's short hash at fixed width, which keeps the column a flat array. Writers emit 5 to 8
-// characters and NUL pads the rest, since '0' is itself a valid hash character. Assembling a chunk
-// id trims the trailing NULs.
-struct ChunkHash {
-  bytes: [ubyte:8];
-}
-
-// The top-level directory a run of chunks lives under: the `0221000000` of
-// "0221000000/0221000000-0221000649-9QgFD". Writers close a top directory on a chunk count (1000
-// in subsquid/data, 500 in squid-sdk, older datasets differ), so the top follows the chunk
-// sequence and travels on the wire. It holds constant across a directory, so it travels as runs:
-// ~N/1000 entries, 80 KB against 40 MB on 5M chunks.
-//
-// A run covers chunks from its `first_chunk_index` until the next run's, so a lookup searches this
-// column for the chunk index that subscripts the others. The first run starts at chunk 0 and the
-// rest strictly ascend, which gives that search a run to land on; the builder enforces both.
-struct TopRun {
-  first_chunk_index: uint32;
-  top: uint64;
 }
 
 table PortalAssignmentDataset {
