@@ -515,11 +515,7 @@ pub struct AssignedWorker<'f> {
 
 impl AssignedWorker<'_> {
     pub fn iter_chunks(&self) -> impl Iterator<Item = WorkerChunk<'_>> + '_ {
-        self.assignment.datasets().iter().flat_map(move |dataset| {
-            dataset
-                .chunks()
-                .filter(move |chunk| chunk.worker_indexes().any(|i| self.index == i))
-        })
+        self.iter_chunks_with_dataset().map(|(_, chunk)| chunk)
     }
 
     /// The assigned chunks paired with the dataset holding each — the dataset carries the
@@ -528,28 +524,45 @@ impl AssignedWorker<'_> {
         &self,
     ) -> impl Iterator<Item = (assignment_fb::WorkerAssignmentDataset<'_>, WorkerChunk<'_>)> + '_
     {
-        self.assignment.datasets().iter().flat_map(move |dataset| {
-            dataset
-                .chunks()
-                .filter(move |chunk| chunk.worker_indexes().any(|i| self.index == i))
-                .map(move |chunk| (dataset, chunk))
-        })
+        self.assignment
+            .datasets()
+            .iter()
+            .flat_map(move |dataset| self.holdings(dataset).map(move |chunk| (dataset, chunk)))
     }
 
     pub fn iter_chunks_with_ref(&self) -> impl Iterator<Item = (ChunkRef, WorkerChunk<'_>)> + '_ {
         self.assignment.datasets().iter().enumerate().flat_map(move |(d, dataset)| {
-            dataset
-                .chunks()
-                .filter(move |chunk| chunk.worker_indexes().any(|i| self.index == i))
-                .map(move |chunk| {
-                    (
-                        ChunkRef {
-                            dataset_index: d as u32,
-                            chunk_index: chunk.index(),
-                        },
-                        chunk,
-                    )
-                })
+            self.holdings(dataset).map(move |chunk| {
+                (
+                    ChunkRef {
+                        dataset_index: d as u32,
+                        chunk_index: chunk.index(),
+                    },
+                    chunk,
+                )
+            })
+        })
+    }
+
+    /// This worker's chunks within one dataset.
+    ///
+    /// The routing columns are resolved once per dataset rather than per chunk: reaching them
+    /// through the chunk means two vtable lookups and an iterator built for every chunk in the
+    /// assignment, and this scan visits all of them to find the few thousand that are ours.
+    fn holdings<'a>(
+        &self,
+        dataset: assignment_fb::WorkerAssignmentDataset<'a>,
+    ) -> impl Iterator<Item = WorkerChunk<'a>> + 'a {
+        let offsets = dataset.worker_offsets();
+        let indexes = dataset.worker_indexes();
+        let (index, count, len) = (self.index, dataset.chunk_count(), indexes.len());
+        (0..count).filter_map(move |chunk| {
+            let start = offsets.get(chunk) as usize;
+            let end = (offsets.get(chunk + 1) as usize).min(len);
+            (start..end).any(|slot| indexes.get(slot) == index).then_some(WorkerChunk {
+                dataset,
+                index: chunk as u32,
+            })
         })
     }
 
@@ -691,9 +704,15 @@ impl PortalAssignment {
         };
 
         let count = dataset.chunk_count();
-        // Bisecting on `< ts` lands on the first chunk at or after it, so runs of equal
-        // timestamps resolve to their first member without walking back.
-        let index = partition_point(count, |i| dataset.timestamp_at(i as u32) < ts);
+        // The column is read once, not re-resolved through the vtable on every probe.
+        let index = match dataset.timestamps() {
+            // Bisecting on `< ts` lands on the first chunk at or after it, so runs of equal
+            // timestamps resolve to their first member without walking back.
+            Some(timestamps) => partition_point(count, |i| timestamps.get(i) < ts),
+            // No column reads as every chunk sitting at 0.
+            None if ts == 0 => 0,
+            None => count,
+        };
         if index == count {
             return Err(ChunkNotFound::AfterLast);
         }
@@ -794,11 +813,6 @@ impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
             dataset: self,
             index,
         })
-    }
-
-    /// The timestamp of chunk `index`, or 0 when the dataset carries no timestamps.
-    fn timestamp_at(&self, index: u32) -> u64 {
-        self.timestamps().map_or(0, |column| column.get(index as usize))
     }
 
     /// The top directory chunk `index` lives under: the last run starting at or before it.
