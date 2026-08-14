@@ -54,7 +54,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     io::Write,
     path::{Path, PathBuf},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use anyhow::Context as _;
@@ -127,9 +127,16 @@ fn main() -> anyhow::Result<()> {
         let worker = build_worker(&legacy)?;
         let portal = build_portal(&legacy)?;
         eprintln!("built both assignments in {:.1}s", started.elapsed().as_secs_f64());
-        write_out(&worker_path, &worker, compress)?;
-        write_out(&portal_path, &portal, compress)?;
-        report_sizes(&input, &worker_path, &portal_path, compress)?;
+        let worker_timings = write_out(&worker_path, &worker, compress)?;
+        let portal_timings = write_out(&portal_path, &portal, compress)?;
+        report_sizes(
+            &input,
+            &[
+                ("worker", &worker_path, worker_timings),
+                ("portal", &portal_path, portal_timings),
+            ],
+            compress,
+        )?;
     }
 
     let worker = WorkerAssignment::from_owned(std::fs::read(&worker_path)?)
@@ -406,14 +413,23 @@ fn schema_id(dataset_index: usize) -> u32 {
     dataset_index as u32 + 1
 }
 
-fn write_out(path: &Path, bytes: &[u8], compress: Compress) -> anyhow::Result<()> {
+/// How long each compressor took on one blob, so the report can weigh size against cost.
+#[derive(Default, Clone, Copy)]
+struct Timings {
+    gzip: Option<Duration>,
+    zstd: Option<Duration>,
+}
+
+fn write_out(path: &Path, bytes: &[u8], compress: Compress) -> anyhow::Result<Timings> {
     std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
+    let mut timings = Timings::default();
     if compress.gzip {
         let started = Instant::now();
         let file = std::fs::File::create(path.with_extension("fb.gz"))?;
         let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
         encoder.write_all(bytes)?;
         encoder.finish()?;
+        timings.gzip = Some(started.elapsed());
         eprintln!("  gzip {} in {:.1}s", path.display(), started.elapsed().as_secs_f64());
     }
     if compress.zstd {
@@ -423,6 +439,7 @@ fn write_out(path: &Path, bytes: &[u8], compress: Compress) -> anyhow::Result<()
             zstd::stream::write::Encoder::new(file, compress.zstd_level)?.auto_finish();
         encoder.write_all(bytes)?;
         drop(encoder);
+        timings.zstd = Some(started.elapsed());
         eprintln!(
             "  zstd -{} {} in {:.1}s",
             compress.zstd_level,
@@ -430,34 +447,35 @@ fn write_out(path: &Path, bytes: &[u8], compress: Compress) -> anyhow::Result<()
             started.elapsed().as_secs_f64()
         );
     }
-    Ok(())
+    Ok(timings)
 }
 
 fn report_sizes(
     input: &Path,
-    worker: &Path,
-    portal: &Path,
+    blobs: &[(&str, &Path, Timings)],
     compress: Compress,
 ) -> anyhow::Result<()> {
     let size = |path: &Path| -> anyhow::Result<u64> { Ok(std::fs::metadata(path)?.len()) };
-    let optional = |path: &Path, wanted: bool| -> anyhow::Result<String> {
-        Ok(if wanted {
-            size(path)?.to_string()
-        } else {
-            "-".to_owned()
+    // "251514120 (7.3s)", or "-" for a compressor that wasn't asked for.
+    let cell = |path: &Path, wanted: bool, took: Option<Duration>| -> anyhow::Result<String> {
+        Ok(match (wanted, took) {
+            (true, Some(took)) => format!("{} ({:.1}s)", size(path)?, took.as_secs_f64()),
+            (true, None) => size(path)?.to_string(),
+            (false, _) => "-".to_owned(),
         })
     };
     let legacy = size(input)?;
-    eprintln!("{:<10} {:>14} {:>14} {:>14}", "", "plain", "gzip", "zstd");
-    eprintln!("{:<10} {:>14} {:>14} {:>14}", "legacy", legacy, "-", "-");
-    for (label, path) in [("worker", worker), ("portal", portal)] {
+    let zstd_label = format!("zstd -{}", compress.zstd_level);
+    eprintln!("{:<8} {:>12} {:>22} {:>22}", "", "plain", "gzip", zstd_label);
+    eprintln!("{:<8} {:>12} {:>22} {:>22}", "legacy", legacy, "-", "-");
+    for (label, path, timings) in blobs {
         let plain = size(path)?;
         eprintln!(
-            "{:<10} {:>14} {:>14} {:>14}  ({:.1}% of legacy)",
+            "{:<8} {:>12} {:>22} {:>22}  ({:.1}% of legacy)",
             label,
             plain,
-            optional(&path.with_extension("fb.gz"), compress.gzip)?,
-            optional(&path.with_extension("fb.zst"), compress.zstd)?,
+            cell(&path.with_extension("fb.gz"), compress.gzip, timings.gzip)?,
+            cell(&path.with_extension("fb.zst"), compress.zstd, timings.zstd)?,
             plain as f64 * 100.0 / legacy as f64
         );
     }
