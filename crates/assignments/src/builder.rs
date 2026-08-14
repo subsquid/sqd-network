@@ -377,6 +377,10 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     check_continuity: bool,
     /// `BTreeMap` so `finish` emits rosters id-sorted, as `TableRoster`'s `(key)` lookup requires.
     write_schemas: BTreeMap<u32, Vec<String>>,
+    /// Generation prefixes of the dataset being staged, cleared by `finish_dataset` — unlike write
+    /// schemas, they are per-dataset. `BTreeMap` so they reach the blob version-sorted, as
+    /// `GenerationEntry`'s `(key)` lookup requires.
+    current_generations: BTreeMap<u32, String>,
     /// Whole datasets usually share one bitmap, so chunks reuse a single vector for it — the same
     /// deduplication `AssignmentBuilder` does for file lists.
     tables_present_offsets: HashMap<Vec<u8>, fb::WIPOffset<fb::Vector<'static, u8>>>,
@@ -409,6 +413,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             common_secret_key,
             check_continuity: true,
             write_schemas: BTreeMap::new(),
+            current_generations: BTreeMap::new(),
             tables_present_offsets: HashMap::new(),
         }
     }
@@ -453,11 +458,38 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         Ok(())
     }
 
+    /// Register the storage prefix a batch job wrote a generation of chunks under, relative to
+    /// their `dataset_base_url` (e.g. `_bf/01HQZK3M7X8P2NVWTC4RYFGDS9`). Applies to the dataset
+    /// currently being staged, so it must be called before the chunks carrying that version and
+    /// re-registered for every dataset the generation covers.
+    ///
+    /// # Errors
+    ///
+    /// If `version` is 0 — that's the ingested layout, which has no prefix — or if the version was
+    /// already registered for this dataset with a different prefix.
+    pub fn register_generation(&mut self, version: u32, base_url: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            version != 0,
+            "version 0 is the ingested layout and cannot have a generation prefix"
+        );
+        match self.current_generations.entry(version) {
+            Entry::Occupied(existing) => anyhow::ensure!(
+                existing.get() == base_url,
+                "generation {version} re-registered with a different base url"
+            ),
+            Entry::Vacant(slot) => {
+                slot.insert(base_url.to_owned());
+            }
+        }
+        Ok(())
+    }
+
     pub fn new_chunk(&mut self) -> WorkerAssignmentChunkBuilder<'_, Rng> {
         WorkerAssignmentChunkBuilder::new(self)
     }
 
     pub fn finish_dataset(&mut self) {
+        let generations = self.create_generations();
         let chunks = self.builder.create_vector(&self.current_chunks);
         let offset = assignment_fb::WorkerAssignmentDataset::create(
             &mut self.builder,
@@ -468,10 +500,45 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
                     .last_block
                     .take()
                     .expect("At least one chunk should be present in the dataset"),
+                generations,
             },
         );
         self.all_datasets.push(offset);
         self.current_chunks.clear();
+        self.current_generations.clear();
+    }
+
+    /// `None` for a dataset whose chunks are all version 0, so the common case stores nothing.
+    fn create_generations(
+        &mut self,
+    ) -> Option<
+        fb::WIPOffset<
+            fb::Vector<'static, fb::ForwardsUOffset<assignment_fb::GenerationEntry<'static>>>,
+        >,
+    > {
+        if self.current_generations.is_empty() {
+            return None;
+        }
+        // Destructured so the prefixes can be read while `builder` is mutably borrowed.
+        let Self {
+            builder,
+            current_generations,
+            ..
+        } = self;
+        let offsets: Vec<_> = current_generations
+            .iter()
+            .map(|(version, base_url)| {
+                let base_url = builder.create_shared_string(base_url);
+                assignment_fb::GenerationEntry::create(
+                    builder,
+                    &assignment_fb::GenerationEntryArgs {
+                        version: *version,
+                        base_url: Some(base_url),
+                    },
+                )
+            })
+            .collect();
+        Some(builder.create_vector(&offsets))
     }
 
     pub fn add_worker(&mut self, id: PeerId, status: common::WorkerStatus) {
@@ -633,6 +700,7 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     dataset_id: Option<fb::WIPOffset<&'static str>>,
     size: Option<u32>,
     dataset_base_url: Option<fb::WIPOffset<&'static str>>,
+    version: u32,
     write_schema_id: Option<u32>,
     /// The bitmap and the write schema it was encoded against — they can diverge if
     /// `write_schema_id` is set again afterwards, which `finish` rejects.
@@ -649,6 +717,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             dataset_id: None,
             size: None,
             dataset_base_url: None,
+            version: 0,
             write_schema_id: None,
             tables_present: None,
             worker_indexes: None,
@@ -677,6 +746,14 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
 
     pub fn dataset_base_url(mut self, url: &str) -> Self {
         self.dataset_base_url = Some(self.p.builder.create_shared_string(url));
+        self
+    }
+
+    /// Which copy of the chunk workers should download. Defaults to 0, the ingested one; any other
+    /// value must have been registered with
+    /// [`WorkerAssignmentBuilder::register_generation`] for this dataset.
+    pub fn version(mut self, version: u32) -> Self {
+        self.version = version;
         self
     }
 
@@ -741,11 +818,17 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     /// # Errors
     ///
     /// If `write_schema_id` is unset, its roster was never registered, or it changed after
-    /// [`Self::tables_present`] encoded a bitmap against a different roster; or if the chunk
-    /// breaks block continuity (see [`WorkerAssignmentBuilder::check_continuity`]).
+    /// [`Self::tables_present`] encoded a bitmap against a different roster; if a non-zero
+    /// `version` has no generation registered for this dataset; or if the chunk breaks block
+    /// continuity (see [`WorkerAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
         let write_schema_id = self.write_schema_id.context("write_schema_id must be set")?;
+        anyhow::ensure!(
+            self.version == 0 || self.p.current_generations.contains_key(&self.version),
+            "generation {} is not registered for this dataset",
+            self.version
+        );
         // Chunks with every table present never call `tables_present`, so this is the only place
         // their schema reference gets checked.
         anyhow::ensure!(
@@ -771,6 +854,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
                 dataset_id: self.dataset_id,
                 size: self.size.expect("Size must be set"),
                 dataset_base_url: self.dataset_base_url,
+                version: self.version,
                 write_schema_id,
                 tables_present,
                 worker_indexes: self.worker_indexes,
@@ -913,6 +997,7 @@ pub struct PortalAssignmentChunkBuilder<'b> {
     block_range: Option<RangeInclusive<u64>>,
     id: Option<fb::WIPOffset<&'static str>>,
     dataset_id: Option<fb::WIPOffset<&'static str>>,
+    version: u32,
     last_block_timestamp: Option<u64>,
     worker_indexes: Option<fb::WIPOffset<fb::Vector<'static, u16>>>,
 }
@@ -924,6 +1009,7 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
             block_range: None,
             id: None,
             dataset_id: None,
+            version: 0,
             last_block_timestamp: None,
             worker_indexes: None,
         }
@@ -949,6 +1035,14 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
         self
     }
 
+    /// Which copy of the chunk workers serve. Defaults to 0, the ingested one; must match the
+    /// version the same chunk carries in the worker assignment (see
+    /// [`WorkerAssignmentChunkBuilder::version`]).
+    pub fn version(mut self, version: u32) -> Self {
+        self.version = version;
+        self
+    }
+
     /// Confirmed routing (which workers portals should route to), not the raw ideal placement.
     pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
         self.worker_indexes = Some(self.p.builder.create_vector(indexes));
@@ -963,6 +1057,7 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
                 id: self.id,
                 first_block: *block_range.start(),
                 dataset_id: self.dataset_id,
+                version: self.version,
                 last_block_timestamp: self.last_block_timestamp,
                 worker_indexes: self.worker_indexes,
             },

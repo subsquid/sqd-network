@@ -323,6 +323,21 @@ impl WorkerAssignment {
         Some(chunks.get(r.chunk_index as usize))
     }
 
+    /// Where a chunk's files live: its `dataset_base_url`, then the prefix of the generation its
+    /// `version` names — nothing for version 0, the ingested layout — then the chunk id.
+    ///
+    /// `None` if a non-zero version names a generation the chunk's dataset doesn't carry, or if
+    /// that dataset isn't in this assignment at all.
+    pub fn chunk_url(&self, chunk: assignment_fb::WorkerAssignmentChunk<'_>) -> Option<String> {
+        let mut url = chunk.dataset_base_url().to_owned();
+        if chunk.version() != 0 {
+            let dataset = self.get_dataset(chunk.dataset_id())?;
+            push_segment(&mut url, dataset.get_generation(chunk.version())?.base_url());
+        }
+        push_segment(&mut url, chunk.id());
+        Some(url)
+    }
+
     /// The table roster of a write schema referenced by this assignment's chunks.
     pub fn get_write_schema(&self, write_schema_id: u32) -> Option<assignment_fb::TableRoster<'_>> {
         self.borrow_reader()
@@ -565,6 +580,14 @@ impl PortalWorker<'_> {
     pub fn status(&self) -> WorkerStatus {
         status_from_fb(self.reader.status())
     }
+}
+
+/// Appends a path segment with exactly one separator, whichever side already carries it.
+fn push_segment(url: &mut String, segment: &str) {
+    if !url.ends_with('/') {
+        url.push('/');
+    }
+    url.push_str(segment.trim_start_matches('/'));
 }
 
 fn status_from_fb(status: assignment_fb::WorkerStatus) -> WorkerStatus {

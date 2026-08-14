@@ -32,6 +32,34 @@ table WorkerAssignmentDataset {
   id: string (key);  // e.g. "s3://solana-mainnet-2"
   chunks: [WorkerAssignmentChunk] (required);
   last_block: uint64;
+  // Storage prefixes of the dataset's non-zero chunk versions, sorted by version as the (key)
+  // lookup requires. Absent when every chunk is still at version 0.
+  generations: [GenerationEntry];
+}
+
+// A batch job doesn't overwrite an ingested chunk in place: it writes its own copy under a private
+// prefix and publishes it by bumping the chunk's `version`, so readers keep seeing a consistent
+// chunk while the job runs and a bad generation can be abandoned by not publishing it.
+//
+// A chunk's files therefore live at
+//   dataset_base_url + id                                   (version 0, straight from ingest)
+//   dataset_base_url + generations[version].base_url + id   (any other version)
+//
+// which for a dataset laid out as
+//
+//   s3://ethereum-mainnet/
+//   |-- 0000000000/                                  <- ingest
+//   |-- 0001000000/
+//   `-- _bf/
+//       |-- 01HQZK3M7X8P2NVWTC4RYFGDS9/              <- one job's output
+//       |   `-- 0000000000/
+//       |       `-- 0000116400-0000127899-274f02d8/
+//       `-- 01HR2A9B4C6D8E0F2G4H6J8K0M/
+//
+// means a `_bf/01HQZK3M7X8P2NVWTC4RYFGDS9` entry, whose version the rewritten chunks carry.
+table GenerationEntry {
+  version: uint32 (key);
+  base_url: string (required);  // relative to dataset_base_url, e.g. "_bf/01HQZK3M7X8P2NVWTC4RYFGDS9"
 }
 
 table WorkerAssignmentChunk {
@@ -40,9 +68,12 @@ table WorkerAssignmentChunk {
   dataset_id: string (required);
   size: uint32;
   dataset_base_url: string (required);  // shared across all chunks of the dataset
+  // Which copy of the chunk to download: 0 is the ingested one at dataset_base_url + id, any other
+  // value names the dataset `GenerationEntry` whose prefix goes between the two.
+  //
   // No per-chunk base_url: the legacy field was always just `id` restated
-  // (see sqd-assignments builder.rs), so the worker builds the download prefix from
-  // dataset_base_url + id directly.
+  // (see sqd-assignments builder.rs), so the download prefix is built from those parts directly.
+  version: uint32;
   write_schema_id: uint32;
   // Bitmap over the tables of the `schemas` entry whose `write_schema_id` equals this one --
   // found by key lookup, NOT by indexing `schemas` positionally: ids are sparse, so the entry

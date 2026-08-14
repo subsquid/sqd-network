@@ -34,6 +34,11 @@ table PortalAssignmentChunk {
   first_block: uint64 (key);
   id: string (required);
   dataset_id: string (required);
+  // Which copy of the chunk workers serve: 0 is the ingested one, any other value a copy some
+  // batch job rewrote (see GenerationEntry in worker_assignment.fbs). A portal never downloads, so
+  // it gets no storage prefix -- only the version, to tell apart answers computed from different
+  // copies of the same block range.
+  version: uint32;
   last_block_timestamp: uint64 = null;
   worker_indexes: [uint16] (required);  // confirmed routing, not the raw ideal placement
 }

@@ -280,6 +280,7 @@ impl<'a> WorkerAssignmentDataset<'a> {
   pub const VT_ID: ::flatbuffers::VOffsetT = 4;
   pub const VT_CHUNKS: ::flatbuffers::VOffsetT = 6;
   pub const VT_LAST_BLOCK: ::flatbuffers::VOffsetT = 8;
+  pub const VT_GENERATIONS: ::flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -292,6 +293,7 @@ impl<'a> WorkerAssignmentDataset<'a> {
   ) -> ::flatbuffers::WIPOffset<WorkerAssignmentDataset<'bldr>> {
     let mut builder = WorkerAssignmentDatasetBuilder::new(_fbb);
     builder.add_last_block(args.last_block);
+    if let Some(x) = args.generations { builder.add_generations(x); }
     if let Some(x) = args.chunks { builder.add_chunks(x); }
     if let Some(x) = args.id { builder.add_id(x); }
     builder.finish()
@@ -329,6 +331,13 @@ impl<'a> WorkerAssignmentDataset<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<u64>(WorkerAssignmentDataset::VT_LAST_BLOCK, Some(0)).unwrap()}
   }
+  #[inline]
+  pub fn generations(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<GenerationEntry<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<GenerationEntry>>>>(WorkerAssignmentDataset::VT_GENERATIONS, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for WorkerAssignmentDataset<'_> {
@@ -340,6 +349,7 @@ impl ::flatbuffers::Verifiable for WorkerAssignmentDataset<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<WorkerAssignmentChunk>>>>("chunks", Self::VT_CHUNKS, true)?
      .visit_field::<u64>("last_block", Self::VT_LAST_BLOCK, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<GenerationEntry>>>>("generations", Self::VT_GENERATIONS, false)?
      .finish();
     Ok(())
   }
@@ -348,6 +358,7 @@ pub struct WorkerAssignmentDatasetArgs<'a> {
     pub id: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub chunks: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<WorkerAssignmentChunk<'a>>>>>,
     pub last_block: u64,
+    pub generations: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<GenerationEntry<'a>>>>>,
 }
 impl<'a> Default for WorkerAssignmentDatasetArgs<'a> {
   #[inline]
@@ -356,6 +367,7 @@ impl<'a> Default for WorkerAssignmentDatasetArgs<'a> {
       id: None, // required field
       chunks: None, // required field
       last_block: 0,
+      generations: None,
     }
   }
 }
@@ -376,6 +388,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WorkerAssignmentDatasetBuilde
   #[inline]
   pub fn add_last_block(&mut self, last_block: u64) {
     self.fbb_.push_slot::<u64>(WorkerAssignmentDataset::VT_LAST_BLOCK, last_block, 0);
+  }
+  #[inline]
+  pub fn add_generations(&mut self, generations: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<GenerationEntry<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(WorkerAssignmentDataset::VT_GENERATIONS, generations);
   }
   #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> WorkerAssignmentDatasetBuilder<'a, 'b, A> {
@@ -400,6 +416,131 @@ impl ::core::fmt::Debug for WorkerAssignmentDataset<'_> {
       ds.field("id", &self.id());
       ds.field("chunks", &self.chunks());
       ds.field("last_block", &self.last_block());
+      ds.field("generations", &self.generations());
+      ds.finish()
+  }
+}
+pub enum GenerationEntryOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct GenerationEntry<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for GenerationEntry<'a> {
+  type Inner = GenerationEntry<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> GenerationEntry<'a> {
+  pub const VT_VERSION: ::flatbuffers::VOffsetT = 4;
+  pub const VT_BASE_URL: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    GenerationEntry { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args GenerationEntryArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<GenerationEntry<'bldr>> {
+    let mut builder = GenerationEntryBuilder::new(_fbb);
+    if let Some(x) = args.base_url { builder.add_base_url(x); }
+    builder.add_version(args.version);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn version(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(GenerationEntry::VT_VERSION, Some(0)).unwrap()}
+  }
+  #[inline]
+  pub fn key_compare_less_than(&self, o: &GenerationEntry) -> bool {
+    self.version() < o.version()
+  }
+
+  #[inline]
+  pub fn key_compare_with_value(&self, val: u32) -> ::core::cmp::Ordering {
+    let key = self.version();
+    key.cmp(&val)
+  }
+  #[inline]
+  pub fn base_url(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(GenerationEntry::VT_BASE_URL, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for GenerationEntry<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<u32>("version", Self::VT_VERSION, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("base_url", Self::VT_BASE_URL, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct GenerationEntryArgs<'a> {
+    pub version: u32,
+    pub base_url: Option<::flatbuffers::WIPOffset<&'a str>>,
+}
+impl<'a> Default for GenerationEntryArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    GenerationEntryArgs {
+      version: 0,
+      base_url: None, // required field
+    }
+  }
+}
+
+pub struct GenerationEntryBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> GenerationEntryBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_version(&mut self, version: u32) {
+    self.fbb_.push_slot::<u32>(GenerationEntry::VT_VERSION, version, 0);
+  }
+  #[inline]
+  pub fn add_base_url(&mut self, base_url: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(GenerationEntry::VT_BASE_URL, base_url);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> GenerationEntryBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    GenerationEntryBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<GenerationEntry<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, GenerationEntry::VT_BASE_URL,"base_url");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for GenerationEntry<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("GenerationEntry");
+      ds.field("version", &self.version());
+      ds.field("base_url", &self.base_url());
       ds.finish()
   }
 }
@@ -424,9 +565,10 @@ impl<'a> WorkerAssignmentChunk<'a> {
   pub const VT_DATASET_ID: ::flatbuffers::VOffsetT = 8;
   pub const VT_SIZE: ::flatbuffers::VOffsetT = 10;
   pub const VT_DATASET_BASE_URL: ::flatbuffers::VOffsetT = 12;
-  pub const VT_WRITE_SCHEMA_ID: ::flatbuffers::VOffsetT = 14;
-  pub const VT_TABLES_PRESENT: ::flatbuffers::VOffsetT = 16;
-  pub const VT_WORKER_INDEXES: ::flatbuffers::VOffsetT = 18;
+  pub const VT_VERSION: ::flatbuffers::VOffsetT = 14;
+  pub const VT_WRITE_SCHEMA_ID: ::flatbuffers::VOffsetT = 16;
+  pub const VT_TABLES_PRESENT: ::flatbuffers::VOffsetT = 18;
+  pub const VT_WORKER_INDEXES: ::flatbuffers::VOffsetT = 20;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -442,6 +584,7 @@ impl<'a> WorkerAssignmentChunk<'a> {
     if let Some(x) = args.worker_indexes { builder.add_worker_indexes(x); }
     if let Some(x) = args.tables_present { builder.add_tables_present(x); }
     builder.add_write_schema_id(args.write_schema_id);
+    builder.add_version(args.version);
     if let Some(x) = args.dataset_base_url { builder.add_dataset_base_url(x); }
     builder.add_size(args.size);
     if let Some(x) = args.dataset_id { builder.add_dataset_id(x); }
@@ -496,6 +639,13 @@ impl<'a> WorkerAssignmentChunk<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(WorkerAssignmentChunk::VT_DATASET_BASE_URL, None).unwrap()}
   }
   #[inline]
+  pub fn version(&self) -> u32 {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<u32>(WorkerAssignmentChunk::VT_VERSION, Some(0)).unwrap()}
+  }
+  #[inline]
   pub fn write_schema_id(&self) -> u32 {
     // Safety:
     // Created from valid Table for this object
@@ -529,6 +679,7 @@ impl ::flatbuffers::Verifiable for WorkerAssignmentChunk<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("dataset_id", Self::VT_DATASET_ID, true)?
      .visit_field::<u32>("size", Self::VT_SIZE, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("dataset_base_url", Self::VT_DATASET_BASE_URL, true)?
+     .visit_field::<u32>("version", Self::VT_VERSION, false)?
      .visit_field::<u32>("write_schema_id", Self::VT_WRITE_SCHEMA_ID, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("tables_present", Self::VT_TABLES_PRESENT, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("worker_indexes", Self::VT_WORKER_INDEXES, true)?
@@ -542,6 +693,7 @@ pub struct WorkerAssignmentChunkArgs<'a> {
     pub dataset_id: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub size: u32,
     pub dataset_base_url: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub version: u32,
     pub write_schema_id: u32,
     pub tables_present: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
     pub worker_indexes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
@@ -555,6 +707,7 @@ impl<'a> Default for WorkerAssignmentChunkArgs<'a> {
       dataset_id: None, // required field
       size: 0,
       dataset_base_url: None, // required field
+      version: 0,
       write_schema_id: 0,
       tables_present: None,
       worker_indexes: None, // required field
@@ -586,6 +739,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WorkerAssignmentChunkBuilder<
   #[inline]
   pub fn add_dataset_base_url(&mut self, dataset_base_url: ::flatbuffers::WIPOffset<&'b  str>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(WorkerAssignmentChunk::VT_DATASET_BASE_URL, dataset_base_url);
+  }
+  #[inline]
+  pub fn add_version(&mut self, version: u32) {
+    self.fbb_.push_slot::<u32>(WorkerAssignmentChunk::VT_VERSION, version, 0);
   }
   #[inline]
   pub fn add_write_schema_id(&mut self, write_schema_id: u32) {
@@ -626,6 +783,7 @@ impl ::core::fmt::Debug for WorkerAssignmentChunk<'_> {
       ds.field("dataset_id", &self.dataset_id());
       ds.field("size", &self.size());
       ds.field("dataset_base_url", &self.dataset_base_url());
+      ds.field("version", &self.version());
       ds.field("write_schema_id", &self.write_schema_id());
       ds.field("tables_present", &self.tables_present());
       ds.field("worker_indexes", &self.worker_indexes());

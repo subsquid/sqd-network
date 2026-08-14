@@ -52,3 +52,12 @@ impl PortalAssignmentDataset<'_> {
         self.chunks().get(0).first_block()
     }
 }
+
+impl<'a> WorkerAssignmentDataset<'a> {
+    /// The generation a chunk version's files were written under. `None` for version 0, which has
+    /// no prefix, and for a version this dataset never registered.
+    pub fn get_generation(&self, version: u32) -> Option<GenerationEntry<'a>> {
+        self.generations()?
+            .lookup_by_key(version, |generation, key| generation.key_compare_with_value(*key))
+    }
+}
