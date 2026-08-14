@@ -60,6 +60,13 @@ struct TopRun {
 table PortalAssignmentDataset {
   id: string (key, id: 0);
   last_block: uint64 (id: 1);
+  // The head block's full hash. Not the same value as the last entry of `hashes`, and not
+  // derivable from it: those are the truncated short hashes that go into chunk ids, this is the
+  // whole thing. Dataset-level because no query needs a per-chunk full hash.
+  //
+  // Declared here but carrying the highest id, which is the point of the ids: a field added later
+  // sits where it reads best without moving anything else's slot.
+  last_block_hash: string (id: 12);
   // The dataset's current read schema, for query validation -- a client-facing view that may hide
   // tables. Separate id space from the worker assignment's `write_schema_id`.
   read_schema_id: uint32 (id: 2);

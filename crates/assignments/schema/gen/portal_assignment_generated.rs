@@ -355,6 +355,7 @@ impl<'a> PortalAssignmentDataset<'a> {
   pub const VT_VERSIONS: ::flatbuffers::VOffsetT = 22;
   pub const VT_WORKER_OFFSETS: ::flatbuffers::VOffsetT = 24;
   pub const VT_WORKER_INDEXES: ::flatbuffers::VOffsetT = 26;
+  pub const VT_LAST_BLOCK_HASH: ::flatbuffers::VOffsetT = 28;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -368,6 +369,7 @@ impl<'a> PortalAssignmentDataset<'a> {
     let mut builder = PortalAssignmentDatasetBuilder::new(_fbb);
     builder.add_base_timestamp(args.base_timestamp);
     builder.add_last_block(args.last_block);
+    if let Some(x) = args.last_block_hash { builder.add_last_block_hash(x); }
     if let Some(x) = args.worker_indexes { builder.add_worker_indexes(x); }
     if let Some(x) = args.worker_offsets { builder.add_worker_offsets(x); }
     if let Some(x) = args.versions { builder.add_versions(x); }
@@ -476,6 +478,13 @@ impl<'a> PortalAssignmentDataset<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u16>>>(PortalAssignmentDataset::VT_WORKER_INDEXES, None).unwrap()}
   }
+  #[inline]
+  pub fn last_block_hash(&self) -> Option<&'a str> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PortalAssignmentDataset::VT_LAST_BLOCK_HASH, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for PortalAssignmentDataset<'_> {
@@ -496,6 +505,7 @@ impl ::flatbuffers::Verifiable for PortalAssignmentDataset<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("versions", Self::VT_VERSIONS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("worker_offsets", Self::VT_WORKER_OFFSETS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("worker_indexes", Self::VT_WORKER_INDEXES, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("last_block_hash", Self::VT_LAST_BLOCK_HASH, false)?
      .finish();
     Ok(())
   }
@@ -513,6 +523,7 @@ pub struct PortalAssignmentDatasetArgs<'a> {
     pub versions: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
     pub worker_offsets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
     pub worker_indexes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
+    pub last_block_hash: Option<::flatbuffers::WIPOffset<&'a str>>,
 }
 impl<'a> Default for PortalAssignmentDatasetArgs<'a> {
   #[inline]
@@ -530,6 +541,7 @@ impl<'a> Default for PortalAssignmentDatasetArgs<'a> {
       versions: None,
       worker_offsets: None, // required field
       worker_indexes: None, // required field
+      last_block_hash: None,
     }
   }
 }
@@ -588,6 +600,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PortalAssignmentDatasetBuilde
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PortalAssignmentDataset::VT_WORKER_INDEXES, worker_indexes);
   }
   #[inline]
+  pub fn add_last_block_hash(&mut self, last_block_hash: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PortalAssignmentDataset::VT_LAST_BLOCK_HASH, last_block_hash);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PortalAssignmentDatasetBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     PortalAssignmentDatasetBuilder {
@@ -624,6 +640,7 @@ impl ::core::fmt::Debug for PortalAssignmentDataset<'_> {
       ds.field("versions", &self.versions());
       ds.field("worker_offsets", &self.worker_offsets());
       ds.field("worker_indexes", &self.worker_indexes());
+      ds.field("last_block_hash", &self.last_block_hash());
       ds.finish()
   }
 }

@@ -930,14 +930,19 @@ impl PortalAssignmentBuilder {
     ///
     /// `read_schema_id` is the dataset's current read schema — a client-facing view that may hide
     /// tables, in a separate id space from [`WorkerAssignmentChunkBuilder::write_schema_id`].
-    /// The head hash of the dataset is no longer passed in: it is the last chunk's, and the
-    /// `hashes` column already carries it.
+    ///
+    /// `last_block_hash` is the head block's full hash. The `hashes` column can't stand in for it:
+    /// those are the truncated short hashes chunk ids are built from.
     ///
     /// # Errors
     ///
     /// If no chunk was staged, or if only some of them carried a timestamp — `ts_offsets` is one
     /// column over all chunks, so it is all or nothing.
-    pub fn finish_dataset(&mut self, read_schema_id: u32) -> anyhow::Result<()> {
+    pub fn finish_dataset(
+        &mut self,
+        read_schema_id: u32,
+        last_block_hash: Option<&str>,
+    ) -> anyhow::Result<()> {
         let columns = std::mem::take(&mut self.columns);
         let chunk_count = columns.first_blocks.len();
         anyhow::ensure!(chunk_count > 0, "At least one chunk should be present in the dataset");
@@ -961,6 +966,7 @@ impl PortalAssignmentBuilder {
             "top runs must strictly ascend by first_chunk_index"
         );
 
+        let last_block_hash = last_block_hash.map(|hash| self.builder.create_string(hash));
         let first_blocks = self.builder.create_vector(&columns.first_blocks);
         let block_deltas = self.builder.create_vector(&columns.block_deltas);
         let hashes = self.builder.create_vector(&columns.hashes);
@@ -988,6 +994,7 @@ impl PortalAssignmentBuilder {
                     .take()
                     .expect("At least one chunk should be present in the dataset"),
                 read_schema_id,
+                last_block_hash,
                 first_blocks: Some(first_blocks),
                 block_deltas: Some(block_deltas),
                 hashes: Some(hashes),

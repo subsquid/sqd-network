@@ -436,7 +436,12 @@ fn test_portal_assignment_round_trip() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset(7).unwrap();
+    builder
+        .finish_dataset(
+            7,
+            Some("0x9f2e1d4c7b8a35460f1e2d3c4b5a69788796a5b4c3d2e1f00123456789abcdef"),
+        )
+        .unwrap();
 
     let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
@@ -450,8 +455,13 @@ fn test_portal_assignment_round_trip() {
     assert_eq!(dataset.read_schema_id(), 7);
     assert_eq!(
         dataset.last_block_hash(),
+        Some("0x9f2e1d4c7b8a35460f1e2d3c4b5a69788796a5b4c3d2e1f00123456789abcdef"),
+        "the head hash is the full block hash, kept whole at the dataset level"
+    );
+    assert_eq!(
+        dataset.chunk(dataset.chunk_count() as u32 - 1).unwrap().hash(),
         Some("AuRE1"),
-        "the head hash is the last chunk's, read off the hashes column"
+        "the last chunk's short hash is a different value, and only builds its id"
     );
 
     assert_eq!(assignment.get_worker_id(0).unwrap(), peer_id);
@@ -536,7 +546,7 @@ fn test_portal_find_chunk_reports_a_gap() {
         .worker_indexes(&[0])
         .finish();
     assert!(gap.is_err(), "the gap is still reported for logging");
-    builder.finish_dataset(1).unwrap();
+    builder.finish_dataset(1, None).unwrap();
     builder.add_worker(
         common::get_test_keypair().public().to_peer_id(),
         sqd_assignments::WorkerStatus::Ok,
@@ -576,7 +586,7 @@ fn test_portal_tops_are_runs_and_hashes_keep_their_length() {
             .finish()
             .unwrap();
     }
-    builder.finish_dataset(1).unwrap();
+    builder.finish_dataset(1, None).unwrap();
     builder.add_worker(
         common::get_test_keypair().public().to_peer_id(),
         sqd_assignments::WorkerStatus::Ok,
@@ -625,7 +635,7 @@ fn test_portal_worker_slices_stay_separate() {
             .finish()
             .unwrap();
     }
-    builder.finish_dataset(1).unwrap();
+    builder.finish_dataset(1, None).unwrap();
     builder.add_worker(
         common::get_test_keypair().public().to_peer_id(),
         sqd_assignments::WorkerStatus::Ok,
@@ -671,7 +681,7 @@ fn test_portal_versions_column_appears_only_once_something_is_backfilled() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset(1).unwrap();
+    builder.finish_dataset(1, None).unwrap();
     builder.add_worker(
         common::get_test_keypair().public().to_peer_id(),
         sqd_assignments::WorkerStatus::Ok,
@@ -713,7 +723,7 @@ fn test_portal_timestamps_are_all_or_nothing() {
         .unwrap();
 
     let error = builder
-        .finish_dataset(1)
+        .finish_dataset(1, None)
         .expect_err("one column over all chunks can't cover only some of them");
     assert!(error.to_string().contains("every chunk"), "unexpected error: {error}");
 }

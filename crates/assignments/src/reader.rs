@@ -689,11 +689,6 @@ impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
         })
     }
 
-    /// The head hash of the dataset, i.e. its last chunk's.
-    pub fn last_block_hash(&self) -> Option<&'a str> {
-        self.chunk(self.chunk_count().checked_sub(1)? as u32)?.hash()
-    }
-
     /// The timestamp of chunk `index`, or 0 when the dataset carries no timestamps.
     fn timestamp_at(&self, index: u32) -> u64 {
         self.ts_offsets()
