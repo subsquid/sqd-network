@@ -32,6 +32,21 @@ mod portal_assignment_generated {
     include!("../schema/gen/portal_assignment_generated.rs");
 }
 
+/// The flatc-generated views the readers hand back: a chunk, a dataset, a worker entry. Public so
+/// a consumer can name what `find_chunk`/`get_dataset`/`iter_chunks` return — reading a field off
+/// one works without this, but writing a function or struct over it does not.
+pub mod fb {
+    pub use crate::{
+        assignment_generated::{Chunk, Dataset, EncryptedHeaders, FileUrl, WorkerEntry, WorkerId},
+        portal_assignment_generated::{
+            PortalAssignmentChunk, PortalAssignmentDataset, PortalEntry,
+        },
+        worker_assignment_generated::{
+            GenerationEntry, TableRoster, WorkerAssignmentChunk, WorkerAssignmentDataset,
+        },
+    };
+}
+
 mod assignment_fb;
 #[cfg(feature = "builder")]
 mod builder;

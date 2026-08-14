@@ -465,12 +465,13 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     ///
     /// # Errors
     ///
-    /// If `version` is 0 — that's the ingested layout, which has no prefix — or if the version was
-    /// already registered for this dataset with a different prefix.
+    /// If `version` is 0 — a perfectly normal version, but the ingested one, which is defined by
+    /// having no entry here — or if the version was already registered for this dataset with a
+    /// different prefix.
     pub fn register_generation(&mut self, version: u32, base_url: &str) -> anyhow::Result<()> {
         anyhow::ensure!(
             version != 0,
-            "version 0 is the ingested layout and cannot have a generation prefix"
+            "version 0 is the ingested layout, which needs no generation entry"
         );
         match self.current_generations.entry(version) {
             Entry::Occupied(existing) => anyhow::ensure!(

@@ -32,8 +32,9 @@ table WorkerAssignmentDataset {
   id: string (key);  // e.g. "s3://solana-mainnet-2"
   chunks: [WorkerAssignmentChunk] (required);
   last_block: uint64;
-  // Storage prefixes of the dataset's non-zero chunk versions, sorted by version as the (key)
-  // lookup requires. Absent when every chunk is still at version 0.
+  // Storage prefixes of the dataset's chunk versions, sorted by version as the (key) lookup
+  // requires. Version 0 is a normal version and never appears here: having no entry is exactly
+  // what makes a chunk the ingested one. So this is absent for a dataset nothing has rewritten.
   generations: [GenerationEntry];
 }
 
@@ -68,8 +69,8 @@ table WorkerAssignmentChunk {
   dataset_id: string (required);
   size: uint32;
   dataset_base_url: string (required);  // shared across all chunks of the dataset
-  // Which copy of the chunk to download: 0 is the ingested one at dataset_base_url + id, any other
-  // value names the dataset `GenerationEntry` whose prefix goes between the two.
+  // Which copy of the chunk to download: 0 is the ingested one at dataset_base_url + id and has no
+  // `GenerationEntry`, any other value names the one whose prefix goes between those two parts.
   //
   // No per-chunk base_url: the legacy field was always just `id` restated
   // (see sqd-assignments builder.rs), so the download prefix is built from those parts directly.

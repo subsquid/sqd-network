@@ -188,7 +188,10 @@ fn test_chunk_generations_round_trip() {
     assert!(dataset.get_generation(0).is_none(), "version 0 has no prefix");
     assert!(dataset.get_generation(3).is_none());
 
+    // Version 0 keeps meaning the ingested copy in a dataset that does have generations: it is a
+    // normal version whose defining property is having no entry.
     let chunks = dataset.chunks();
+    assert_eq!(chunks.get(0).version(), 0);
     assert_eq!(
         assignment.chunk_url(chunks.get(0)).unwrap(),
         "https://solana-mainnet-2.sqd-datasets.io/0221000000/0221000000-0221000649-BQJdx",
@@ -213,11 +216,11 @@ fn test_chunk_generations_round_trip() {
 fn test_register_generation_rejects_version_zero() {
     let error = test_builder()
         .register_generation(0, "_bf/01HQZK3M7X8P2NVWTC4RYFGDS9")
-        .expect_err("version 0 is the ingested layout, which has no prefix");
+        .expect_err("giving version 0 a prefix would contradict what makes a chunk ingested");
 
     assert!(
-        error.to_string().contains("version 0 is the ingested layout"),
-        "unexpected: {error}"
+        error.to_string().contains("needs no generation entry"),
+        "unexpected error: {error}"
     );
 }
 
@@ -375,6 +378,13 @@ fn test_finish_rejects_write_schema_changed_after_tables_present() {
     );
 }
 
+/// Taking the chunk by type, not just calling a method on it: a portal has to be able to pass one
+/// around to decide what its version means for a query.
+#[cfg(feature = "reader")]
+fn version_of(chunk: sqd_assignments::fb::PortalAssignmentChunk<'_>) -> u32 {
+    chunk.version()
+}
+
 #[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
 fn test_portal_assignment_round_trip() {
@@ -424,10 +434,10 @@ fn test_portal_assignment_round_trip() {
     assert_eq!(chunk1.id(), "0221000000/0221000000-0221000649-BQJdx");
     assert_eq!(chunk1.last_block_timestamp(), Some(1696192039));
     assert_eq!(chunk1.worker_indexes().iter().collect::<Vec<_>>(), vec![0]);
-    assert_eq!(chunk1.version(), 0, "an unset version means the ingested copy");
+    assert_eq!(version_of(chunk1), 0, "an unset version means the ingested copy");
 
     let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
-    assert_eq!(chunk2.version(), 2, "the portal sees the version but not its storage prefix");
+    assert_eq!(version_of(chunk2), 2, "the portal sees the version but not its storage prefix");
 
     assert_eq!(
         assignment.find_chunk("s3://dummy", 0),
