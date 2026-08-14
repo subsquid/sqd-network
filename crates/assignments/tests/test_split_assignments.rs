@@ -129,7 +129,7 @@ fn test_worker_assignment_round_trip() {
         "a dataset of version-0 chunks stores no prefixes"
     );
     assert_eq!(
-        assignment.chunk_url(chunks[0]).unwrap(),
+        dataset.chunk_url(chunks[0]).unwrap(),
         "https://solana-mainnet-2.sqd-datasets.io/0221000000/0221000000-0221000649-BQJdx"
     );
 }
@@ -193,15 +193,40 @@ fn test_chunk_generations_round_trip() {
     let chunks = dataset.chunks();
     assert_eq!(chunks.get(0).version(), 0);
     assert_eq!(
-        assignment.chunk_url(chunks.get(0)).unwrap(),
+        dataset.chunk_url(chunks.get(0)).unwrap(),
         "https://solana-mainnet-2.sqd-datasets.io/0221000000/0221000000-0221000649-BQJdx",
         "version 0 hangs straight off the dataset base url"
     );
     assert_eq!(
-        assignment.chunk_url(chunks.get(1)).unwrap(),
+        dataset.chunk_url(chunks.get(1)).unwrap(),
         "https://solana-mainnet-2.sqd-datasets.io/_bf/01HQZK3M7X8P2NVWTC4RYFGDS9\
          /0221000000/0221000650-0221001549-AuRE1",
         "a non-zero version puts its generation's prefix in between"
+    );
+
+    // A worker's chunks arrive detached from their dataset; the ref is what traces them back.
+    let worker = assignment.get_worker_by_index(0);
+    let (chunk_ref, _) = worker
+        .iter_chunks_with_ref()
+        .find(|(_, chunk)| chunk.id() == "0221000000/0221000650-0221001549-AuRE1")
+        .expect("the rewritten chunk is assigned to worker 0");
+    assert_eq!(
+        assignment.get_dataset_by_ref(chunk_ref).unwrap().id(),
+        "s3://solana-mainnet-2",
+        "a chunk's dataset is recovered from the ref, not from the chunk"
+    );
+    assert_eq!(
+        assignment.chunk_url(chunk_ref).unwrap(),
+        "https://solana-mainnet-2.sqd-datasets.io/_bf/01HQZK3M7X8P2NVWTC4RYFGDS9\
+         /0221000000/0221000650-0221001549-AuRE1"
+    );
+    let (paired_dataset, paired_chunk) = worker
+        .iter_chunks_with_dataset()
+        .find(|(_, chunk)| chunk.id() == "0221000000/0221000650-0221001549-AuRE1")
+        .expect("the same chunk, paired with its dataset");
+    assert_eq!(
+        paired_dataset.chunk_url(paired_chunk).unwrap(),
+        assignment.chunk_url(chunk_ref).unwrap()
     );
 
     let other = assignment.get_dataset("s3://ethereum-mainnet").unwrap();

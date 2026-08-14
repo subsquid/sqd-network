@@ -1,5 +1,11 @@
 // When changing this file, regenerate the sources by running
 // flatc --rust -o gen ./assignment.fbs ./worker_assignment.fbs ./portal_assignment.fbs
+//
+// Every field carries an explicit `id`, which is what fixes its vtable slot -- declaration order
+// does not. Add a field with the next free id and it may be declared wherever it reads best;
+// renumbering an existing one silently repoints every published blob, so don't. flatc requires
+// the ids of a table to be consecutive from 0, so retire a field with `(deprecated)` rather than
+// deleting it.
 
 include "assignment.fbs";
 
@@ -11,38 +17,39 @@ include "assignment.fbs";
 // in NetworkState's schema bundle.
 
 table PortalAssignment {
-  datasets: [PortalAssignmentDataset] (required);
-  workers: [PortalEntry] (required);
+  datasets: [PortalAssignmentDataset] (required, id: 0);
+  workers: [PortalEntry] (required, id: 1);
 }
 
 table PortalAssignmentDataset {
-  id: string (key);
-  chunks: [PortalAssignmentChunk] (required);
-  last_block: uint64;
+  id: string (key, id: 0);
+  chunks: [PortalAssignmentChunk] (required, id: 1);
+  last_block: uint64 (id: 2);
   // The head hash of the dataset (i.e. of its last chunk). Only ever meaningful at the dataset
   // level -- unlike last_block_timestamp, no query needs a per-chunk hash.
-  last_block_hash: string;
+  last_block_hash: string (id: 3);
   // The dataset's current read schema, for query validation -- a client-facing view that may hide
   // tables. Separate id space from the worker assignment's `write_schema_id`.
-  read_schema_id: uint32;
+  read_schema_id: uint32 (id: 4);
 }
 
+// No dataset_id: a chunk is only ever reached through the dataset holding it, so the caller
+// already has one -- `find_chunk` and `find_chunk_by_timestamp` are given it outright.
 table PortalAssignmentChunk {
-  first_block: uint64 (key);
-  id: string (required);
-  dataset_id: string (required);
+  first_block: uint64 (key, id: 0);
+  id: string (required, id: 1);
   // Which copy of the chunk workers serve: 0 is the ingested one, any other value a copy a batch
   // job writes (see GenerationEntry in worker_assignment.fbs). A portal never downloads, so
   // it gets the version without a storage prefix -- enough to tell apart answers computed from
   // different copies of the same block range.
-  version: uint32;
-  last_block_timestamp: uint64 = null;
-  worker_indexes: [uint16] (required);  // confirmed routing, not the raw ideal placement
+  version: uint32 (id: 2);
+  last_block_timestamp: uint64 = null (id: 3);
+  worker_indexes: [uint16] (required, id: 4);  // confirmed routing, not the raw ideal placement
 }
 
 table PortalEntry {
-  worker_id: WorkerId (required);
-  status: WorkerStatus;
+  worker_id: WorkerId (required, id: 0);
+  status: WorkerStatus (id: 1);
 }
 
 root_type PortalAssignment;

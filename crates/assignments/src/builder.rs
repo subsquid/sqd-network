@@ -730,6 +730,8 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         self
     }
 
+    /// Which dataset the chunk belongs to. Names the dataset it is staged into; chunks don't
+    /// carry the id themselves, since they are only ever read through that dataset.
     pub fn dataset_id(mut self, dataset_id: &str) -> Self {
         self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
         self
@@ -852,7 +854,6 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             &assignment_fb::WorkerAssignmentChunkArgs {
                 id: self.id,
                 first_block: *block_range.start(),
-                dataset_id: self.dataset_id,
                 size: self.size.expect("Size must be set"),
                 dataset_base_url: self.dataset_base_url,
                 version: self.version,
@@ -1057,7 +1058,6 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
             &assignment_fb::PortalAssignmentChunkArgs {
                 id: self.id,
                 first_block: *block_range.start(),
-                dataset_id: self.dataset_id,
                 version: self.version,
                 last_block_timestamp: self.last_block_timestamp,
                 worker_indexes: self.worker_indexes,

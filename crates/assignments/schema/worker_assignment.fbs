@@ -1,5 +1,11 @@
 // When changing this file, regenerate the sources by running
 // flatc --rust -o gen ./assignment.fbs ./worker_assignment.fbs ./portal_assignment.fbs
+//
+// Every field carries an explicit `id`, which is what fixes its vtable slot -- declaration order
+// does not. Add a field with the next free id and it may be declared wherever it reads best;
+// renumbering an existing one silently repoints every published blob, so don't. flatc requires
+// the ids of a table to be consecutive from 0, so retire a field with `(deprecated)` rather than
+// deleting it.
 
 include "assignment.fbs";
 
@@ -13,26 +19,26 @@ include "assignment.fbs";
 // schema bundle.
 
 table WorkerAssignment {
-  datasets: [WorkerAssignmentDataset] (required);
-  workers: [WorkerEntry] (required);
-  schemas: [TableRoster] (required);  // sorted by id, as (key) lookup requires
+  datasets: [WorkerAssignmentDataset] (required, id: 0);
+  workers: [WorkerEntry] (required, id: 1);
+  schemas: [TableRoster] (required, id: 2);  // sorted by id, as (key) lookup requires
 }
 
 // Ordering is fixed at publication and travels with the bitmap, so a schema that gains tables
 // later cannot change what an already published blob means.
 table TableRoster {
-  write_schema_id: uint32 (key);
-  tables: [string] (required);  // sorted; bit i of `tables_present` <-> tables[i]
+  write_schema_id: uint32 (key, id: 0);
+  tables: [string] (required, id: 1);  // sorted; bit i of `tables_present` <-> tables[i]
 }
 
 table WorkerAssignmentDataset {
-  id: string (key);  // e.g. "s3://solana-mainnet-2"
-  chunks: [WorkerAssignmentChunk] (required);
-  last_block: uint64;
+  id: string (key, id: 0);  // e.g. "s3://solana-mainnet-2"
+  chunks: [WorkerAssignmentChunk] (required, id: 1);
+  last_block: uint64 (id: 2);
   // Storage prefixes of the dataset's chunk versions, sorted by version as the (key) lookup
   // requires. Version 0 is a normal version and never appears here: having no entry is exactly
   // what makes a chunk the ingested one. So this is absent for a dataset nothing has rewritten.
-  generations: [GenerationEntry];
+  generations: [GenerationEntry] (id: 3);
 }
 
 // A batch job doesn't overwrite an ingested chunk in place: it writes its own copy under a private
@@ -56,27 +62,28 @@ table WorkerAssignmentDataset {
 //
 // means a `_bf/01HQZK3M7X8P2NVWTC4RYFGDS9` entry, whose version the rewritten chunks carry.
 table GenerationEntry {
-  version: uint32 (key);
-  base_url: string (required);  // relative to dataset_base_url, e.g. "_bf/01HQZK3M7X8P2NVWTC4RYFGDS9"
+  version: uint32 (key, id: 0);
+  base_url: string (required, id: 1);  // relative to dataset_base_url, e.g. "_bf/01HQZK..."
 }
 
+// No dataset_id: a chunk is only ever reached through the dataset holding it, so the caller
+// already has one. Carrying it per chunk costs 8 bytes of every chunk -- 8% of the blob.
 table WorkerAssignmentChunk {
-  first_block: uint64 (key);
-  id: string (required);
-  dataset_id: string (required);
-  size: uint32;
-  dataset_base_url: string (required);  // shared across all chunks of the dataset
+  first_block: uint64 (key, id: 0);
+  id: string (required, id: 1);
+  size: uint32 (id: 2);
+  dataset_base_url: string (required, id: 3);  // shared across all chunks of the dataset
   // Which copy of the chunk to download: 0 is the ingested one at dataset_base_url + id and has no
   // `GenerationEntry`, any other value names the one whose prefix goes between those two parts.
   // Those parts are the whole download prefix -- a chunk carries no base_url of its own.
-  version: uint32;
-  write_schema_id: uint32;
+  version: uint32 (id: 4);
+  write_schema_id: uint32 (id: 5);
   // Bitmap over the tables of the `schemas` entry whose `write_schema_id` equals this one --
   // found by key lookup, NOT by indexing `schemas` positionally: ids are sparse, so the entry
   // for id 140000 is not at offset 140000. Bit i (byte i/8, LSB-first) set = that roster's
   // tables[i] present. Absent (null) = every table present.
-  tables_present: [ubyte];
-  worker_indexes: [uint16] (required);
+  tables_present: [ubyte] (id: 6);
+  worker_indexes: [uint16] (required, id: 7);
 }
 
 root_type WorkerAssignment;

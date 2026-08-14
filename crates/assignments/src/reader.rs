@@ -174,6 +174,18 @@ pub struct ChunkRef {
     chunk_index: u32,
 }
 
+impl ChunkRef {
+    /// Which dataset of the assignment the chunk sits in. Together with
+    /// [`WorkerAssignment::get_dataset_by_ref`] this is how a chunk is traced back to its dataset.
+    pub fn dataset_index(&self) -> u32 {
+        self.dataset_index
+    }
+
+    pub fn chunk_index(&self) -> u32 {
+        self.chunk_index
+    }
+}
+
 pub struct Worker<'f> {
     assignment: assignment_fb::Assignment<'f>,
     reader: assignment_fb::WorkerEntry<'f>,
@@ -323,19 +335,26 @@ impl WorkerAssignment {
         Some(chunks.get(r.chunk_index as usize))
     }
 
-    /// Where a chunk's files live: its `dataset_base_url`, then the prefix of the generation its
-    /// `version` names — nothing for version 0, the ingested layout — then the chunk id.
-    ///
-    /// `None` if a non-zero version names a generation the chunk's dataset doesn't carry, or if
-    /// that dataset isn't in this assignment at all.
-    pub fn chunk_url(&self, chunk: assignment_fb::WorkerAssignmentChunk<'_>) -> Option<String> {
-        let mut url = chunk.dataset_base_url().to_owned();
-        if chunk.version() != 0 {
-            let dataset = self.get_dataset(chunk.dataset_id())?;
-            push_segment(&mut url, dataset.get_generation(chunk.version())?.base_url());
-        }
-        push_segment(&mut url, chunk.id());
-        Some(url)
+    /// The dataset a [`ChunkRef`] points into — how a caller recovers a chunk's dataset, which
+    /// the chunk itself doesn't carry.
+    pub fn get_dataset_by_ref(
+        &self,
+        r: ChunkRef,
+    ) -> Option<assignment_fb::WorkerAssignmentDataset<'_>> {
+        let datasets = self.borrow_reader().datasets();
+        ((r.dataset_index as usize) < datasets.len())
+            .then(|| datasets.get(r.dataset_index as usize))
+    }
+
+    /// Where the referenced chunk's files live — see
+    /// [`WorkerAssignmentDataset::chunk_url`](assignment_fb::WorkerAssignmentDataset::chunk_url),
+    /// which this resolves the dataset for.
+    pub fn chunk_url(&self, r: ChunkRef) -> Option<String> {
+        let dataset = self.get_dataset_by_ref(r)?;
+        let chunks = dataset.chunks();
+        let chunk = ((r.chunk_index as usize) < chunks.len())
+            .then(|| chunks.get(r.chunk_index as usize))?;
+        dataset.chunk_url(chunk)
     }
 
     /// The table roster of a write schema referenced by this assignment's chunks.
@@ -381,6 +400,25 @@ impl AssignedWorker<'_> {
                 .chunks()
                 .iter()
                 .filter(move |chunk| chunk.worker_indexes().iter().any(|i| self.index == i))
+        })
+    }
+
+    /// The assigned chunks paired with the dataset holding each — the dataset carries the
+    /// generations a chunk's `version` resolves against, and the id the chunk doesn't repeat.
+    pub fn iter_chunks_with_dataset(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            assignment_fb::WorkerAssignmentDataset<'_>,
+            assignment_fb::WorkerAssignmentChunk<'_>,
+        ),
+    > + '_ {
+        self.assignment.datasets().iter().flat_map(move |dataset| {
+            dataset
+                .chunks()
+                .iter()
+                .filter(move |chunk| chunk.worker_indexes().iter().any(|i| self.index == i))
+                .map(move |chunk| (dataset, chunk))
         })
     }
 
@@ -580,14 +618,6 @@ impl PortalWorker<'_> {
     pub fn status(&self) -> WorkerStatus {
         status_from_fb(self.reader.status())
     }
-}
-
-/// Appends a path segment with exactly one separator, whichever side already carries it.
-fn push_segment(url: &mut String, segment: &str) {
-    if !url.ends_with('/') {
-        url.push('/');
-    }
-    url.push_str(segment.trim_start_matches('/'));
 }
 
 fn status_from_fb(status: assignment_fb::WorkerStatus) -> WorkerStatus {

@@ -60,4 +60,29 @@ impl<'a> WorkerAssignmentDataset<'a> {
         self.generations()?
             .lookup_by_key(version, |generation, key| generation.key_compare_with_value(*key))
     }
+
+    /// Where one of this dataset's chunks keeps its files: the chunk's `dataset_base_url`, then
+    /// the prefix of the generation its `version` names -- nothing for version 0, the ingested
+    /// layout -- then the chunk id.
+    ///
+    /// Lives on the dataset because that is what holds the generations, and what the caller is
+    /// holding anyway: chunks are only reachable through it.
+    ///
+    /// `None` if a non-zero version names a generation this dataset doesn't carry.
+    pub fn chunk_url(&self, chunk: WorkerAssignmentChunk<'_>) -> Option<String> {
+        let mut url = chunk.dataset_base_url().to_owned();
+        if chunk.version() != 0 {
+            push_segment(&mut url, self.get_generation(chunk.version())?.base_url());
+        }
+        push_segment(&mut url, chunk.id());
+        Some(url)
+    }
+}
+
+/// Appends a path segment with exactly one separator, whichever side already carries it.
+fn push_segment(url: &mut String, segment: &str) {
+    if !url.ends_with('/') {
+        url.push('/');
+    }
+    url.push_str(segment.trim_start_matches('/'));
 }

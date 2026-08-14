@@ -313,10 +313,9 @@ impl<'a> ::flatbuffers::Follow<'a> for PortalAssignmentChunk<'a> {
 impl<'a> PortalAssignmentChunk<'a> {
   pub const VT_FIRST_BLOCK: ::flatbuffers::VOffsetT = 4;
   pub const VT_ID: ::flatbuffers::VOffsetT = 6;
-  pub const VT_DATASET_ID: ::flatbuffers::VOffsetT = 8;
-  pub const VT_VERSION: ::flatbuffers::VOffsetT = 10;
-  pub const VT_LAST_BLOCK_TIMESTAMP: ::flatbuffers::VOffsetT = 12;
-  pub const VT_WORKER_INDEXES: ::flatbuffers::VOffsetT = 14;
+  pub const VT_VERSION: ::flatbuffers::VOffsetT = 8;
+  pub const VT_LAST_BLOCK_TIMESTAMP: ::flatbuffers::VOffsetT = 10;
+  pub const VT_WORKER_INDEXES: ::flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -332,7 +331,6 @@ impl<'a> PortalAssignmentChunk<'a> {
     builder.add_first_block(args.first_block);
     if let Some(x) = args.worker_indexes { builder.add_worker_indexes(x); }
     builder.add_version(args.version);
-    if let Some(x) = args.dataset_id { builder.add_dataset_id(x); }
     if let Some(x) = args.id { builder.add_id(x); }
     builder.finish()
   }
@@ -361,13 +359,6 @@ impl<'a> PortalAssignmentChunk<'a> {
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PortalAssignmentChunk::VT_ID, None).unwrap()}
-  }
-  #[inline]
-  pub fn dataset_id(&self) -> &'a str {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PortalAssignmentChunk::VT_DATASET_ID, None).unwrap()}
   }
   #[inline]
   pub fn version(&self) -> u32 {
@@ -400,7 +391,6 @@ impl ::flatbuffers::Verifiable for PortalAssignmentChunk<'_> {
     v.visit_table(pos)?
      .visit_field::<u64>("first_block", Self::VT_FIRST_BLOCK, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("id", Self::VT_ID, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("dataset_id", Self::VT_DATASET_ID, true)?
      .visit_field::<u32>("version", Self::VT_VERSION, false)?
      .visit_field::<u64>("last_block_timestamp", Self::VT_LAST_BLOCK_TIMESTAMP, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("worker_indexes", Self::VT_WORKER_INDEXES, true)?
@@ -411,7 +401,6 @@ impl ::flatbuffers::Verifiable for PortalAssignmentChunk<'_> {
 pub struct PortalAssignmentChunkArgs<'a> {
     pub first_block: u64,
     pub id: Option<::flatbuffers::WIPOffset<&'a str>>,
-    pub dataset_id: Option<::flatbuffers::WIPOffset<&'a str>>,
     pub version: u32,
     pub last_block_timestamp: Option<u64>,
     pub worker_indexes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
@@ -422,7 +411,6 @@ impl<'a> Default for PortalAssignmentChunkArgs<'a> {
     PortalAssignmentChunkArgs {
       first_block: 0,
       id: None, // required field
-      dataset_id: None, // required field
       version: 0,
       last_block_timestamp: None,
       worker_indexes: None, // required field
@@ -442,10 +430,6 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PortalAssignmentChunkBuilder<
   #[inline]
   pub fn add_id(&mut self, id: ::flatbuffers::WIPOffset<&'b  str>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PortalAssignmentChunk::VT_ID, id);
-  }
-  #[inline]
-  pub fn add_dataset_id(&mut self, dataset_id: ::flatbuffers::WIPOffset<&'b  str>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PortalAssignmentChunk::VT_DATASET_ID, dataset_id);
   }
   #[inline]
   pub fn add_version(&mut self, version: u32) {
@@ -471,7 +455,6 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PortalAssignmentChunkBuilder<
   pub fn finish(self) -> ::flatbuffers::WIPOffset<PortalAssignmentChunk<'a>> {
     let o = self.fbb_.end_table(self.start_);
     self.fbb_.required(o, PortalAssignmentChunk::VT_ID,"id");
-    self.fbb_.required(o, PortalAssignmentChunk::VT_DATASET_ID,"dataset_id");
     self.fbb_.required(o, PortalAssignmentChunk::VT_WORKER_INDEXES,"worker_indexes");
     ::flatbuffers::WIPOffset::new(o.value())
   }
@@ -482,7 +465,6 @@ impl ::core::fmt::Debug for PortalAssignmentChunk<'_> {
     let mut ds = f.debug_struct("PortalAssignmentChunk");
       ds.field("first_block", &self.first_block());
       ds.field("id", &self.id());
-      ds.field("dataset_id", &self.dataset_id());
       ds.field("version", &self.version());
       ds.field("last_block_timestamp", &self.last_block_timestamp());
       ds.field("worker_indexes", &self.worker_indexes());
