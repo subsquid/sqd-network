@@ -47,8 +47,9 @@
 //!
 //! # What the verification proves
 //!
-//! Every chunk's id, block range, timestamp, version, worker indexes and tables; every dataset's
-//! id, order, head block and hash; every worker's identity, status and sealed header bytes. It
+//! Every chunk's id, block range, timestamp, version, worker indexes and tables, and that it is
+//! filed under the dataset it names; every dataset's id, order, head block and hash; every
+//! worker's identity, status and sealed header bytes. It
 //! aborts on the first mismatch, since a conversion this size gets checked by nothing else.
 
 use std::{
@@ -350,6 +351,14 @@ fn verify(
         for (i, source_chunk) in chunks.iter().enumerate() {
             let chunk_id = source_chunk.id();
             let last_block = last_block_of(&source_chunk)?;
+            // Neither format keeps `dataset_id` on the chunk: a chunk belongs to the dataset it is
+            // filed under. Dropping it is only lossless while the two agree, which holds for every
+            // chunk of mainnet but is the source's to break, not ours to assume.
+            anyhow::ensure!(
+                source_chunk.dataset_id() == id,
+                "{chunk_id}: chunk names dataset '{}' but is filed under '{id}'",
+                source_chunk.dataset_id()
+            );
 
             let wc = w.chunk(i as u32).context("worker chunk missing")?;
             anyhow::ensure!(
