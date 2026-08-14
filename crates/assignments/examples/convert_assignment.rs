@@ -239,7 +239,7 @@ fn build_worker(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
                 .worker_indexes(&chunk.worker_indexes().iter().collect::<Vec<_>>());
             // A chunk holding the whole roster leaves the bitmap off entirely.
             if tables.len() != roster.len() {
-                staged = staged.tables_present(&tables);
+                staged = staged.tables_present(&tables)?;
             }
             staged.finish()?;
         }

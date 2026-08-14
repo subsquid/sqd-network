@@ -355,8 +355,8 @@ impl WorkerAssignment {
             .lookup_by_key(write_schema_id, |roster, key| roster.key_compare_with_value(*key))
     }
 
-    /// The tables a chunk contains: the whole roster when the dataset carries no bitmap column,
-    /// otherwise the tables its bits select. `None` if the chunk's write schema has no roster here.
+    /// The tables a chunk contains: the whole roster when it sets no bitmap, otherwise the tables
+    /// its bits select. `None` if the chunk's write schema has no roster here.
     ///
     /// Bits beyond the roster are ignored, so a malformed buffer can't name a table outside it.
     pub fn chunk_tables<'a>(
@@ -410,11 +410,9 @@ impl<'a> WorkerChunk<'a> {
         self.dataset.versions().map_or(0, |column| column.get(self.index as usize))
     }
 
-    /// The write schema the chunk was written under, resolved through the run it falls in.
+    /// The write schema the chunk was written under.
     pub fn write_schema_id(&self) -> u32 {
-        self.dataset
-            .write_schema_at(self.index)
-            .expect("the first run covers chunk 0 onwards")
+        self.dataset.write_schema_ids().get(self.index as usize)
     }
 
     /// The top-level directory the chunk lives under, resolved through the run it falls in.
@@ -444,13 +442,14 @@ impl<'a> WorkerChunk<'a> {
         ))
     }
 
-    /// This chunk's slice of the dataset's `tables_present` column, or `None` when the dataset
-    /// carries none and every chunk holds its whole roster.
+    /// This chunk's bitmap, or `None` when it holds every table of its write schema — which is
+    /// both an empty slice and a dataset carrying no bitmaps at all.
     pub fn tables_present(&self) -> Option<&'a [u8]> {
-        let column = self.dataset.tables_present()?.bytes();
-        let stride = self.dataset.tables_present_stride() as usize;
-        let start = self.index as usize * stride;
-        column.get(start..start + stride)
+        let offsets = self.dataset.tables_present_offsets()?;
+        let start = offsets.get(self.index as usize) as usize;
+        let end = offsets.get(self.index as usize + 1) as usize;
+        let bits = self.dataset.tables_present()?.bytes().get(start..end)?;
+        (!bits.is_empty()).then_some(bits)
     }
 
     /// Where the chunk's files live: the dataset's `base_url`, then the prefix of the generation
@@ -503,13 +502,6 @@ impl<'a> assignment_fb::WorkerAssignmentDataset<'a> {
         let tops = self.tops();
         let above = partition_point(tops.len(), |i| tops.get(i).first_chunk_index() <= index);
         Some(tops.get(above.checked_sub(1)?).top())
-    }
-
-    /// Likewise for the write schema.
-    fn write_schema_at(&self, index: u32) -> Option<u32> {
-        let runs = self.write_schemas();
-        let above = partition_point(runs.len(), |i| runs.get(i).first_chunk_index() <= index);
-        Some(runs.get(above.checked_sub(1)?).write_schema_id())
     }
 }
 

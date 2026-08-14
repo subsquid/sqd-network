@@ -4,133 +4,6 @@ extern crate alloc;
 
 use crate::assignment_generated::*;
 
-// struct SchemaRun, aligned to 4
-#[repr(transparent)]
-#[derive(Clone, Copy, PartialEq)]
-pub struct SchemaRun(pub [u8; 8]);
-impl Default for SchemaRun { 
-  fn default() -> Self { 
-    Self([0; 8])
-  }
-}
-impl ::core::fmt::Debug for SchemaRun {
-  fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
-    f.debug_struct("SchemaRun")
-      .field("first_chunk_index", &self.first_chunk_index())
-      .field("write_schema_id", &self.write_schema_id())
-      .finish()
-  }
-}
-
-impl ::flatbuffers::SimpleToVerifyInSlice for SchemaRun {}
-impl<'a> ::flatbuffers::Follow<'a> for SchemaRun {
-  type Inner = &'a SchemaRun;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    unsafe { <&'a SchemaRun>::follow(buf, loc) }
-  }
-}
-impl<'a> ::flatbuffers::Follow<'a> for &'a SchemaRun {
-  type Inner = &'a SchemaRun;
-  #[inline]
-  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-    unsafe { ::flatbuffers::follow_cast_ref::<SchemaRun>(buf, loc) }
-  }
-}
-impl<'b> ::flatbuffers::Push for SchemaRun {
-    type Output = SchemaRun;
-    #[inline]
-    unsafe fn push(&self, dst: &mut [u8], _written_len: usize) {
-        let src = unsafe { ::core::slice::from_raw_parts(self as *const SchemaRun as *const u8, <Self as ::flatbuffers::Push>::size()) };
-        dst.copy_from_slice(src);
-    }
-    #[inline]
-    fn alignment() -> ::flatbuffers::PushAlignment {
-        ::flatbuffers::PushAlignment::new(4)
-    }
-}
-
-impl<'a> ::flatbuffers::Verifiable for SchemaRun {
-  #[inline]
-  fn run_verifier(
-    v: &mut ::flatbuffers::Verifier, pos: usize
-  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
-    v.in_buffer::<Self>(pos)
-  }
-}
-
-impl<'a> SchemaRun {
-  #[allow(clippy::too_many_arguments)]
-  pub fn new(
-    first_chunk_index: u32,
-    write_schema_id: u32,
-  ) -> Self {
-    let mut s = Self([0; 8]);
-    s.set_first_chunk_index(first_chunk_index);
-    s.set_write_schema_id(write_schema_id);
-    s
-  }
-
-  pub fn first_chunk_index(&self) -> u32 {
-    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
-      ::core::ptr::copy_nonoverlapping(
-        self.0[0..].as_ptr(),
-        mem.as_mut_ptr() as *mut u8,
-        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
-      );
-      mem.assume_init()
-    })
-  }
-
-  pub fn set_first_chunk_index(&mut self, x: u32) {
-    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    unsafe {
-      ::core::ptr::copy_nonoverlapping(
-        &x_le as *const _ as *const u8,
-        self.0[0..].as_mut_ptr(),
-        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
-      );
-    }
-  }
-
-  pub fn write_schema_id(&self) -> u32 {
-    let mut mem = ::core::mem::MaybeUninit::<<u32 as ::flatbuffers::EndianScalar>::Scalar>::uninit();
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    ::flatbuffers::EndianScalar::from_little_endian(unsafe {
-      ::core::ptr::copy_nonoverlapping(
-        self.0[4..].as_ptr(),
-        mem.as_mut_ptr() as *mut u8,
-        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
-      );
-      mem.assume_init()
-    })
-  }
-
-  pub fn set_write_schema_id(&mut self, x: u32) {
-    let x_le = ::flatbuffers::EndianScalar::to_little_endian(x);
-    // Safety:
-    // Created from a valid Table for this object
-    // Which contains a valid value in this slot
-    unsafe {
-      ::core::ptr::copy_nonoverlapping(
-        &x_le as *const _ as *const u8,
-        self.0[4..].as_mut_ptr(),
-        ::core::mem::size_of::<<u32 as ::flatbuffers::EndianScalar>::Scalar>(),
-      );
-    }
-  }
-
-}
-
 pub enum WorkerAssignmentOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -537,9 +410,9 @@ impl<'a> WorkerAssignmentDataset<'a> {
   pub const VT_HASHES: ::flatbuffers::VOffsetT = 16;
   pub const VT_TOPS: ::flatbuffers::VOffsetT = 18;
   pub const VT_SIZES: ::flatbuffers::VOffsetT = 20;
-  pub const VT_WRITE_SCHEMAS: ::flatbuffers::VOffsetT = 22;
-  pub const VT_TABLES_PRESENT: ::flatbuffers::VOffsetT = 24;
-  pub const VT_TABLES_PRESENT_STRIDE: ::flatbuffers::VOffsetT = 26;
+  pub const VT_WRITE_SCHEMA_IDS: ::flatbuffers::VOffsetT = 22;
+  pub const VT_TABLES_PRESENT_OFFSETS: ::flatbuffers::VOffsetT = 24;
+  pub const VT_TABLES_PRESENT: ::flatbuffers::VOffsetT = 26;
   pub const VT_VERSIONS: ::flatbuffers::VOffsetT = 28;
   pub const VT_WORKER_OFFSETS: ::flatbuffers::VOffsetT = 30;
   pub const VT_WORKER_INDEXES: ::flatbuffers::VOffsetT = 32;
@@ -559,7 +432,8 @@ impl<'a> WorkerAssignmentDataset<'a> {
     if let Some(x) = args.worker_offsets { builder.add_worker_offsets(x); }
     if let Some(x) = args.versions { builder.add_versions(x); }
     if let Some(x) = args.tables_present { builder.add_tables_present(x); }
-    if let Some(x) = args.write_schemas { builder.add_write_schemas(x); }
+    if let Some(x) = args.tables_present_offsets { builder.add_tables_present_offsets(x); }
+    if let Some(x) = args.write_schema_ids { builder.add_write_schema_ids(x); }
     if let Some(x) = args.sizes { builder.add_sizes(x); }
     if let Some(x) = args.tops { builder.add_tops(x); }
     if let Some(x) = args.hashes { builder.add_hashes(x); }
@@ -568,7 +442,6 @@ impl<'a> WorkerAssignmentDataset<'a> {
     if let Some(x) = args.generations { builder.add_generations(x); }
     if let Some(x) = args.base_url { builder.add_base_url(x); }
     if let Some(x) = args.id { builder.add_id(x); }
-    builder.add_tables_present_stride(args.tables_present_stride);
     builder.finish()
   }
 
@@ -647,11 +520,18 @@ impl<'a> WorkerAssignmentDataset<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u32>>>(WorkerAssignmentDataset::VT_SIZES, None).unwrap()}
   }
   #[inline]
-  pub fn write_schemas(&self) -> ::flatbuffers::Vector<'a, SchemaRun> {
+  pub fn write_schema_ids(&self) -> ::flatbuffers::Vector<'a, u32> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, SchemaRun>>>(WorkerAssignmentDataset::VT_WRITE_SCHEMAS, None).unwrap()}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u32>>>(WorkerAssignmentDataset::VT_WRITE_SCHEMA_IDS, None).unwrap()}
+  }
+  #[inline]
+  pub fn tables_present_offsets(&self) -> Option<::flatbuffers::Vector<'a, u32>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u32>>>(WorkerAssignmentDataset::VT_TABLES_PRESENT_OFFSETS, None)}
   }
   #[inline]
   pub fn tables_present(&self) -> Option<::flatbuffers::Vector<'a, u8>> {
@@ -659,13 +539,6 @@ impl<'a> WorkerAssignmentDataset<'a> {
     // Created from valid Table for this object
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u8>>>(WorkerAssignmentDataset::VT_TABLES_PRESENT, None)}
-  }
-  #[inline]
-  pub fn tables_present_stride(&self) -> u8 {
-    // Safety:
-    // Created from valid Table for this object
-    // which contains a valid value in this slot
-    unsafe { self._tab.get::<u8>(WorkerAssignmentDataset::VT_TABLES_PRESENT_STRIDE, Some(0)).unwrap()}
   }
   #[inline]
   pub fn versions(&self) -> Option<::flatbuffers::Vector<'a, u32>> {
@@ -705,9 +578,9 @@ impl ::flatbuffers::Verifiable for WorkerAssignmentDataset<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ChunkHash>>>("hashes", Self::VT_HASHES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, TopRun>>>("tops", Self::VT_TOPS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("sizes", Self::VT_SIZES, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, SchemaRun>>>("write_schemas", Self::VT_WRITE_SCHEMAS, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("write_schema_ids", Self::VT_WRITE_SCHEMA_IDS, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("tables_present_offsets", Self::VT_TABLES_PRESENT_OFFSETS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u8>>>("tables_present", Self::VT_TABLES_PRESENT, false)?
-     .visit_field::<u8>("tables_present_stride", Self::VT_TABLES_PRESENT_STRIDE, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("versions", Self::VT_VERSIONS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("worker_offsets", Self::VT_WORKER_OFFSETS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("worker_indexes", Self::VT_WORKER_INDEXES, true)?
@@ -725,9 +598,9 @@ pub struct WorkerAssignmentDatasetArgs<'a> {
     pub hashes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ChunkHash>>>,
     pub tops: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, TopRun>>>,
     pub sizes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
-    pub write_schemas: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, SchemaRun>>>,
+    pub write_schema_ids: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
+    pub tables_present_offsets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
     pub tables_present: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u8>>>,
-    pub tables_present_stride: u8,
     pub versions: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
     pub worker_offsets: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u32>>>,
     pub worker_indexes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, u16>>>,
@@ -745,9 +618,9 @@ impl<'a> Default for WorkerAssignmentDatasetArgs<'a> {
       hashes: None, // required field
       tops: None, // required field
       sizes: None, // required field
-      write_schemas: None, // required field
+      write_schema_ids: None, // required field
+      tables_present_offsets: None,
       tables_present: None,
-      tables_present_stride: 0,
       versions: None,
       worker_offsets: None, // required field
       worker_indexes: None, // required field
@@ -797,16 +670,16 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WorkerAssignmentDatasetBuilde
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(WorkerAssignmentDataset::VT_SIZES, sizes);
   }
   #[inline]
-  pub fn add_write_schemas(&mut self, write_schemas: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , SchemaRun>>) {
-    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(WorkerAssignmentDataset::VT_WRITE_SCHEMAS, write_schemas);
+  pub fn add_write_schema_ids(&mut self, write_schema_ids: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u32>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(WorkerAssignmentDataset::VT_WRITE_SCHEMA_IDS, write_schema_ids);
+  }
+  #[inline]
+  pub fn add_tables_present_offsets(&mut self, tables_present_offsets: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u32>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(WorkerAssignmentDataset::VT_TABLES_PRESENT_OFFSETS, tables_present_offsets);
   }
   #[inline]
   pub fn add_tables_present(&mut self, tables_present: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u8>>) {
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(WorkerAssignmentDataset::VT_TABLES_PRESENT, tables_present);
-  }
-  #[inline]
-  pub fn add_tables_present_stride(&mut self, tables_present_stride: u8) {
-    self.fbb_.push_slot::<u8>(WorkerAssignmentDataset::VT_TABLES_PRESENT_STRIDE, tables_present_stride, 0);
   }
   #[inline]
   pub fn add_versions(&mut self, versions: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , u32>>) {
@@ -838,7 +711,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> WorkerAssignmentDatasetBuilde
     self.fbb_.required(o, WorkerAssignmentDataset::VT_HASHES,"hashes");
     self.fbb_.required(o, WorkerAssignmentDataset::VT_TOPS,"tops");
     self.fbb_.required(o, WorkerAssignmentDataset::VT_SIZES,"sizes");
-    self.fbb_.required(o, WorkerAssignmentDataset::VT_WRITE_SCHEMAS,"write_schemas");
+    self.fbb_.required(o, WorkerAssignmentDataset::VT_WRITE_SCHEMA_IDS,"write_schema_ids");
     self.fbb_.required(o, WorkerAssignmentDataset::VT_WORKER_OFFSETS,"worker_offsets");
     self.fbb_.required(o, WorkerAssignmentDataset::VT_WORKER_INDEXES,"worker_indexes");
     ::flatbuffers::WIPOffset::new(o.value())
@@ -857,9 +730,9 @@ impl ::core::fmt::Debug for WorkerAssignmentDataset<'_> {
       ds.field("hashes", &self.hashes());
       ds.field("tops", &self.tops());
       ds.field("sizes", &self.sizes());
-      ds.field("write_schemas", &self.write_schemas());
+      ds.field("write_schema_ids", &self.write_schema_ids());
+      ds.field("tables_present_offsets", &self.tables_present_offsets());
       ds.field("tables_present", &self.tables_present());
-      ds.field("tables_present_stride", &self.tables_present_stride());
       ds.field("versions", &self.versions());
       ds.field("worker_offsets", &self.worker_offsets());
       ds.field("worker_indexes", &self.worker_indexes());

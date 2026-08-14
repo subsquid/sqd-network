@@ -56,14 +56,6 @@ table GenerationEntry {
   base_url: string (required, id: 1);  // relative to the dataset's, e.g. "_bf/01HQZK..."
 }
 
-// A run of chunks sharing one write schema. Schemas hold for a whole dataset until it evolves and
-// then hold again, so runs cost nothing where a dense column would cost 4 bytes a chunk. Searched
-// like `tops`, under the same invariant: the first run starts at chunk 0, the rest strictly ascend.
-struct SchemaRun {
-  first_chunk_index: uint32;
-  write_schema_id: uint32;
-}
-
 table WorkerAssignmentDataset {
   id: string (key, id: 0);  // e.g. "s3://solana-mainnet-2"
   last_block: uint64 (id: 1);
@@ -87,14 +79,19 @@ table WorkerAssignmentDataset {
   hashes: [ChunkHash] (required, id: 6);
   tops: [TopRun] (required, id: 7);
   sizes: [uint32] (required, id: 8);
-  write_schemas: [SchemaRun] (required, id: 9);
+  write_schema_ids: [uint32] (required, id: 9);
 
-  // Bitmaps over the tables of each chunk's write schema, `tables_present_stride` bytes per chunk
-  // so the column stays indexable even where a dataset's schemas differ in table count. Bit i
-  // (byte i/8, LSB-first) set = that roster's tables[i] present. Absent = every chunk holds every
-  // table of its schema, which is every dataset nothing has trimmed.
-  tables_present: [ubyte] (id: 10);
-  tables_present_stride: uint8 (id: 11);
+  // Bitmap over the tables of the `schemas` entry whose `write_schema_id` equals the chunk's --
+  // found by key lookup, since ids are sparse. Bit i (byte i/8, LSB-first) set = that roster's
+  // tables[i] present.
+  //
+  // Per-chunk and variable length, since rosters differ in size, so the bits are flattened and
+  // `tables_present_offsets` cuts them up: chunk i's bitmap runs from offsets[i] to offsets[i+1],
+  // making that column one longer than the others. An empty slice means every table is present,
+  // and chunks with identical bitmaps point at the same one. Both absent = no chunk anywhere in
+  // the dataset trims its tables.
+  tables_present_offsets: [uint32] (id: 10);
+  tables_present: [ubyte] (id: 11);
 
   // Dense, not runs: a run entry costs 8 bytes against this column's 4, so it pays only while one
   // covers more than two chunks, which fragmented backfills break. The column appears with the

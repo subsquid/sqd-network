@@ -44,6 +44,7 @@ fn test_worker_assignment_round_trip() {
         .size(1000000)
         .write_schema_id(7)
         .tables_present(&["blocks", "transactions"])
+        .unwrap()
         .worker_indexes(&[0])
         .finish()
         .unwrap();
@@ -68,6 +69,7 @@ fn test_worker_assignment_round_trip() {
         .size(1000000)
         .write_schema_id(7)
         .tables_present(&["blocks", "transactions"])
+        .unwrap()
         .worker_indexes(&[0])
         .finish()
         .unwrap();
@@ -103,11 +105,7 @@ fn test_worker_assignment_round_trip() {
         assignment.chunk_tables(chunks[0]).unwrap().collect::<Vec<_>>(),
         vec!["blocks", "transactions"]
     );
-    assert_eq!(
-        assignment.chunk_tables(chunks[1]).unwrap().collect::<Vec<_>>(),
-        vec!["blocks", "logs", "transactions"],
-        "a chunk that set no tables holds its whole roster"
-    );
+    assert!(chunks[1].tables_present().is_none(), "unset tables_present means all present");
     assert_eq!(
         assignment.chunk_tables(chunks[1]).unwrap().collect::<Vec<_>>(),
         vec!["blocks", "logs", "transactions"],
@@ -309,7 +307,6 @@ fn test_tables_present_rejects_table_outside_write_schema() {
     let Err(error) = staged_chunk(&mut builder)
         .write_schema_id(7)
         .tables_present(&["blocks", "traces"])
-        .finish()
     else {
         panic!("a table outside the write schema's roster must be rejected");
     };
@@ -326,7 +323,7 @@ fn test_tables_present_requires_write_schema_id_first() {
     let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks"]).unwrap();
 
-    let Err(error) = staged_chunk(&mut builder).tables_present(&["blocks"]).finish() else {
+    let Err(error) = staged_chunk(&mut builder).tables_present(&["blocks"]) else {
         panic!("tables_present encodes against the roster, so it needs the schema id");
     };
 
@@ -400,37 +397,26 @@ fn test_finish_rejects_unregistered_write_schema() {
     );
 }
 
-/// Order used to matter: the bitmap was encoded the moment `tables_present` was called, so a
-/// later `write_schema_id` left it pointing at another roster's bits, which `finish` had to
-/// reject. Columns resolve the names against the final schema instead, so the hazard is gone.
-#[cfg(all(feature = "builder", feature = "reader"))]
+/// A bitmap only means anything against the roster it was encoded from, so a later
+/// `write_schema_id` must not silently repoint it at another schema's tables.
+#[cfg(feature = "builder")]
 #[test]
-fn test_tables_present_follows_a_later_write_schema_id() {
-    let mut builder = test_builder().check_continuity(false);
+fn test_finish_rejects_write_schema_changed_after_tables_present() {
+    let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks", "logs"]).unwrap();
     builder.register_write_schema(8, &["blocks", "traces"]).unwrap();
 
-    staged_chunk(&mut builder)
+    let error = staged_chunk(&mut builder)
         .write_schema_id(7)
         .tables_present(&["logs"])
+        .unwrap()
         .write_schema_id(8)
-        .tables_present(&["traces"])
         .finish()
-        .expect("the names resolve against schema 8, which holds them");
-    builder.finish_dataset().unwrap();
-    builder.add_worker_with_timestamp(
-        common::get_test_keypair().public().to_peer_id(),
-        sqd_assignments::WorkerStatus::Ok,
-        1750000000,
-    );
+        .expect_err("the bitmap selects schema 7's 'logs', but schema 8 has 'traces' in that bit");
 
-    let assignment = sqd_assignments::WorkerAssignment::from_owned(builder.finish()).unwrap();
-    let chunk = assignment.get_dataset("s3://solana-mainnet-2").unwrap().chunk(0).unwrap();
-    assert_eq!(chunk.write_schema_id(), 8);
-    assert_eq!(
-        assignment.chunk_tables(chunk).unwrap().collect::<Vec<_>>(),
-        vec!["traces"],
-        "the bitmap indexes schema 8's roster, not the one set first"
+    assert!(
+        error.to_string().contains("bitmap over write schema 7's roster"),
+        "unexpected error: {error}"
     );
 }
 

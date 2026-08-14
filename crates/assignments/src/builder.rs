@@ -371,13 +371,13 @@ struct WorkerDatasetColumns {
     /// One entry per run, appended only when a chunk's top differs from the previous chunk's.
     tops: Vec<assignment_fb::TopRun>,
     sizes: Vec<u32>,
-    /// Likewise, appended only when a chunk's write schema differs from the previous chunk's.
-    write_schemas: Vec<assignment_fb::SchemaRun>,
+    write_schema_ids: Vec<u32>,
     versions: Vec<u32>,
-    /// Bit i of chunk c sits at `tables_present[c * stride + i / 8]`. The stride is the widest
-    /// roster any of this dataset's chunks uses, so the column stays indexable when they differ.
+    /// Flattened per-chunk bitmaps, cut up by `tables_present_ends`.
     tables_present: Vec<u8>,
-    /// Whether any chunk actually trimmed its tables; if none did, the column is dropped.
+    /// Where each chunk's bitmap ends; the emitted column is a leading 0 then these.
+    tables_present_ends: Vec<u32>,
+    /// Whether any chunk trimmed its tables; if none did, both columns are dropped.
     any_tables_trimmed: bool,
     /// Where each chunk's worker slice ends; the emitted CSR column is a leading 0 then these.
     worker_ends: Vec<u32>,
@@ -522,25 +522,23 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         let chunk_count = columns.first_blocks.len();
         anyhow::ensure!(chunk_count > 0, "At least one chunk should be present in the dataset");
         check_runs(columns.tops.iter().map(|run| run.first_chunk_index()), "top")?;
-        check_runs(
-            columns.write_schemas.iter().map(|run| run.first_chunk_index()),
-            "write schema",
-        )?;
-
-        let stride = if chunk_count == 0 {
-            0
-        } else {
-            columns.tables_present.len() / chunk_count
-        };
         let first_blocks = self.builder.create_vector(&columns.first_blocks);
         let block_deltas = self.builder.create_vector(&columns.block_deltas);
         let hashes = self.builder.create_vector(&columns.hashes);
         let tops = self.builder.create_vector(&columns.tops);
         let sizes = self.builder.create_vector(&columns.sizes);
-        let write_schemas = self.builder.create_vector(&columns.write_schemas);
-        let tables_present = columns
-            .any_tables_trimmed
-            .then(|| self.builder.create_vector(&columns.tables_present));
+        let write_schema_ids = self.builder.create_vector(&columns.write_schema_ids);
+        let (tables_present_offsets, tables_present) = if columns.any_tables_trimmed {
+            let mut offsets = Vec::with_capacity(columns.tables_present_ends.len() + 1);
+            offsets.push(0);
+            offsets.extend_from_slice(&columns.tables_present_ends);
+            (
+                Some(self.builder.create_vector(&offsets)),
+                Some(self.builder.create_vector(&columns.tables_present)),
+            )
+        } else {
+            (None, None)
+        };
         let versions = columns
             .versions
             .iter()
@@ -568,9 +566,9 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
                 hashes: Some(hashes),
                 tops: Some(tops),
                 sizes: Some(sizes),
-                write_schemas: Some(write_schemas),
+                write_schema_ids: Some(write_schema_ids),
+                tables_present_offsets,
                 tables_present,
-                tables_present_stride: stride as u8,
                 versions,
                 worker_offsets: Some(worker_offsets),
                 worker_indexes: Some(worker_indexes),
@@ -773,8 +771,8 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     }
 }
 
-/// A searched run column is only sound if it starts at chunk 0 and ascends; otherwise the reader's
-/// "last run at or before this chunk" has nothing to land on.
+/// The searched `tops` column is only sound if it starts at chunk 0 and ascends; otherwise the
+/// reader's "last run at or before this chunk" has nothing to land on.
 fn check_runs(mut starts: impl Iterator<Item = u32>, what: &str) -> anyhow::Result<()> {
     let Some(first) = starts.next() else {
         anyhow::bail!("a dataset with chunks must have at least one {what} run");
@@ -798,8 +796,9 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     dataset_base_url: Option<String>,
     version: u32,
     write_schema_id: Option<u32>,
-    /// The tables the chunk holds, resolved against its schema's roster by `finish`.
-    tables_present: Option<Vec<String>>,
+    /// The bitmap and the write schema it was encoded against — they can diverge if
+    /// `write_schema_id` is set again afterwards, which `finish` rejects.
+    tables_present: Option<(u32, Vec<u8>)>,
     worker_indexes: Vec<u16>,
 }
 
@@ -867,16 +866,46 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         self
     }
 
-    /// The subset of the write schema's tables this chunk contains. Omit when every table is
-    /// present. `tables` must be sorted and duplicate-free like the roster, so the two merge in
-    /// one pass.
-    pub fn tables_present<S: AsRef<str>>(mut self, tables: &[S]) -> Self {
+    /// The subset of the write schema's tables this chunk contains, encoded as a bitmap over its
+    /// roster. Omit when every table is present. `tables` must be sorted and duplicate-free like
+    /// the roster, so the two merge in one pass; only debug builds assert it, but an unsorted list
+    /// still errors below rather than yielding a wrong bitmap.
+    ///
+    /// # Errors
+    ///
+    /// If [`Self::write_schema_id`] is unset or names an unregistered schema, or a table is
+    /// absent from that schema's roster — which means chunk and write schema disagree.
+    pub fn tables_present<S: AsRef<str>>(mut self, tables: &[S]) -> anyhow::Result<Self> {
         debug_assert!(
             tables.is_sorted_by(|a, b| a.as_ref() < b.as_ref()),
             "tables_present must be sorted and free of duplicates"
         );
-        self.tables_present = Some(tables.iter().map(|t| t.as_ref().to_owned()).collect());
-        self
+        let write_schema_id = self
+            .write_schema_id
+            .context("write_schema_id must be set before tables_present")?;
+        let roster = self
+            .p
+            .write_schemas
+            .get(&write_schema_id)
+            .with_context(|| format!("write schema {write_schema_id} is not registered"))?;
+        let mut bits = vec![0u8; roster.len().div_ceil(8)];
+        // Both sides are sorted, so one pass over each suffices: the roster cursor only ever
+        // moves forward.
+        let mut index = 0;
+        for table in tables {
+            let name = table.as_ref();
+            while index < roster.len() && roster[index].as_str() < name {
+                index += 1;
+            }
+            anyhow::ensure!(
+                roster.get(index).is_some_and(|t| t == name),
+                "table '{name}' is absent from write schema {write_schema_id}'s roster"
+            );
+            bits[index / 8] |= 1u8 << (index % 8);
+            index += 1;
+        }
+        self.tables_present = Some((write_schema_id, bits));
+        Ok(self)
     }
 
     pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
@@ -904,44 +933,28 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             block_range.end()
         );
         let write_schema_id = self.write_schema_id.context("write_schema_id must be set")?;
-        let roster = self
-            .p
-            .write_schemas
-            .get(&write_schema_id)
-            .with_context(|| format!("write schema {write_schema_id} is not registered"))?;
+        // Chunks with every table present never call `tables_present`, so this is the only place
+        // their schema reference gets checked.
+        anyhow::ensure!(
+            self.p.write_schemas.contains_key(&write_schema_id),
+            "write schema {write_schema_id} is not registered"
+        );
         anyhow::ensure!(
             self.version == 0 || self.p.current_generations.contains_key(&self.version),
             "generation {} is not registered for this dataset",
             self.version
         );
-
-        // Bits over this chunk's own roster, widened to the dataset's stride when appended.
-        let mut bits = vec![0u8; roster.len().div_ceil(8)];
-        let trimmed = match &self.tables_present {
-            None => {
-                bits.iter_mut().for_each(|byte| *byte = 0xff);
-                // Bits past the roster stay clear, so a full chunk reads back as its whole roster.
-                if roster.len() % 8 != 0 {
-                    let last = bits.len() - 1;
-                    bits[last] = (1u8 << (roster.len() % 8)) - 1;
-                }
-                false
+        let bits = match self.tables_present {
+            Some((encoded_against, bits)) => {
+                anyhow::ensure!(
+                    encoded_against == write_schema_id,
+                    "tables_present is a bitmap over write schema {encoded_against}'s roster, \
+                     but the chunk declares write schema {write_schema_id}"
+                );
+                bits
             }
-            Some(tables) => {
-                let mut index = 0;
-                for table in tables {
-                    while index < roster.len() && roster[index].as_str() < table.as_str() {
-                        index += 1;
-                    }
-                    anyhow::ensure!(
-                        roster.get(index).is_some_and(|t| t == table),
-                        "table '{table}' is absent from write schema {write_schema_id}'s roster"
-                    );
-                    bits[index / 8] |= 1u8 << (index % 8);
-                    index += 1;
-                }
-                tables.len() != roster.len()
-            }
+            // An empty bitmap is how "every table present" travels.
+            None => Vec::new(),
         };
 
         let base_url = self.dataset_base_url.context("dataset_base_url must be set")?;
@@ -956,7 +969,6 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             write_schema_id,
             version: self.version,
             bits,
-            trimmed,
             worker_indexes: &self.worker_indexes,
         })
     }
@@ -973,7 +985,6 @@ struct PushChunk<'a> {
     write_schema_id: u32,
     version: u32,
     bits: Vec<u8>,
-    trimmed: bool,
     worker_indexes: &'a [u16],
 }
 
@@ -1019,23 +1030,14 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         if self.columns.tops.last().is_none_or(|run| run.top() != chunk.top) {
             self.columns.tops.push(assignment_fb::TopRun::new(index, chunk.top));
         }
-        if self
-            .columns
-            .write_schemas
-            .last()
-            .is_none_or(|run| run.write_schema_id() != chunk.write_schema_id)
-        {
-            self.columns
-                .write_schemas
-                .push(assignment_fb::SchemaRun::new(index, chunk.write_schema_id));
-        }
         self.columns.first_blocks.push(*chunk.block_range.start());
         self.columns.block_deltas.push(delta);
         self.columns.hashes.push(chunk.hash);
         self.columns.sizes.push(chunk.size);
+        self.columns.write_schema_ids.push(chunk.write_schema_id);
         self.columns.versions.push(chunk.version);
-        self.columns.any_tables_trimmed |= chunk.trimmed;
-        append_bitmap(&mut self.columns.tables_present, index as usize, &chunk.bits);
+        self.columns.any_tables_trimmed |= !chunk.bits.is_empty();
+        self.columns.push_bitmap(chunk.bits);
         self.columns.worker_indexes.extend_from_slice(chunk.worker_indexes);
         let end = self
             .columns
@@ -1051,22 +1053,17 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     }
 }
 
-/// Appends one chunk's bits, widening the whole column if this chunk's roster is the widest yet —
-/// the stride has to hold for every chunk, and is only known once they have all been staged.
-fn append_bitmap(column: &mut Vec<u8>, index: usize, bits: &[u8]) {
-    let stride = if index == 0 { 0 } else { column.len() / index };
-    if bits.len() > stride {
-        let wider = bits.len();
-        let mut widened = vec![0u8; wider * index];
-        for chunk in 0..index {
-            widened[chunk * wider..chunk * wider + stride]
-                .copy_from_slice(&column[chunk * stride..(chunk + 1) * stride]);
-        }
-        *column = widened;
-        column.extend_from_slice(bits);
-    } else {
-        column.extend_from_slice(bits);
-        column.resize(column.len() + stride - bits.len(), 0);
+impl WorkerDatasetColumns {
+    /// Appends one chunk's bitmap. An empty one keeps an empty slice, which is how "every table
+    /// present" travels.
+    ///
+    /// Identical bitmaps are not shared: CSR offsets ascend, so a chunk's slice starts where the
+    /// previous one ended and cannot point backwards. Nothing is lost by it — the per-chunk
+    /// vectors were interned to save a 4-byte pointer each, and here the bits are inline and
+    /// narrower than the pointer would have been.
+    fn push_bitmap(&mut self, bits: Vec<u8>) {
+        self.tables_present.extend_from_slice(&bits);
+        self.tables_present_ends.push(self.tables_present.len() as u32);
     }
 }
 

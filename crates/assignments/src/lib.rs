@@ -41,9 +41,7 @@ pub mod fb {
             Chunk, ChunkHash, Dataset, EncryptedHeaders, FileUrl, TopRun, WorkerEntry, WorkerId,
         },
         portal_assignment_generated::{PortalAssignmentDataset, PortalEntry},
-        worker_assignment_generated::{
-            GenerationEntry, SchemaRun, TableRoster, WorkerAssignmentDataset,
-        },
+        worker_assignment_generated::{GenerationEntry, TableRoster, WorkerAssignmentDataset},
     };
 }
 
