@@ -32,9 +32,5 @@ rand = "0.8.5"
 serde_json = "1.0"
 
 [[example]]
-name = "timestamp_report"
-required-features = ["reader"]
-
-[[example]]
 name = "convert_assignment"
 required-features = ["builder", "reader"]
