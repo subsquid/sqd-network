@@ -26,12 +26,25 @@
 //!
 //! # Fixture
 //!
-//! Synthetic, so the benchmark is self-contained and reproducible, but shaped like the mainnet
-//! assignment it stands in for: 200 datasets, ~2M chunks, 7 replicas per chunk, 2000 workers,
-//! head hash on each dataset's last chunk only. Large enough that random access misses cache,
-//! which is most of what these numbers are about.
+//! Synthetic by default, so the benchmark is self-contained and reproducible, but shaped like the
+//! mainnet assignment it stands in for: 200 datasets, ~2M chunks, 7 replicas per chunk, 2000
+//! workers, head hash on each dataset's last chunk only. Large enough that random access misses
+//! cache, which is most of what these numbers are about.
+//!
+//! To run against a real assignment instead, point `SQD_BENCH_LEGACY` at one and let the
+//! converter have produced the split pair beside it — the same stem with `.worker.fb` and
+//! `.portal.fb`, which is what `convert_assignment` writes:
+//!
+//! ```text
+//! cd /tmp && cargo run --release --manifest-path <repo>/Cargo.toml -p sqd-assignments \
+//!     --all-features --example convert_assignment -- mainnet.fb.1.gz
+//! SQD_BENCH_LEGACY=/tmp/mainnet.fb.1.gz cargo bench -p sqd-assignments --bench assignment
+//! ```
+//!
+//! The legacy input may be plain, gzipped or zstd-compressed. Mainnet needs about 4 GB of memory:
+//! all three blobs are held at once, and `load_verified` copies the largest per iteration.
 
-use std::sync::LazyLock;
+use std::{io::Read, path::Path, sync::LazyLock};
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use libp2p_identity::{Keypair, PeerId};
@@ -212,7 +225,103 @@ fn build() -> Fixture {
     }
 }
 
-static FIXTURE: LazyLock<Fixture> = LazyLock::new(build);
+/// Reads an assignment, decompressing it if it arrives that way.
+fn read_blob(path: &Path) -> Vec<u8> {
+    let raw = std::fs::read(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+    match raw.first_chunk::<4>() {
+        Some([0x1f, 0x8b, ..]) => {
+            let mut out = Vec::new();
+            flate2::read::GzDecoder::new(&raw[..]).read_to_end(&mut out).expect("gzip");
+            out
+        }
+        Some([0x28, 0xb5, 0x2f, 0xfd]) => zstd::stream::decode_all(&raw[..]).expect("zstd"),
+        _ => raw,
+    }
+}
+
+/// Loads a real assignment and the split pair the converter wrote beside it.
+fn load_real(legacy_path: &Path) -> Fixture {
+    let stem = legacy_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.split('.').next())
+        .expect("legacy path has a usable file name");
+    let dir = legacy_path.parent().unwrap_or(Path::new("."));
+    let sibling = |suffix: &str| {
+        let path = dir.join(format!("{stem}.{suffix}.fb"));
+        assert!(
+            path.exists(),
+            "{} is missing — run the convert_assignment example next to {}",
+            path.display(),
+            legacy_path.display()
+        );
+        read_blob(&path)
+    };
+
+    let legacy_bytes = read_blob(legacy_path);
+    let worker_bytes = sibling("worker");
+    let portal_bytes = sibling("portal");
+    let legacy = Assignment::from_owned(legacy_bytes.clone()).expect("legacy verifies");
+    let worker = WorkerAssignment::from_owned(worker_bytes.clone()).expect("worker verifies");
+    let portal = PortalAssignment::from_owned(portal_bytes).expect("portal verifies");
+
+    // Probe real datasets at real chunk boundaries, so every lookup resolves to something and the
+    // benchmark measures a search rather than an early return.
+    let mut rng = StdRng::seed_from_u64(11);
+    let datasets = legacy.datasets();
+    let mut probes = Vec::new();
+    let mut timestamps = Vec::new();
+    while probes.len() < LOOKUPS.max(WALK) * 4 {
+        let dataset = datasets.get(rng.gen_range(0..datasets.len()));
+        let chunks = dataset.chunks();
+        let chunk = chunks.get(rng.gen_range(0..chunks.len()));
+        let id = dataset.id().to_owned();
+        // Only keep probes both formats resolve, so neither is timed doing less work.
+        if legacy.find_chunk(&id, chunk.first_block()).is_ok()
+            && portal.find_chunk(&id, chunk.first_block()).is_ok()
+        {
+            probes.push((id.clone(), chunk.first_block()));
+        }
+        if let Some(ts) = chunk.last_block_timestamp() {
+            if timestamps.len() < LOOKUPS * 4
+                && legacy.find_chunk_by_timestamp(&id, ts).is_ok()
+                && portal.find_chunk_by_timestamp(&id, ts).is_ok()
+            {
+                timestamps.push((id, ts));
+            }
+        }
+    }
+
+    // A worker in the middle of the fleet, so its chunk count is typical.
+    let workers = legacy.workers();
+    let peer_id = legacy
+        .get_worker_by_index((workers.len() / 2) as u16)
+        .peer_id()
+        .expect("valid peer id");
+
+    eprintln!(
+        "benchmarking {} ({} datasets, {} workers, {} chunks)",
+        legacy_path.display(),
+        datasets.len(),
+        workers.len(),
+        datasets.iter().map(|d| d.chunks().len()).sum::<usize>()
+    );
+    Fixture {
+        legacy_bytes,
+        worker_bytes,
+        legacy,
+        worker,
+        portal,
+        peer_id,
+        probes,
+        timestamps,
+    }
+}
+
+static FIXTURE: LazyLock<Fixture> = LazyLock::new(|| match std::env::var("SQD_BENCH_LEGACY") {
+    Ok(path) => load_real(Path::new(&path)),
+    Err(_) => build(),
+});
 
 /// Legacy chunks carry no end block, so a stream step parses it out of the id.
 fn legacy_last_block(chunk: &sqd_assignments::fb::Chunk<'_>) -> u64 {
@@ -379,14 +488,14 @@ fn worker_access(c: &mut Criterion) {
         b.iter_batched(
             || legacy_bytes.to_vec(),
             |buf| black_box(Assignment::from_owned(buf).expect("verifies")),
-            BatchSize::LargeInput,
+            BatchSize::PerIteration,
         )
     });
     group.bench_function("worker", |b| {
         b.iter_batched(
             || worker_bytes.to_vec(),
             |buf| black_box(WorkerAssignment::from_owned(buf).expect("verifies")),
-            BatchSize::LargeInput,
+            BatchSize::PerIteration,
         )
     });
     group.finish();
