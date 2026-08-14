@@ -3,22 +3,21 @@
 //!
 //! # Running it
 //!
-//! The input is an uncompressed legacy assignment, so gunzip first. Outputs are written to the
-//! working directory, named after the input's first path component:
+//! The input may be plain, gzipped or zstd-compressed; it is detected and decompressed as needed.
+//! Outputs are written to the working directory, named after the input's first path component:
 //!
 //! ```text
-//! gunzip -k mainnet.fb.1.gz
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
-//!     mainnet.fb.1
+//!     mainnet.fb.1.gz
 //! # writes mainnet.{worker,portal}.fb alongside .fb.gz and .fb.zst
 //!
 //! # pick which compressed copies to write: gzip, zstd, both (default) or none
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
-//!     mainnet.fb.1 --compress zstd
+//!     mainnet.fb.1.gz --compress zstd
 //!
 //! # re-check outputs produced earlier, without rebuilding them
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
-//!     mainnet.fb.1 --verify-only
+//!     mainnet.fb.1.gz --verify-only
 //! ```
 //!
 //! gzip runs at its default level. zstd defaults to 9, which on assignment blobs is both smaller
@@ -52,7 +51,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -120,7 +119,7 @@ fn main() -> anyhow::Result<()> {
     let worker_path = PathBuf::from(format!("{stem}.worker.fb"));
     let portal_path = PathBuf::from(format!("{stem}.portal.fb"));
 
-    let legacy = read_legacy(&input)?;
+    let (legacy, legacy_size) = read_legacy(&input)?;
 
     if !verify_only {
         let started = Instant::now();
@@ -130,7 +129,7 @@ fn main() -> anyhow::Result<()> {
         let worker_timings = write_out(&worker_path, &worker, compress)?;
         let portal_timings = write_out(&portal_path, &portal, compress)?;
         report_sizes(
-            &input,
+            legacy_size,
             &[
                 ("worker", &worker_path, worker_timings),
                 ("portal", &portal_path, portal_timings),
@@ -148,10 +147,43 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn read_legacy(path: &Path) -> anyhow::Result<Assignment> {
-    let buf = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    eprintln!("read {} ({} bytes)", path.display(), buf.len());
-    Assignment::from_owned(buf).map_err(|e| anyhow::anyhow!("not a valid legacy assignment: {e}"))
+/// Reads an assignment, decompressing it if it arrives that way. The tool writes `.gz` and `.zst`,
+/// so it reads them too — and a flatbuffer parsed straight from compressed bytes fails with
+/// something unhelpful about alignment rather than "this is compressed".
+fn read_legacy(path: &Path) -> anyhow::Result<(Assignment, u64)> {
+    let raw = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let compressed = raw.len();
+    let buf = match raw.first_chunk::<4>() {
+        Some([0x1f, 0x8b, ..]) => {
+            let mut out = Vec::new();
+            flate2::read::GzDecoder::new(&raw[..])
+                .read_to_end(&mut out)
+                .context("input starts as gzip but does not decompress")?;
+            out
+        }
+        Some([0x28, 0xb5, 0x2f, 0xfd]) => zstd::stream::decode_all(&raw[..])
+            .context("input starts as zstd but does not decompress")?,
+        _ => raw,
+    };
+    if buf.len() == compressed {
+        eprintln!("read {} ({compressed} bytes)", path.display());
+    } else {
+        eprintln!(
+            "read {} ({compressed} bytes compressed, {} uncompressed)",
+            path.display(),
+            buf.len()
+        );
+    }
+    let uncompressed = buf.len() as u64;
+    let assignment = Assignment::from_owned(buf)
+        .map_err(|e| anyhow::anyhow!("not a valid legacy assignment: {e}"))?;
+    eprintln!(
+        "  {} datasets, {} workers, {} chunks",
+        assignment.datasets().len(),
+        assignment.workers().len(),
+        assignment.datasets().iter().map(|d| d.chunks().len()).sum::<usize>()
+    );
+    Ok((assignment, uncompressed))
 }
 
 /// A table is a `*.parquet` file with the extension stripped; every other name is ignored.
@@ -451,7 +483,7 @@ fn write_out(path: &Path, bytes: &[u8], compress: Compress) -> anyhow::Result<Ti
 }
 
 fn report_sizes(
-    input: &Path,
+    legacy: u64,
     blobs: &[(&str, &Path, Timings)],
     compress: Compress,
 ) -> anyhow::Result<()> {
@@ -464,7 +496,6 @@ fn report_sizes(
             (false, _) => "-".to_owned(),
         })
     };
-    let legacy = size(input)?;
     let zstd_label = format!("zstd -{}", compress.zstd_level);
     eprintln!("{:<8} {:>12} {:>22} {:>22}", "", "plain", "gzip", zstd_label);
     eprintln!("{:<8} {:>12} {:>22} {:>22}", "legacy", legacy, "-", "-");
