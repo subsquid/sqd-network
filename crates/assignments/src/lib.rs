@@ -66,7 +66,8 @@ pub use builder::{
 
 #[cfg(feature = "reader")]
 pub use reader::{
-    AssignedWorker, PortalAssignment, PortalChunk, PortalWorker, WorkerAssignment, WorkerChunk,
+    AssignedWorker, InvalidAssignment, PortalAssignment, PortalChunk, PortalWorker,
+    WorkerAssignment, WorkerChunk,
 };
 #[cfg(feature = "reader")]
 pub use reader::{Assignment, ChunkNotFound, ChunkRef, Worker};

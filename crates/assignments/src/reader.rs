@@ -8,6 +8,52 @@ use sha2::{digest::generic_array::GenericArray, Digest, Sha512};
 
 use crate::{assignment_fb, assignment_fb::push_segment, WorkerStatus};
 
+/// Why an assignment couldn't be read.
+#[derive(Debug, thiserror::Error)]
+pub enum InvalidAssignment {
+    /// The buffer isn't a well-formed flatbuffer.
+    #[error(transparent)]
+    Flatbuffer(#[from] flatbuffers::InvalidFlatbuffer),
+    /// The buffer is well formed, but a dataset's columns contradict each other. The flatbuffers
+    /// verifier checks each vector on its own and cannot see this: it is the columns *agreeing*
+    /// that lets a chunk index subscript all of them, and nothing in the encoding says they must.
+    #[error("dataset '{dataset}': {detail}")]
+    Columns { dataset: String, detail: String },
+}
+
+/// Checks one dataset's columns against the chunk count its `first_blocks` implies.
+///
+/// Only the invariants a reader would otherwise *panic* on, and only ones costing O(datasets) or
+/// O(runs) to establish — never O(chunks), which would undo the point of a format that loads in
+/// microseconds. Invariants a malformed blob can still break (offsets that don't ascend, say)
+/// yield wrong answers rather than crashes, and the accessors clamp accordingly.
+fn check_columns(
+    dataset: &str,
+    chunks: usize,
+    dense: &[(&str, usize)],
+    runs: &[(&str, Option<u32>)],
+) -> Result<(), InvalidAssignment> {
+    let fail = |detail: String| InvalidAssignment::Columns {
+        dataset: dataset.to_owned(),
+        detail,
+    };
+    for (name, len) in dense {
+        if *len != chunks {
+            return Err(fail(format!("{name} holds {len} of {chunks} chunks")));
+        }
+    }
+    for (name, first) in runs {
+        match first {
+            None => return Err(fail(format!("{name} is empty, so chunk 0 falls in no run"))),
+            Some(first) if *first != 0 => {
+                return Err(fail(format!("{name} starts at chunk {first}, not 0")))
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(())
+}
+
 #[ouroboros::self_referencing]
 pub struct Assignment {
     buf: Vec<u8>,
@@ -256,21 +302,58 @@ pub struct WorkerAssignment {
 }
 
 impl WorkerAssignment {
-    pub fn from_owned(buf: Vec<u8>) -> Result<Self, flatbuffers::InvalidFlatbuffer> {
+    /// Verifies the buffer, then checks that each dataset's columns agree in length — which the
+    /// flatbuffers verifier cannot, and which every chunk accessor assumes.
+    ///
+    /// # Errors
+    ///
+    /// If the buffer is not a well-formed flatbuffer, or a dataset's columns disagree.
+    pub fn from_owned(buf: Vec<u8>) -> Result<Self, InvalidAssignment> {
         let opts = flatbuffers::VerifierOptions {
             max_tables: 1_000_000_000_000,
             max_apparent_size: 1 << 40, // 1TB
             ..Default::default()
         };
-        WorkerAssignmentTryBuilder {
+        let assignment = WorkerAssignmentTryBuilder {
             buf,
             reader_builder: |buf| {
                 flatbuffers::root_with_opts::<assignment_fb::WorkerAssignment>(&opts, buf)
             },
         }
-        .try_build()
+        .try_build()?;
+        for dataset in assignment.datasets().iter() {
+            let chunks = dataset.first_blocks().len();
+            check_columns(
+                dataset.id(),
+                chunks,
+                &[
+                    ("block_deltas", dataset.block_deltas().len()),
+                    ("hashes", dataset.hashes().len()),
+                    ("sizes", dataset.sizes().len()),
+                    ("write_schema_ids", dataset.write_schema_ids().len()),
+                    ("worker_offsets", dataset.worker_offsets().len().saturating_sub(1)),
+                ]
+                .into_iter()
+                .chain(dataset.versions().map(|c| ("versions", c.len())))
+                .chain(
+                    dataset
+                        .tables_present_offsets()
+                        .map(|c| ("tables_present_offsets", c.len().saturating_sub(1))),
+                )
+                .collect::<Vec<_>>(),
+                &[(
+                    "tops",
+                    (!dataset.tops().is_empty()).then(|| dataset.tops().get(0).first_chunk_index()),
+                )],
+            )?;
+        }
+        Ok(assignment)
     }
 
+    /// # Panics
+    ///
+    /// Nothing here checks the buffer, so a chunk accessor on a malformed one may panic instead of
+    /// returning. Use [`Self::from_owned`] for anything that didn't come from this process.
     pub fn from_owned_unchecked(buf: Vec<u8>) -> Self {
         WorkerAssignmentBuilder {
             buf,
@@ -416,6 +499,11 @@ impl<'a> WorkerChunk<'a> {
     }
 
     /// The top-level directory the chunk lives under, resolved through the run it falls in.
+    ///
+    /// # Panics
+    ///
+    /// If the dataset's `tops` column is empty or doesn't start at chunk 0 — which
+    /// [`WorkerAssignment::from_owned`] rejects, but `from_owned_unchecked` does not.
     pub fn top(&self) -> u64 {
         self.dataset
             .top_at(self.index)
@@ -433,7 +521,7 @@ impl<'a> WorkerChunk<'a> {
     /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`, rebuilt from the columns it
     /// was split into. `None` on the same terms as [`Self::hash`].
     pub fn id(&self) -> Option<String> {
-        let mut id = String::with_capacity(URL_CAPACITY);
+        let mut id = String::with_capacity(ID_CAPACITY);
         push_chunk_id(&mut id, self.top(), self.first_block(), self.last_block(), self.hash()?);
         Some(id)
     }
@@ -596,19 +684,46 @@ pub struct PortalAssignment {
 }
 
 impl PortalAssignment {
-    pub fn from_owned(buf: Vec<u8>) -> Result<Self, flatbuffers::InvalidFlatbuffer> {
+    /// Verifies the buffer, then checks that each dataset's columns agree in length — see
+    /// [`WorkerAssignment::from_owned`].
+    ///
+    /// # Errors
+    ///
+    /// If the buffer is not a well-formed flatbuffer, or a dataset's columns disagree.
+    pub fn from_owned(buf: Vec<u8>) -> Result<Self, InvalidAssignment> {
         let opts = flatbuffers::VerifierOptions {
             max_tables: 1_000_000_000_000,
             max_apparent_size: 1 << 40, // 1TB
             ..Default::default()
         };
-        PortalAssignmentTryBuilder {
+        let assignment = PortalAssignmentTryBuilder {
             buf,
             reader_builder: |buf| {
                 flatbuffers::root_with_opts::<assignment_fb::PortalAssignment>(&opts, buf)
             },
         }
-        .try_build()
+        .try_build()?;
+        for dataset in assignment.datasets().iter() {
+            let chunks = dataset.first_blocks().len();
+            check_columns(
+                dataset.id(),
+                chunks,
+                &[
+                    ("block_deltas", dataset.block_deltas().len()),
+                    ("hashes", dataset.hashes().len()),
+                    ("worker_offsets", dataset.worker_offsets().len().saturating_sub(1)),
+                ]
+                .into_iter()
+                .chain(dataset.timestamps().map(|c| ("timestamps", c.len())))
+                .chain(dataset.versions().map(|c| ("versions", c.len())))
+                .collect::<Vec<_>>(),
+                &[(
+                    "tops",
+                    (!dataset.tops().is_empty()).then(|| dataset.tops().get(0).first_chunk_index()),
+                )],
+            )?;
+        }
+        Ok(assignment)
     }
 
     pub fn from_owned_unchecked(buf: Vec<u8>) -> Self {
@@ -781,7 +896,7 @@ impl<'a> PortalChunk<'a> {
     ///
     /// `None` on the same terms as [`Self::hash`].
     pub fn id(&self) -> Option<String> {
-        let mut id = String::with_capacity(URL_CAPACITY);
+        let mut id = String::with_capacity(ID_CAPACITY);
         push_chunk_id(&mut id, self.top(), self.first_block(), self.last_block(), self.hash()?);
         Some(id)
     }
@@ -853,12 +968,14 @@ fn push_chunk_id(out: &mut String, top: u64, first_block: u64, last_block: u64, 
     out.push_str(hash);
 }
 
-/// Room for a base url, a generation prefix and an id, so a url is built in one allocation.
-const URL_CAPACITY: usize = 128;
+/// `top/first-last-hash`: three ten-digit numbers, three separators, a hash of up to eight.
+const ID_CAPACITY: usize = 3 * 10 + 3 + 8;
+/// Room for a base url and a generation prefix on top of that, so a url is one allocation.
+const URL_CAPACITY: usize = ID_CAPACITY + 96;
 
 /// `slice::partition_point` over anything subscriptable: the number of leading positions for
 /// which `pred` holds. `pred` must be true for a prefix and false thereafter.
-fn partition_point(len: usize, pred: impl Fn(usize) -> bool) -> usize {
+fn partition_point(len: usize, mut pred: impl FnMut(usize) -> bool) -> usize {
     let (mut low, mut high) = (0, len);
     while low < high {
         let mid = low + (high - low) / 2;
@@ -1130,5 +1247,88 @@ mod test {
         assert_eq!(binary_search_l_ge(15, &v), Ok(0));
         assert_eq!(binary_search_l_ge(16, &v), Err(None));
         assert_eq!(binary_search_l_ge(14, &v), Err(Some(0)));
+    }
+}
+
+#[cfg(all(test, feature = "reader"))]
+mod malformed {
+    use super::WorkerAssignment as ReadWorkerAssignment;
+    use crate::assignment_fb::{
+        ChunkHash, TableRoster, TopRun, WorkerAssignment, WorkerAssignmentArgs,
+        WorkerAssignmentDataset, WorkerAssignmentDatasetArgs, WorkerEntry,
+    };
+
+    /// A blob the flatbuffers verifier accepts, with three chunks by `first_blocks` and `dense`
+    /// entries in every other column. Only a hand-built one can disagree with itself — the builder
+    /// appends to every column together.
+    fn blob(dense: usize, tops: &[TopRun]) -> Vec<u8> {
+        let mut fbb = flatbuffers::FlatBufferBuilder::new();
+        let id = fbb.create_string("s3://short");
+        let base_url = fbb.create_string("https://short.sqd-datasets.io");
+        let first_blocks = fbb.create_vector(&[0u64, 1000, 2000]);
+        let block_deltas = fbb.create_vector(&vec![999u32; dense]);
+        let hashes = fbb.create_vector(&vec![ChunkHash::new(b"abcdefgh"); dense]);
+        let tops = fbb.create_vector(tops);
+        let sizes = fbb.create_vector(&vec![1u32; dense]);
+        let write_schema_ids = fbb.create_vector(&vec![1u32; dense]);
+        let worker_offsets = fbb.create_vector(&vec![0u32; dense + 1]);
+        let worker_indexes = fbb.create_vector::<u16>(&[]);
+        let dataset = WorkerAssignmentDataset::create(
+            &mut fbb,
+            &WorkerAssignmentDatasetArgs {
+                id: Some(id),
+                last_block: 2999,
+                base_url: Some(base_url),
+                first_blocks: Some(first_blocks),
+                block_deltas: Some(block_deltas),
+                hashes: Some(hashes),
+                tops: Some(tops),
+                sizes: Some(sizes),
+                write_schema_ids: Some(write_schema_ids),
+                worker_offsets: Some(worker_offsets),
+                worker_indexes: Some(worker_indexes),
+                ..Default::default()
+            },
+        );
+        let datasets = fbb.create_vector(&[dataset]);
+        let workers = fbb.create_vector::<flatbuffers::WIPOffset<WorkerEntry>>(&[]);
+        let schemas = fbb.create_vector::<flatbuffers::WIPOffset<TableRoster>>(&[]);
+        let root = WorkerAssignment::create(
+            &mut fbb,
+            &WorkerAssignmentArgs {
+                datasets: Some(datasets),
+                workers: Some(workers),
+                schemas: Some(schemas),
+            },
+        );
+        fbb.finish(root, None);
+        fbb.finished_data().to_vec()
+    }
+
+    /// Every chunk accessor subscripts a column with an index taken from `first_blocks`, so a
+    /// short column used to mean a panic from inside flatbuffers — after `from_owned` had said the
+    /// blob verified.
+    #[test]
+    fn columns_that_disagree_are_rejected() {
+        let Err(error) = ReadWorkerAssignment::from_owned(blob(1, &[TopRun::new(0, 0)])) else {
+            panic!("the columns cannot all be subscripted by the same index");
+        };
+        let message = error.to_string();
+        assert!(message.contains("s3://short"), "unexpected error: {message}");
+        assert!(message.contains("holds 1 of 3 chunks"), "unexpected error: {message}");
+    }
+
+    /// `top()` resolves a chunk through the last run at or before it, so an empty column leaves
+    /// chunk 0 with nothing to land on. The dense columns agree here, so only the runs are wrong.
+    #[test]
+    fn a_run_column_must_cover_chunk_zero() {
+        for (tops, expected) in
+            [(&[][..], "is empty"), (&[TopRun::new(1, 0)][..], "starts at chunk 1, not 0")]
+        {
+            let Err(error) = ReadWorkerAssignment::from_owned(blob(3, tops)) else {
+                panic!("no run covers chunk 0");
+            };
+            assert!(error.to_string().contains(expected), "unexpected error: {error}");
+        }
     }
 }

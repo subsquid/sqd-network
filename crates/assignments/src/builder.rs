@@ -77,6 +77,7 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
     /// If this check is enabled, the chunk breaking the continuity condition won't be added and an error will be returned.
     /// If it's disabled, the chunk will be added but the error will still be returned for logging purposes.
     /// Enabled by default.
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn check_continuity(mut self, check: bool) -> Self {
         self.check_continuity = check;
         self
@@ -287,46 +288,55 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
         }
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn id(mut self, id: &str) -> Self {
         self.id = Some(self.p.builder.create_string(id));
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn dataset_id(mut self, dataset_id: &str) -> Self {
         self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
         self.block_range = Some(range);
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn size(mut self, size: u32) -> Self {
         self.size = Some(size);
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn last_block_hash(mut self, hash: &str) -> Self {
         self.last_block_hash = Some(self.p.builder.create_string(hash));
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn last_block_timestamp(mut self, timestamp: u64) -> Self {
         self.last_block_timestamp = Some(timestamp);
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn dataset_base_url(mut self, url: &str) -> Self {
         self.dataset_base_url = Some(self.p.builder.create_shared_string(url));
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
         self.worker_indexes = Some(self.p.builder.create_vector(indexes));
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn files(mut self, files: &[String]) -> Self {
         self.files = Some(self.p.cache_files_list(files));
         self
@@ -440,6 +450,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
 
     /// See [`AssignmentBuilder::check_continuity`]. Note that a gap only trips this check; it is
     /// no longer something the reader can misread, since `block_deltas` carries each chunk's end.
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn check_continuity(mut self, check: bool) -> Self {
         self.check_continuity = check;
         self
@@ -821,6 +832,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`. Not stored as such: it is
     /// split into the `tops`, `first_blocks`, `block_deltas` and `hashes` columns and reassembled
     /// on read, so it must parse — see [`Self::finish`].
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn id(mut self, id: &str) -> Self {
         self.id = Some(id.to_owned());
         self
@@ -828,16 +840,19 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
 
     /// Which dataset the chunk belongs to. Names the dataset it is staged into; chunks don't
     /// carry the id themselves, since they are only ever read through that dataset.
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn dataset_id(mut self, dataset_id: &str) -> Self {
         self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
         self.block_range = Some(range);
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn size(mut self, size: u32) -> Self {
         self.size = Some(size);
         self
@@ -845,6 +860,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
 
     /// Where the dataset's files live. Held once on the dataset, so every chunk of one must name
     /// the same url — [`Self::finish`] rejects a chunk that disagrees.
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn dataset_base_url(mut self, url: &str) -> Self {
         self.dataset_base_url = Some(url.to_owned());
         self
@@ -853,6 +869,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     /// Which copy of the chunk workers should download. Defaults to 0, the ingested one; any other
     /// value must have been registered with
     /// [`WorkerAssignmentBuilder::register_generation`] for this dataset.
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn version(mut self, version: u32) -> Self {
         self.version = version;
         self
@@ -861,6 +878,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     /// The write schema the chunk was written under — the one covering every table and column
     /// physically present in it. Must be registered with
     /// [`WorkerAssignmentBuilder::register_write_schema`].
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn write_schema_id(mut self, write_schema_id: u32) -> Self {
         self.write_schema_id = Some(write_schema_id);
         self
@@ -908,11 +926,16 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         Ok(self)
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
         self.worker_indexes = indexes.to_vec();
         self
     }
 
+    /// # Panics
+    ///
+    /// If `block_range` or `size` was never set — those are API misuse, not bad input.
+    ///
     /// # Errors
     ///
     /// If the id is unset or malformed, or disagrees with `block_range`; if `write_schema_id` is
@@ -1117,6 +1140,7 @@ impl PortalAssignmentBuilder {
 
     /// See [`AssignmentBuilder::check_continuity`]. Note that a gap only trips this check; it is
     /// no longer something the reader can misread, since `block_deltas` carries each chunk's end.
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn check_continuity(mut self, check: bool) -> Self {
         self.check_continuity = check;
         self
@@ -1378,6 +1402,7 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
     /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`. Not stored as such: it is
     /// split into the `tops`, `first_blocks`, `block_deltas` and `hashes` columns and reassembled
     /// on read, so it must parse — see [`Self::finish`].
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn id(mut self, id: &str) -> Self {
         self.id = Some(id.to_owned());
         self
@@ -1385,16 +1410,19 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
 
     /// Which dataset the chunk belongs to. Names the dataset it is staged into; chunks don't
     /// carry the id themselves, since they are only ever read through that dataset.
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn dataset_id(mut self, dataset_id: &str) -> Self {
         self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
         self.block_range = Some(range);
         self
     }
 
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn last_block_timestamp(mut self, timestamp: u64) -> Self {
         self.last_block_timestamp = Some(timestamp);
         self
@@ -1403,17 +1431,23 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
     /// Which copy of the chunk workers serve. Defaults to 0, the ingested one; must match the
     /// version the same chunk carries in the worker assignment (see
     /// [`WorkerAssignmentChunkBuilder::version`]).
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn version(mut self, version: u32) -> Self {
         self.version = version;
         self
     }
 
     /// Confirmed routing (which workers portals should route to), not the raw ideal placement.
+    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
         self.worker_indexes = indexes.to_vec();
         self
     }
 
+    /// # Panics
+    ///
+    /// If `block_range` was never set — API misuse, not bad input.
+    ///
     /// # Errors
     ///
     /// If the id is unset or malformed, if it disagrees with `block_range` — the two encode the
