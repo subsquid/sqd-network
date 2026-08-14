@@ -1318,6 +1318,57 @@ mod malformed {
         assert!(message.contains("holds 1 of 3 chunks"), "unexpected error: {message}");
     }
 
+    /// The portal carries its own column list, so it needs its own proof that the list is right —
+    /// a wrong field name there would check nothing and pass everything.
+    #[test]
+    fn the_portal_checks_its_own_columns() {
+        use crate::assignment_fb::{
+            PortalAssignment, PortalAssignmentArgs, PortalAssignmentDataset,
+            PortalAssignmentDatasetArgs, PortalEntry,
+        };
+
+        let mut fbb = flatbuffers::FlatBufferBuilder::new();
+        let id = fbb.create_string("s3://short");
+        let first_blocks = fbb.create_vector(&[0u64, 1000, 2000]);
+        let block_deltas = fbb.create_vector(&[999u32]); // one delta for three chunks
+        let hashes = fbb.create_vector(&[ChunkHash::new(b"abcdefgh"); 3]);
+        let tops = fbb.create_vector(&[TopRun::new(0, 0)]);
+        let worker_offsets = fbb.create_vector(&[0u32; 4]);
+        let worker_indexes = fbb.create_vector::<u16>(&[]);
+        let dataset = PortalAssignmentDataset::create(
+            &mut fbb,
+            &PortalAssignmentDatasetArgs {
+                id: Some(id),
+                last_block: 2999,
+                first_blocks: Some(first_blocks),
+                block_deltas: Some(block_deltas),
+                hashes: Some(hashes),
+                tops: Some(tops),
+                worker_offsets: Some(worker_offsets),
+                worker_indexes: Some(worker_indexes),
+                ..Default::default()
+            },
+        );
+        let datasets = fbb.create_vector(&[dataset]);
+        let workers = fbb.create_vector::<flatbuffers::WIPOffset<PortalEntry>>(&[]);
+        let root = PortalAssignment::create(
+            &mut fbb,
+            &PortalAssignmentArgs {
+                datasets: Some(datasets),
+                workers: Some(workers),
+            },
+        );
+        fbb.finish(root, None);
+
+        let Err(error) = super::PortalAssignment::from_owned(fbb.finished_data().to_vec()) else {
+            panic!("block_deltas cannot be subscripted by every chunk index");
+        };
+        assert!(
+            error.to_string().contains("block_deltas holds 1 of 3 chunks"),
+            "unexpected error: {error}"
+        );
+    }
+
     /// `top()` resolves a chunk through the last run at or before it, so an empty column leaves
     /// chunk 0 with nothing to land on. The dense columns agree here, so only the runs are wrong.
     #[test]
