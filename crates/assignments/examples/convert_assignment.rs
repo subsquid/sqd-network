@@ -10,12 +10,20 @@
 //! gunzip -k mainnet.fb.1.gz
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
 //!     mainnet.fb.1
-//! # writes mainnet.worker.fb, mainnet.worker.fb.gz, mainnet.portal.fb, mainnet.portal.fb.gz
+//! # writes mainnet.{worker,portal}.fb alongside .fb.gz and .fb.zst
+//!
+//! # pick which compressed copies to write: gzip, zstd, both (default) or none
+//! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
+//!     mainnet.fb.1 --compress zstd
 //!
 //! # re-check outputs produced earlier, without rebuilding them
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
 //!     mainnet.fb.1 --verify-only
 //! ```
+//!
+//! gzip runs at its default level. zstd defaults to 9, which on assignment blobs is both smaller
+//! and faster than gzip — its own default of 3 is faster still but comes out slightly larger, and
+//! 19 buys about 10% more at twenty times the cost. `--zstd-level` takes any of them.
 //!
 //! Mainnet needs roughly 4 GB of memory: the source and both outputs are held at once.
 //!
@@ -55,13 +63,48 @@ use sqd_assignments::{
     WorkerAssignmentBuilder,
 };
 
+/// Which compressed copies to write beside the plain `.fb`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Compress {
+    gzip: bool,
+    zstd: bool,
+    /// A blob is compressed once and downloaded by every worker and portal, so this leans towards
+    /// size: 9 lands under gzip on both axes, where zstd's own default of 3 does not.
+    zstd_level: i32,
+}
+
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let mut input = None;
     let mut verify_only = false;
-    for arg in args.by_ref() {
+    let mut compress = Compress {
+        gzip: true,
+        zstd: true,
+        zstd_level: 9,
+    };
+    while let Some(arg) = args.next() {
         match arg.as_str() {
             "--verify-only" => verify_only = true,
+            "--zstd-level" => {
+                compress.zstd_level = args.next().context("--zstd-level needs a value")?.parse()?;
+            }
+            "--compress" => {
+                let which = args.next().context("--compress needs gzip, zstd, both or none")?;
+                let (gzip, zstd) = match which.as_str() {
+                    "gzip" => (true, false),
+                    "zstd" => (false, true),
+                    "both" => (true, true),
+                    "none" => (false, false),
+                    other => {
+                        anyhow::bail!("--compress takes gzip, zstd, both or none, got '{other}'")
+                    }
+                };
+                compress = Compress {
+                    gzip,
+                    zstd,
+                    ..compress
+                };
+            }
             _ => input = Some(PathBuf::from(arg)),
         }
     }
@@ -84,9 +127,9 @@ fn main() -> anyhow::Result<()> {
         let worker = build_worker(&legacy)?;
         let portal = build_portal(&legacy)?;
         eprintln!("built both assignments in {:.1}s", started.elapsed().as_secs_f64());
-        write_out(&worker_path, &worker)?;
-        write_out(&portal_path, &portal)?;
-        report_sizes(&input, &worker_path, &portal_path)?;
+        write_out(&worker_path, &worker, compress)?;
+        write_out(&portal_path, &portal, compress)?;
+        report_sizes(&input, &worker_path, &portal_path, compress)?;
     }
 
     let worker = WorkerAssignment::from_owned(std::fs::read(&worker_path)?)
@@ -363,29 +406,58 @@ fn schema_id(dataset_index: usize) -> u32 {
     dataset_index as u32 + 1
 }
 
-fn write_out(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+fn write_out(path: &Path, bytes: &[u8], compress: Compress) -> anyhow::Result<()> {
     std::fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))?;
-    let gz_path = path.with_extension("fb.gz");
-    let file = std::fs::File::create(&gz_path)?;
-    let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
-    encoder.write_all(bytes)?;
-    encoder.finish()?;
+    if compress.gzip {
+        let started = Instant::now();
+        let file = std::fs::File::create(path.with_extension("fb.gz"))?;
+        let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        encoder.write_all(bytes)?;
+        encoder.finish()?;
+        eprintln!("  gzip {} in {:.1}s", path.display(), started.elapsed().as_secs_f64());
+    }
+    if compress.zstd {
+        let started = Instant::now();
+        let file = std::fs::File::create(path.with_extension("fb.zst"))?;
+        let mut encoder =
+            zstd::stream::write::Encoder::new(file, compress.zstd_level)?.auto_finish();
+        encoder.write_all(bytes)?;
+        drop(encoder);
+        eprintln!(
+            "  zstd -{} {} in {:.1}s",
+            compress.zstd_level,
+            path.display(),
+            started.elapsed().as_secs_f64()
+        );
+    }
     Ok(())
 }
 
-fn report_sizes(input: &Path, worker: &Path, portal: &Path) -> anyhow::Result<()> {
+fn report_sizes(
+    input: &Path,
+    worker: &Path,
+    portal: &Path,
+    compress: Compress,
+) -> anyhow::Result<()> {
     let size = |path: &Path| -> anyhow::Result<u64> { Ok(std::fs::metadata(path)?.len()) };
+    let optional = |path: &Path, wanted: bool| -> anyhow::Result<String> {
+        Ok(if wanted {
+            size(path)?.to_string()
+        } else {
+            "-".to_owned()
+        })
+    };
     let legacy = size(input)?;
-    eprintln!("{:<28} {:>14} {:>14}", "", "plain", "gzip");
-    eprintln!("{:<28} {:>14} {:>14}", "legacy", legacy, "-");
+    eprintln!("{:<10} {:>14} {:>14} {:>14}", "", "plain", "gzip", "zstd");
+    eprintln!("{:<10} {:>14} {:>14} {:>14}", "legacy", legacy, "-", "-");
     for (label, path) in [("worker", worker), ("portal", portal)] {
         let plain = size(path)?;
-        let gz = size(&path.with_extension("fb.gz"))?;
         eprintln!(
-            "{:<28} {:>14} {:>14}  ({:.1}% of legacy)",
+            "{:<10} {:>14} {:>14} {:>14}  ({:.1}% of legacy)",
             label,
             plain,
-            gz,
+            optional(&path.with_extension("fb.gz"), compress.gzip)?,
+            optional(&path.with_extension("fb.zst"), compress.zstd)?,
             plain as f64 * 100.0 / legacy as f64
         );
     }
