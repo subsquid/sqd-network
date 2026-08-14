@@ -4,12 +4,14 @@
 //! # Running it
 //!
 //! The input may be plain, gzipped or zstd-compressed; it is detected and decompressed as needed.
-//! Outputs are written to the working directory, named after the input's first path component:
+//! Outputs are named after the input's first path component and land in the working directory
+//! unless `--out-dir` says otherwise — worth passing when running from a source tree, since these
+//! files are hundreds of megabytes:
 //!
 //! ```text
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
-//!     mainnet.fb.1.gz
-//! # writes mainnet.{worker,portal}.fb alongside .fb.gz and .fb.zst
+//!     /tmp/mainnet.fb.1.gz --out-dir /tmp
+//! # writes /tmp/mainnet.{worker,portal}.fb alongside .fb.gz and .fb.zst
 //!
 //! # pick which compressed copies to write: gzip, zstd, both (default) or none
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
@@ -75,6 +77,7 @@ struct Compress {
 fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let mut input = None;
+    let mut out_dir = PathBuf::from(".");
     let mut verify_only = false;
     let mut compress = Compress {
         gzip: true,
@@ -84,6 +87,7 @@ fn main() -> anyhow::Result<()> {
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--verify-only" => verify_only = true,
+            "--out-dir" => out_dir = PathBuf::from(args.next().context("--out-dir needs a path")?),
             "--zstd-level" => {
                 compress.zstd_level = args.next().context("--zstd-level needs a value")?.parse()?;
             }
@@ -107,7 +111,8 @@ fn main() -> anyhow::Result<()> {
             _ => input = Some(PathBuf::from(arg)),
         }
     }
-    let input = input.context("usage: convert_assignment <assignment.fb> [--verify-only]")?;
+    let input = input
+        .context("usage: convert_assignment <assignment.fb> [--out-dir DIR] [--verify-only]")?;
 
     // "mainnet.fb.1" -> "mainnet", so the outputs sit beside their source by name.
     let stem = input
@@ -116,8 +121,8 @@ fn main() -> anyhow::Result<()> {
         .and_then(|name| name.split('.').next())
         .context("input has no usable file name")?
         .to_owned();
-    let worker_path = PathBuf::from(format!("{stem}.worker.fb"));
-    let portal_path = PathBuf::from(format!("{stem}.portal.fb"));
+    let worker_path = out_dir.join(format!("{stem}.worker.fb"));
+    let portal_path = out_dir.join(format!("{stem}.portal.fb"));
 
     let (legacy, legacy_size) = read_legacy(&input)?;
 
