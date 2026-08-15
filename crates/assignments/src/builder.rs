@@ -406,7 +406,10 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     worker_entries: Vec<(WorkerId, fb::WIPOffset<assignment_fb::WorkerEntry<'static>>)>,
     last_peer_id: Option<PeerId>,
     cloudflare_storage_secret: String,
-    common_identity: fb::WIPOffset<fb::Vector<'static, u8>>,
+    /// Written on first use, not at construction: an assignment whose workers all carry copied
+    /// headers never seals anything, and eagerly writing 32 random bytes into the buffer would
+    /// leave them unreferenced and make an otherwise reproducible build differ every run.
+    common_identity: Option<fb::WIPOffset<fb::Vector<'static, u8>>>,
     common_secret_key: SecretKey,
     check_continuity: bool,
     /// `BTreeMap` so `finish` emits rosters id-sorted, as `TableRoster`'s `(key)` lookup requires.
@@ -426,10 +429,8 @@ impl WorkerAssignmentBuilder<OsRng> {
 
 impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     pub fn new_with_rng(cloudflare_storage_secret: impl Into<String>, mut rng: Rng) -> Self {
-        let mut builder = flatbuffers::FlatBufferBuilder::new();
+        let builder = flatbuffers::FlatBufferBuilder::new();
         let common_secret_key = SecretKey::generate(&mut rng);
-        let common_public_key_bytes = *common_secret_key.public_key().as_bytes();
-        let common_identity = builder.create_vector(&common_public_key_bytes);
         Self {
             builder,
             rng,
@@ -439,7 +440,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             worker_entries: Vec::new(),
             last_peer_id: None,
             cloudflare_storage_secret: cloudflare_storage_secret.into(),
-            common_identity,
+            common_identity: None,
             common_secret_key,
             check_continuity: true,
             write_schemas: BTreeMap::new(),
@@ -771,10 +772,17 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
 
         let ciphertext_offset = self.builder.create_vector(&ciphertext);
         let nonce_offset = self.builder.create_vector(&nonce);
+        let identity = match self.common_identity {
+            Some(identity) => identity,
+            None => {
+                let bytes = *self.common_secret_key.public_key().as_bytes();
+                *self.common_identity.insert(self.builder.create_vector(&bytes))
+            }
+        };
         Ok(assignment_fb::EncryptedHeaders::create(
             &mut self.builder,
             &assignment_fb::EncryptedHeadersArgs {
-                identity: Some(self.common_identity),
+                identity: Some(identity),
                 nonce: Some(nonce_offset),
                 ciphertext: Some(ciphertext_offset),
             },
