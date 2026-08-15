@@ -770,9 +770,10 @@ fn test_portal_rejects_a_malformed_chunk_id() {
     for (id, expected) in [
         ("0000000000-0000000099-abcde", "no top directory"),
         ("0000000000/0000000000-abcde", "is not <top>"),
-        ("0000000000/0000000000-0000000099-", "1 to 8 word characters"),
-        ("0000000000/0000000000-0000000099-toolonghash", "1 to 8 word characters"),
-        ("0000000000/0000000000-0000000099-has-dash", "1 to 8 word characters"),
+        ("0000000000/0000000000-0000000099-", "5 to 8 word characters"),
+        ("0000000000/0000000000-0000000099-toolonghash", "5 to 8 word characters"),
+        ("0000000000/0000000000-0000000099-abcd", "5 to 8 word characters"),
+        ("0000000000/0000000000-0000000099-has-dash", "5 to 8 word characters"),
         ("000000000x/0000000000-0000000099-abcde", "non-numeric top"),
     ] {
         let mut builder = PortalAssignmentBuilder::new();

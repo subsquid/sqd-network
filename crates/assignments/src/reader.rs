@@ -1278,6 +1278,25 @@ mod chunk_id_format {
         }
     }
 
+    /// A portal parses a chunk id by fixed offsets rather than by pattern: separators at 10, 21
+    /// and 32, and a total length of 38..=41. Deriving the string from columns has to keep landing
+    /// inside that window, or the format would produce ids its own reader refuses.
+    #[test]
+    fn ids_fit_the_portals_fixed_offsets() {
+        for (top, first, last, hash) in [
+            (0, 0, 0, "abcde"),
+            (221_000_000, 221_000_000, 221_000_649, "9QgFD"),
+            (9_999_999_999, 9_999_999_999, 9_999_999_999, "274f02d8"),
+        ] {
+            let mut id = String::new();
+            push_chunk_id(&mut id, top, first, last, hash);
+            assert!((38..=41).contains(&id.len()), "{id} is {} bytes", id.len());
+            assert_eq!(id.as_bytes()[10], b'/', "{id}");
+            assert_eq!(id.as_bytes()[21], b'-', "{id}");
+            assert_eq!(id.as_bytes()[32], b'-', "{id}");
+        }
+    }
+
     #[test]
     fn ids_match_std_fmt() {
         for (top, first, last, hash) in [

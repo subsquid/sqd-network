@@ -1363,11 +1363,13 @@ fn parse_chunk_id(id: &str) -> anyhow::Result<ParsedChunkId> {
         anyhow::bail!("chunk id '{id}' is not <top>/<first_block>-<last_block>-<hash>");
     };
     // A hash is `\w{5,8}` to every writer and to the worker's parser, so it never contains the
-    // separator and always fits the fixed-width column.
+    // separator and always fits the fixed-width column. The lower bound is not cosmetic: the
+    // portal parses a chunk id by fixed offsets and rejects anything outside 38..=41 bytes, so a
+    // hash under five characters would build an id it refuses.
     anyhow::ensure!(
-        (1..=8).contains(&hash.len())
+        (5..=8).contains(&hash.len())
             && hash.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
-        "chunk id '{id}' has a hash that is not 1 to 8 word characters"
+        "chunk id '{id}' has a hash that is not 5 to 8 word characters"
     );
     let mut bytes = [0u8; 8];
     bytes[..hash.len()].copy_from_slice(hash.as_bytes());
