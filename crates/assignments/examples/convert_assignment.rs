@@ -3,10 +3,9 @@
 //!
 //! # Running it
 //!
-//! The input may be plain, gzipped or zstd-compressed; it is detected and decompressed as needed.
-//! Outputs are named after the input's first path component and land in the working directory
-//! unless `--out-dir` says otherwise — worth passing when running from a source tree, since these
-//! files are hundreds of megabytes:
+//! The input may be plain, gzipped or zstd-compressed. Outputs are named after the input's first
+//! path component and land in the working directory unless `--out-dir` says otherwise — worth
+//! passing from a source tree, since they run to hundreds of megabytes:
 //!
 //! ```text
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
@@ -22,11 +21,10 @@
 //!     mainnet.fb.1.gz --verify-only
 //! ```
 //!
-//! gzip runs at its default level. zstd defaults to 9, which on assignment blobs is both smaller
-//! and faster than gzip — its own default of 3 is faster still but comes out slightly larger, and
-//! 19 buys about 10% more at twenty times the cost. `--zstd-level` takes any of them.
+//! zstd defaults to 9: its own default of 3 comes out larger than gzip, and 19 buys ~10% more at
+//! twenty times the cost. `--zstd-level` takes any of them.
 //!
-//! Mainnet needs roughly 4 GB of memory: the source and both outputs are held at once.
+//! Mainnet needs roughly 4 GB: the source and both outputs are held at once.
 //!
 //! # What the conversion does
 //!

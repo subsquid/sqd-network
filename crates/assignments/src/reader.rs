@@ -11,22 +11,19 @@ use crate::{assignment_fb, assignment_fb::push_segment, WorkerStatus};
 /// Why an assignment couldn't be read.
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidAssignment {
-    /// The buffer isn't a well-formed flatbuffer.
     #[error(transparent)]
     Flatbuffer(#[from] flatbuffers::InvalidFlatbuffer),
-    /// The buffer is well formed, but a dataset's columns contradict each other. The flatbuffers
-    /// verifier checks each vector on its own and cannot see this: it is the columns *agreeing*
-    /// that lets a chunk index subscript all of them, and nothing in the encoding says they must.
+    /// The buffer is well formed, but a dataset's columns contradict each other — which the
+    /// flatbuffers verifier cannot see, since it checks each vector on its own.
     #[error("dataset '{dataset}': {detail}")]
     Columns { dataset: String, detail: String },
 }
 
-/// Checks one dataset's columns against the chunk count its `first_blocks` implies.
+/// Checks one dataset's columns against the chunk count `first_blocks` implies.
 ///
-/// Only the invariants a reader would otherwise *panic* on, and only ones costing O(datasets) or
-/// O(runs) to establish — never O(chunks), which would undo the point of a format that loads in
-/// microseconds. Invariants a malformed blob can still break (offsets that don't ascend, say)
-/// yield wrong answers rather than crashes, and the accessors clamp accordingly.
+/// Only what a reader would otherwise panic on, and only at O(datasets) or O(runs) — an O(chunks)
+/// check would undo a format that loads in microseconds. What is left unchecked (offsets that
+/// don't ascend, say) yields wrong answers rather than crashes; the accessors clamp.
 fn check_columns(
     dataset: &str,
     chunks: usize,
@@ -212,9 +209,7 @@ pub enum ChunkNotFound {
     UnknownDataset,
     BeforeFirst,
     AfterLast,
-    /// The block falls between two chunks. Gaps are legal, so this is a real answer rather than a
-    /// malformed dataset — only the portal assignment can tell, since only it carries each
-    /// chunk's own end.
+    /// The block falls between two chunks. Gaps are legal, so this is an answer, not a defect.
     InGap,
 }
 
@@ -225,8 +220,7 @@ pub struct ChunkRef {
 }
 
 impl ChunkRef {
-    /// Which dataset of the assignment the chunk sits in. Together with
-    /// [`WorkerAssignment::get_dataset_by_ref`] this is how a chunk is traced back to its dataset.
+    /// With [`WorkerAssignment::get_dataset_by_ref`], how a chunk is traced back to its dataset.
     pub fn dataset_index(&self) -> u32 {
         self.dataset_index
     }
@@ -286,11 +280,10 @@ impl Worker<'_> {
     }
 }
 
-// ===== Worker-facing assignment (NET-1180) =====
+// ===== Worker-facing assignment =====
 //
-// Diverges from `Assignment` above: no `find_chunk`/`find_chunk_by_timestamp` (query routing is a
-// portal concern), no `last_block_hash`/`last_block_timestamp` on chunks (portal-only). Otherwise
-// mirrors `Assignment`/`Worker` — see docs/assignment-wire-format.md in network-scheduler.
+// Chunks are columns on the dataset (see worker_assignment.fbs); [`WorkerChunk`] is a cursor over
+// one row. Query routing is a portal concern, so nothing here searches by block or timestamp.
 
 #[ouroboros::self_referencing]
 pub struct WorkerAssignment {
@@ -302,12 +295,12 @@ pub struct WorkerAssignment {
 }
 
 impl WorkerAssignment {
-    /// Verifies the buffer, then checks that each dataset's columns agree in length — which the
-    /// flatbuffers verifier cannot, and which every chunk accessor assumes.
+    /// Verifies the buffer, then checks that each dataset's columns agree in length — which every
+    /// chunk accessor assumes and the flatbuffers verifier cannot establish.
     ///
     /// # Errors
     ///
-    /// If the buffer is not a well-formed flatbuffer, or a dataset's columns disagree.
+    /// If the buffer is malformed, or a dataset's columns disagree.
     pub fn from_owned(buf: Vec<u8>) -> Result<Self, InvalidAssignment> {
         let opts = flatbuffers::VerifierOptions {
             max_tables: 1_000_000_000_000,
@@ -352,8 +345,8 @@ impl WorkerAssignment {
 
     /// # Panics
     ///
-    /// Nothing here checks the buffer, so a chunk accessor on a malformed one may panic instead of
-    /// returning. Use [`Self::from_owned`] for anything that didn't come from this process.
+    /// A chunk accessor on a malformed buffer may panic. Use [`Self::from_owned`] for anything
+    /// that didn't come from this process.
     pub fn from_owned_unchecked(buf: Vec<u8>) -> Self {
         WorkerAssignmentBuilder {
             buf,
@@ -414,8 +407,7 @@ impl WorkerAssignment {
         self.get_dataset_by_ref(r)?.chunk(r.chunk_index)
     }
 
-    /// The dataset a [`ChunkRef`] points into — how a caller recovers a chunk's dataset, which
-    /// the chunk itself doesn't carry.
+    /// How a caller recovers a chunk's dataset, which the chunk itself doesn't carry.
     pub fn get_dataset_by_ref(
         &self,
         r: ChunkRef,
@@ -425,23 +417,20 @@ impl WorkerAssignment {
             .then(|| datasets.get(r.dataset_index as usize))
     }
 
-    /// Where the referenced chunk's files live — see [`WorkerChunk::url`], which this resolves the
-    /// dataset for.
+    /// [`WorkerChunk::url`], with the dataset resolved from the ref.
     pub fn chunk_url(&self, r: ChunkRef) -> Option<String> {
         self.get_chunk(r)?.url()
     }
 
-    /// The table roster of a write schema referenced by this assignment's chunks.
     pub fn get_write_schema(&self, write_schema_id: u32) -> Option<assignment_fb::TableRoster<'_>> {
         self.borrow_reader()
             .schemas()
             .lookup_by_key(write_schema_id, |roster, key| roster.key_compare_with_value(*key))
     }
 
-    /// The tables a chunk contains: the whole roster when it sets no bitmap, otherwise the tables
-    /// its bits select. `None` if the chunk's write schema has no roster here.
-    ///
-    /// Bits beyond the roster are ignored, so a malformed buffer can't name a table outside it.
+    /// The whole roster when the chunk sets no bitmap, otherwise the tables its bits select.
+    /// `None` if its write schema has no roster here. Bits past the roster are ignored, so a
+    /// malformed buffer can't name a table outside it.
     pub fn chunk_tables<'a>(
         &'a self,
         chunk: WorkerChunk<'a>,
@@ -457,10 +446,8 @@ impl WorkerAssignment {
     }
 }
 
-/// One row of a [`WorkerAssignmentDataset`](assignment_fb::WorkerAssignmentDataset)'s columns.
-///
-/// Cheap to copy — a dataset handle plus an index, with every accessor a subscript into the column
-/// it names.
+/// One row of a [`WorkerAssignmentDataset`](assignment_fb::WorkerAssignmentDataset)'s columns: a
+/// dataset handle plus an index, so copying it is free.
 #[derive(Clone, Copy, Debug)]
 pub struct WorkerChunk<'a> {
     dataset: assignment_fb::WorkerAssignmentDataset<'a>,
@@ -493,41 +480,39 @@ impl<'a> WorkerChunk<'a> {
         self.dataset.versions().map_or(0, |column| column.get(self.index as usize))
     }
 
-    /// The write schema the chunk was written under.
     pub fn write_schema_id(&self) -> u32 {
         self.dataset.write_schema_ids().get(self.index as usize)
     }
 
-    /// The top-level directory the chunk lives under, resolved through the run it falls in.
+    /// The top directory, resolved through the run this chunk falls in.
     ///
     /// # Panics
     ///
-    /// If the dataset's `tops` column is empty or doesn't start at chunk 0 — which
-    /// [`WorkerAssignment::from_owned`] rejects, but `from_owned_unchecked` does not.
+    /// If `tops` is empty or doesn't start at chunk 0 — which [`WorkerAssignment::from_owned`]
+    /// rejects and `from_owned_unchecked` does not.
     pub fn top(&self) -> u64 {
         self.dataset
             .top_at(self.index)
             .expect("the first top run covers chunk 0 onwards")
     }
 
-    /// The chunk's short hash, trailing NUL padding trimmed. `None` only if the stored bytes
-    /// aren't UTF-8, which a well-formed blob's never are.
+    /// The short hash, NUL padding trimmed. `None` only if the bytes aren't UTF-8.
     pub fn hash(&self) -> Option<&'a str> {
         let hash = self.dataset.hashes().get(self.index as usize);
         let bytes = &hash.0[..hash.0.iter().position(|&b| b == 0).unwrap_or(hash.0.len())];
         std::str::from_utf8(bytes).ok()
     }
 
-    /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`, rebuilt from the columns it
-    /// was split into. `None` on the same terms as [`Self::hash`].
+    /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`, rebuilt from its columns.
+    /// `None` on the same terms as [`Self::hash`].
     pub fn id(&self) -> Option<String> {
         let mut id = String::with_capacity(ID_CAPACITY);
         push_chunk_id(&mut id, self.top(), self.first_block(), self.last_block(), self.hash()?);
         Some(id)
     }
 
-    /// This chunk's bitmap, or `None` when it holds every table of its write schema — which is
-    /// both an empty slice and a dataset carrying no bitmaps at all.
+    /// `None` when the chunk holds every table of its write schema — both an empty slice and a
+    /// dataset carrying no bitmaps at all.
     pub fn tables_present(&self) -> Option<&'a [u8]> {
         let offsets = self.dataset.tables_present_offsets()?;
         let start = offsets.get(self.index as usize) as usize;
@@ -536,11 +521,11 @@ impl<'a> WorkerChunk<'a> {
         (!bits.is_empty()).then_some(bits)
     }
 
-    /// Where the chunk's files live: the dataset's `base_url`, then the prefix of the generation
-    /// its `version` names — nothing for version 0, the ingested layout — then the chunk id.
+    /// Where the chunk's files live: the dataset's `base_url`, the prefix of the generation its
+    /// `version` names (nothing for version 0), then the chunk id.
     ///
-    /// `None` if a non-zero version names a generation the dataset doesn't carry, or if the hash
-    /// isn't UTF-8.
+    /// `None` if a non-zero version names a generation the dataset doesn't carry, or per
+    /// [`Self::hash`].
     pub fn url(&self) -> Option<String> {
         let hash = self.hash()?;
         let mut url = String::with_capacity(URL_CAPACITY);
@@ -555,7 +540,6 @@ impl<'a> WorkerChunk<'a> {
         Some(url)
     }
 
-    /// The workers holding this chunk — its slice of the dataset's flattened routing column.
     pub fn worker_indexes(&self) -> impl Iterator<Item = u16> + 'a {
         let offsets = self.dataset.worker_offsets();
         let start = offsets.get(self.index as usize) as usize;
@@ -566,12 +550,10 @@ impl<'a> WorkerChunk<'a> {
 }
 
 impl<'a> assignment_fb::WorkerAssignmentDataset<'a> {
-    /// How many chunks the dataset's columns hold.
     pub fn chunk_count(&self) -> usize {
         self.first_blocks().len()
     }
 
-    /// The chunk at `index`, or `None` past the end of the columns.
     pub fn chunk(&self, index: u32) -> Option<WorkerChunk<'a>> {
         ((index as usize) < self.chunk_count()).then_some(WorkerChunk {
             dataset: *self,
@@ -586,7 +568,7 @@ impl<'a> assignment_fb::WorkerAssignmentDataset<'a> {
         })
     }
 
-    /// The top directory chunk `index` lives under: the last run starting at or before it.
+    /// The last run starting at or before `index`.
     fn top_at(&self, index: u32) -> Option<u64> {
         let tops = self.tops();
         let above = partition_point(tops.len(), |i| tops.get(i).first_chunk_index() <= index);
@@ -594,8 +576,8 @@ impl<'a> assignment_fb::WorkerAssignmentDataset<'a> {
     }
 }
 
-/// A worker's entry in a [`WorkerAssignment`]: identity, status, sealed auth headers, and the
-/// chunks it's assigned (via each chunk's `worker_indexes`).
+/// A worker's entry in a [`WorkerAssignment`]: identity, status, sealed headers, and the chunks
+/// naming it in their `worker_indexes`.
 pub struct AssignedWorker<'f> {
     assignment: assignment_fb::WorkerAssignment<'f>,
     reader: assignment_fb::WorkerEntry<'f>,
@@ -607,8 +589,8 @@ impl AssignedWorker<'_> {
         self.iter_chunks_with_dataset().map(|(_, chunk)| chunk)
     }
 
-    /// The assigned chunks paired with the dataset holding each — the dataset carries the
-    /// generations a chunk's `version` resolves against, and the id the chunk doesn't repeat.
+    /// Paired with the dataset holding each, which carries the generations a `version` resolves
+    /// against and the id the chunk doesn't repeat.
     pub fn iter_chunks_with_dataset(
         &self,
     ) -> impl Iterator<Item = (assignment_fb::WorkerAssignmentDataset<'_>, WorkerChunk<'_>)> + '_
@@ -635,9 +617,9 @@ impl AssignedWorker<'_> {
 
     /// This worker's chunks within one dataset.
     ///
-    /// The routing columns are resolved once per dataset rather than per chunk: reaching them
-    /// through the chunk means two vtable lookups and an iterator built for every chunk in the
-    /// assignment, and this scan visits all of them to find the few thousand that are ours.
+    /// The routing columns are resolved once per dataset, not per chunk: this scan visits every
+    /// chunk in the assignment to find the few thousand that are ours, and reaching the columns
+    /// through each one costs two vtable lookups and an iterator apiece.
     fn holdings<'a>(
         &self,
         dataset: assignment_fb::WorkerAssignmentDataset<'a>,
@@ -670,9 +652,7 @@ impl AssignedWorker<'_> {
 
 // ===== Portal-facing assignment =====
 //
-// A portal reads no files, URLs or `encrypted_headers` at all, and its chunks are columns on the
-// dataset rather than tables (see portal_assignment.fbs). [`PortalChunk`] is the cursor over one
-// row of those columns; nothing here hands back a chunk table, because there isn't one.
+// Same column layout as the worker side, minus everything about downloading.
 
 #[ouroboros::self_referencing]
 pub struct PortalAssignment {
@@ -684,12 +664,11 @@ pub struct PortalAssignment {
 }
 
 impl PortalAssignment {
-    /// Verifies the buffer, then checks that each dataset's columns agree in length — see
-    /// [`WorkerAssignment::from_owned`].
+    /// See [`WorkerAssignment::from_owned`].
     ///
     /// # Errors
     ///
-    /// If the buffer is not a well-formed flatbuffer, or a dataset's columns disagree.
+    /// If the buffer is malformed, or a dataset's columns disagree.
     pub fn from_owned(buf: Vec<u8>) -> Result<Self, InvalidAssignment> {
         let opts = flatbuffers::VerifierOptions {
             max_tables: 1_000_000_000_000,
@@ -777,11 +756,8 @@ impl PortalAssignment {
         datasets.get(r.dataset_index as usize).chunk(r.chunk_index)
     }
 
-    /// The chunk holding `block`.
-    ///
-    /// Unlike the worker side there is no inference from the next chunk's start: `block_deltas`
-    /// gives each chunk its own end, so a block falling in a gap between chunks is reported as
-    /// [`ChunkNotFound::InGap`] rather than silently attributed to the chunk before it.
+    /// The chunk holding `block`. `block_deltas` gives each chunk its own end, so a block in a gap
+    /// is [`ChunkNotFound::InGap`] rather than silently attributed to the chunk before it.
     pub fn find_chunk(&self, dataset: &str, block: u64) -> Result<PortalChunk<'_>, ChunkNotFound> {
         let Some(dataset) = self.get_dataset(dataset) else {
             return Err(ChunkNotFound::UnknownDataset);
@@ -803,13 +779,11 @@ impl PortalAssignment {
         Ok(chunk)
     }
 
-    /// The first chunk whose timestamp is at or after `ts`.
+    /// The first chunk whose timestamp is at or after `ts`. No `timestamps` column reads as every
+    /// chunk sitting at 0.
     ///
-    /// A dataset carrying no `timestamps` column reads as every chunk sitting at timestamp 0.
-    ///
-    /// Bisecting assumes the column ascends. Ingest doesn't guarantee it — a chunk whose timestamp
-    /// was never recorded carries 0, and a few step backwards outright — and around one of those a
-    /// lookup lands on a neighbouring chunk.
+    /// Bisecting assumes the column ascends, which ingest doesn't guarantee: an unrecorded
+    /// timestamp is 0, and a few step backwards outright. A lookup near one lands on a neighbour.
     pub fn find_chunk_by_timestamp(
         &self,
         dataset: &str,
@@ -836,10 +810,8 @@ impl PortalAssignment {
     }
 }
 
-/// One row of a [`PortalAssignmentDataset`](assignment_fb::PortalAssignmentDataset)'s columns.
-///
-/// Cheap to copy — it is a dataset handle plus an index, and every accessor is a subscript into
-/// the column it names.
+/// One row of a [`PortalAssignmentDataset`](assignment_fb::PortalAssignmentDataset)'s columns: a
+/// dataset handle plus an index, so copying it is free.
 #[derive(Clone, Copy, Debug)]
 pub struct PortalChunk<'a> {
     dataset: assignment_fb::PortalAssignmentDataset<'a>,
@@ -880,28 +852,21 @@ impl<'a> PortalChunk<'a> {
             .expect("the first top run covers chunk 0 onwards")
     }
 
-    /// The chunk's short hash, trailing NUL padding trimmed.
-    ///
-    /// `None` only if the stored bytes aren't UTF-8, which a well-formed blob's never are — the
-    /// builder only accepts word characters.
+    /// The short hash, NUL padding trimmed. `None` only if the bytes aren't UTF-8.
     pub fn hash(&self) -> Option<&'a str> {
         let hash = self.dataset.hashes().get(self.index as usize);
         let bytes = &hash.0[..hash.0.iter().position(|&b| b == 0).unwrap_or(hash.0.len())];
         std::str::from_utf8(bytes).ok()
     }
 
-    /// The chunk id a query names, e.g. `"0221000000/0221000000-0221000649-9QgFD"`, rebuilt from
-    /// the columns it was split into. Unchanged in form, so it drops straight into
-    /// `Query.chunk_id`.
-    ///
-    /// `None` on the same terms as [`Self::hash`].
+    /// The chunk id a query names, rebuilt from its columns — same form as before, so it drops
+    /// straight into `Query.chunk_id`. `None` on the same terms as [`Self::hash`].
     pub fn id(&self) -> Option<String> {
         let mut id = String::with_capacity(ID_CAPACITY);
         push_chunk_id(&mut id, self.top(), self.first_block(), self.last_block(), self.hash()?);
         Some(id)
     }
 
-    /// The workers to route to — the chunk's slice of the dataset's flattened routing column.
     pub fn worker_indexes(&self) -> impl Iterator<Item = u16> + 'a {
         let offsets = self.dataset.worker_offsets();
         let start = offsets.get(self.index as usize) as usize;
@@ -912,7 +877,6 @@ impl<'a> PortalChunk<'a> {
 }
 
 impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
-    /// The chunk at `index`, or `None` past the end of the columns.
     pub fn chunk(&self, index: u32) -> Option<PortalChunk<'a>> {
         ((index as usize) < self.chunk_count()).then_some(PortalChunk {
             dataset: *self,
@@ -927,9 +891,7 @@ impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
         })
     }
 
-    /// The top directory chunk `index` lives under: the last run starting at or before it.
-    ///
-    /// `None` only if the runs don't start at chunk 0, which the builder refuses to emit.
+    /// The last run starting at or before `index`; `None` only if the runs don't start at 0.
     fn top_at(&self, index: u32) -> Option<u64> {
         let tops = self.tops();
         let above = partition_point(tops.len(), |i| tops.get(i).first_chunk_index() <= index);
@@ -937,9 +899,8 @@ impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
     }
 }
 
-/// Writes `value` zero-padded to ten digits, as `{:010}` would but without going through
-/// `std::fmt` — which costs about 35ns a value, several times what the surrounding column reads
-/// do. Values too wide for the pad print in full, again matching `{:010}`.
+/// `{:010}` without `std::fmt`, which costs ~35ns a value — several times the column reads around
+/// it. Values too wide for the pad print in full, as `{:010}` does.
 fn push_padded(out: &mut String, value: u64) {
     const PAD: u64 = 10_000_000_000;
     if value >= PAD {
@@ -968,13 +929,12 @@ fn push_chunk_id(out: &mut String, top: u64, first_block: u64, last_block: u64, 
     out.push_str(hash);
 }
 
-/// `top/first-last-hash`: three ten-digit numbers, three separators, a hash of up to eight.
+/// Three ten-digit numbers, three separators, a hash of up to eight.
 const ID_CAPACITY: usize = 3 * 10 + 3 + 8;
-/// Room for a base url and a generation prefix on top of that, so a url is one allocation.
+/// Plus a base url and a generation prefix, so a url is one allocation.
 const URL_CAPACITY: usize = ID_CAPACITY + 96;
 
-/// `slice::partition_point` over anything subscriptable: the number of leading positions for
-/// which `pred` holds. `pred` must be true for a prefix and false thereafter.
+/// `slice::partition_point` over anything subscriptable. `pred` must hold for a prefix only.
 fn partition_point(len: usize, mut pred: impl FnMut(usize) -> bool) -> usize {
     let (mut low, mut high) = (0, len);
     while low < high {
@@ -988,9 +948,8 @@ fn partition_point(len: usize, mut pred: impl FnMut(usize) -> bool) -> usize {
     low
 }
 
-/// A worker's entry in a [`PortalAssignment`]: just identity and routing eligibility — no
-/// `encrypted_headers`/chunk iteration; a portal never downloads and never needs a specific
-/// worker's whole chunk list.
+/// Identity and routing eligibility only: a portal never downloads, so it gets no headers, and
+/// never needs one worker's whole chunk list.
 pub struct PortalWorker<'f> {
     reader: assignment_fb::PortalEntry<'f>,
 }

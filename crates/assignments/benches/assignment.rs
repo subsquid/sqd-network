@@ -8,32 +8,26 @@
 //!
 //! # The two traversals
 //!
-//! They are not the same shape, and benchmarking either as a plain scan would flatter it:
+//! Benchmarking either as a plain scan would flatter it:
 //!
-//! - **Portal — logically sequential, physically random.** A stream walks chunks in order, but
-//!   holds no cursor between steps: each one is `find_chunk(dataset, previous.last_block + 1)`,
-//!   a fresh string-keyed dataset search plus a fresh chunk search. It cannot keep a `ChunkRef`,
-//!   because those are raw indices into a buffer that gets swapped under it. `stream_walk` is
-//!   that pattern; `find_chunk` is a single step of it against a random dataset.
+//! - **Portal — logically sequential, physically random.** A stream walks chunks in order but
+//!   keeps no cursor: each step is `find_chunk(dataset, previous.last_block + 1)`, a fresh
+//!   string-keyed dataset search plus a chunk search. It cannot hold a `ChunkRef`, since those are
+//!   raw indices into a buffer swapped under it.
 //! - **Worker — one sequential pass, then random O(1).** It scans its own chunks once per applied
-//!   assignment to build a map, and every later access is a `ChunkRef` dereference with no search
-//!   at all. `iter_chunks_with_ref` is the pass, `get_chunk` the dereference.
+//!   assignment, and every later access is a `ChunkRef` dereference with no search.
 //!
-//! Both formats are measured doing the *same job*, not the same calls. A stream step needs the
-//! chunk's end block: legacy has no `last_block` field, so it parses the id, while the portal
-//! reads `block_deltas`. Materialising a chunk id is a string copy from legacy and a rebuild from
-//! columns for the portal. Those differences are the point.
+//! Both formats are measured doing the same *job*, not the same calls: a stream step needs the
+//! chunk's end, which legacy parses out of the id and the portal reads from `block_deltas`.
 //!
 //! # Fixture
 //!
-//! Synthetic by default, so the benchmark is self-contained and reproducible, but shaped like the
-//! mainnet assignment it stands in for: 200 datasets, ~2M chunks, 7 replicas per chunk, 2000
-//! workers, head hash on each dataset's last chunk only. Large enough that random access misses
-//! cache, which is most of what these numbers are about.
+//! Synthetic by default, shaped like the mainnet assignment it stands in for: 200 datasets, ~2M
+//! chunks, 7 replicas each, 2000 workers. Large enough that random access misses cache, which is
+//! most of what these numbers are about.
 //!
-//! To run against a real assignment instead, point `SQD_BENCH_LEGACY` at one and let the
-//! converter have produced the split pair beside it — the same stem with `.worker.fb` and
-//! `.portal.fb`, which is what `convert_assignment` writes:
+//! For a real one, point `SQD_BENCH_LEGACY` at it with the converted pair beside it — same stem
+//! with `.worker.fb` and `.portal.fb`, which is what `convert_assignment` writes:
 //!
 //! ```text
 //! cd /tmp && cargo run --release --manifest-path <repo>/Cargo.toml -p sqd-assignments \

@@ -1,6 +1,5 @@
-// Raw flatc output, one module per schema file (schema/*.fbs) -- generated code cross-references
-// siblings via hardcoded `crate::<name>_generated::*` paths, so these must live at the crate
-// root. `assignment_fb` re-exports all of them into one flat namespace for internal use.
+// Raw flatc output, one module per schema file. The generated code cross-references its siblings
+// by hardcoded `crate::<name>_generated::*` paths, so these must live at the crate root.
 #[allow(
     dead_code,
     unused_imports,
@@ -32,9 +31,8 @@ mod portal_assignment_generated {
     include!("../schema/gen/portal_assignment_generated.rs");
 }
 
-/// The flatc-generated views the readers hand back: a chunk, a dataset, a worker entry. Public so
-/// a consumer can name what `find_chunk`/`get_dataset`/`iter_chunks` return — reading a field off
-/// one works without this, but writing a function or struct over it does not.
+/// The generated views the readers hand back. Public so a consumer can *name* what they return —
+/// reading a field off one works without this, writing a signature over it does not.
 pub mod fb {
     pub use crate::{
         assignment_generated::{

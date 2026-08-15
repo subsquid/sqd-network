@@ -59,7 +59,7 @@ fn test_worker_assignment_round_trip() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    // Same tables as the first chunk: the two must share one bitmap without confusing each other.
+    // Same tables as the first chunk: two bitmaps with identical bits, resolved independently.
     builder
         .new_chunk()
         .id("0221000000/0221001550-0221001999-C7pQz")
@@ -192,8 +192,7 @@ fn test_chunk_generations_round_trip() {
     assert!(dataset.get_generation(0).is_none(), "version 0 has no prefix");
     assert!(dataset.get_generation(3).is_none());
 
-    // Version 0 keeps meaning the ingested copy in a dataset that does have generations: it is a
-    // normal version whose defining property is having no entry.
+    // Version 0 still means the ingested copy in a dataset that has generations.
     assert_eq!(dataset.chunk(0).unwrap().version(), 0);
     assert_eq!(
         dataset.chunk(0).unwrap().url().unwrap(),
@@ -420,8 +419,7 @@ fn test_finish_rejects_write_schema_changed_after_tables_present() {
     );
 }
 
-/// Taking the chunk by type, not just calling a method on it: a portal has to be able to pass one
-/// around to decide what its version means for a query.
+/// Taking the chunk by type, not just calling a method on it — a portal has to pass one around.
 #[cfg(feature = "reader")]
 fn version_of(chunk: sqd_assignments::PortalChunk<'_>) -> u32 {
     chunk.version()
@@ -535,8 +533,8 @@ fn test_portal_assignment_round_trip() {
     );
 }
 
-/// A block between two chunks belongs to neither. Inferring a chunk's end from the next one's
-/// start would hand it back the earlier chunk, claiming blocks the dataset doesn't hold.
+/// A block between two chunks belongs to neither. Inferring an end from the next chunk's start
+/// would hand back the earlier one, claiming blocks the dataset doesn't hold.
 #[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
 fn test_portal_find_chunk_reports_a_gap() {
@@ -580,8 +578,7 @@ fn test_portal_find_chunk_reports_a_gap() {
     );
 }
 
-/// Tops collapse to runs, and hashes survive the fixed-width column at both ends of the length
-/// range writers emit.
+/// Tops collapse to runs, and hashes survive the fixed-width column at both ends of their range.
 #[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
 fn test_portal_tops_are_runs_and_hashes_keep_their_length() {

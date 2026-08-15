@@ -1,7 +1,5 @@
-//! Facade over the three raw flatc-generated schemas (`assignment_generated`,
-//! `worker_assignment_generated`, `portal_assignment_generated`), re-exported here into one flat
-//! namespace, plus small hand-written impls for all three -- despite the module's name, it's not
-//! legacy-only.
+//! The three flatc-generated schemas re-exported into one namespace, plus hand-written impls over
+//! them. Despite the name, not legacy-only.
 
 use libp2p_identity::PeerId;
 
@@ -48,7 +46,6 @@ impl Dataset<'_> {
 }
 
 impl PortalAssignmentDataset<'_> {
-    /// How many chunks the dataset's columns hold.
     pub fn chunk_count(&self) -> usize {
         self.first_blocks().len()
     }
@@ -59,8 +56,7 @@ impl PortalAssignmentDataset<'_> {
 }
 
 impl<'a> WorkerAssignmentDataset<'a> {
-    /// The generation a chunk version's files were written under. `None` for version 0, which has
-    /// no prefix, and for a version this dataset never registered.
+    /// `None` for version 0, which has no prefix, and for a version never registered here.
     pub fn get_generation(&self, version: u32) -> Option<GenerationEntry<'a>> {
         self.generations()?
             .lookup_by_key(version, |generation, key| generation.key_compare_with_value(*key))
