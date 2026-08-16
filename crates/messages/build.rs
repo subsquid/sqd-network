@@ -10,6 +10,7 @@ fn main() -> std::io::Result<()> {
         .enum_attribute(".messages.QueryExecuted.result", "#[derive(Eq, serde::Serialize, serde::Deserialize)]")
         .type_attribute("messages.Range", "#[derive(Copy, Ord, PartialOrd)]")
         .skip_debug(["messages.QueryOk"])
+        .bytes(["messages.QueryOk.data"])
         .field_attribute("messages.QueryOkSummary.data_hash", "#[serde(with = \"hex\")]")
         .field_attribute("messages.Pong.ping_hash", "#[serde(with = \"hex\")]")
         .field_attribute("messages.OldPing.signature","#[serde(with = \"hex\")]")
