@@ -409,6 +409,10 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     /// reach the blob version-sorted, as `GenerationEntry`'s `(key)` lookup requires.
     current_generations: BTreeMap<u32, String>,
     columns: WorkerDatasetColumns,
+    /// The open chunk's worker indexes and tables bitmap. They live here, cleared by `new_chunk`,
+    /// so staging a chunk reuses one allocation instead of making two.
+    staged_worker_indexes: Vec<u16>,
+    staged_tables_present: Vec<u8>,
 }
 
 impl WorkerAssignmentBuilder<OsRng> {
@@ -435,6 +439,8 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             write_schemas: BTreeMap::new(),
             current_generations: BTreeMap::new(),
             columns: WorkerDatasetColumns::default(),
+            staged_worker_indexes: Vec::new(),
+            staged_tables_present: Vec::new(),
         }
     }
 
@@ -860,35 +866,39 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     p: &'b mut WorkerAssignmentBuilder<Rng>,
 
     block_range: Option<RangeInclusive<u64>>,
-    id: Option<String>,
+    /// Parsed by [`Self::id`], since nothing downstream wants the string back. The error is held
+    /// rather than returned so it still surfaces at `finish`.
+    parsed_id: Option<anyhow::Result<ParsedChunkId>>,
     size: Option<u32>,
     version: u32,
     write_schema_id: Option<u32>,
-    /// The bitmap and the write schema it was encoded against — they can diverge if
+    /// The write schema the parent's staged bitmap was encoded against — the two can diverge if
     /// `write_schema_id` is set again afterwards, which `finish` rejects.
-    tables_present: Option<(u32, Vec<u8>)>,
-    worker_indexes: Vec<u16>,
+    tables_present: Option<u32>,
 }
 
 impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     fn new(parent: &'b mut WorkerAssignmentBuilder<Rng>) -> Self {
+        parent.staged_worker_indexes.clear();
+        parent.staged_tables_present.clear();
         Self {
             p: parent,
             block_range: None,
-            id: None,
+            parsed_id: None,
             size: None,
             version: 0,
             write_schema_id: None,
             tables_present: None,
-            worker_indexes: Vec::new(),
         }
     }
 
     /// e.g. `"0221000000/0221000000-0221000649-9QgFD"`. Split into the `tops`, `first_blocks`,
-    /// `block_deltas` and `hashes` columns and rebuilt on read, so it must parse.
+    /// `block_deltas` and `hashes` columns and rebuilt on read, so it must parse — here rather
+    /// than at `finish`, which keeps the string out of the staged chunk. A malformed id is
+    /// reported by [`Self::finish`] all the same.
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn id(mut self, id: &str) -> Self {
-        self.id = Some(id.to_owned());
+        self.parsed_id = Some(parse_chunk_id(id));
         self
     }
 
@@ -937,12 +947,17 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         let write_schema_id = self
             .write_schema_id
             .context("write_schema_id must be set before tables_present")?;
-        let roster = self
-            .p
-            .write_schemas
+        // Destructured so the roster can be read while the staged bitmap is written.
+        let WorkerAssignmentBuilder {
+            write_schemas,
+            staged_tables_present: bits,
+            ..
+        } = &mut *self.p;
+        let roster = write_schemas
             .get(&write_schema_id)
             .with_context(|| format!("write schema {write_schema_id} is not registered"))?;
-        let mut bits = vec![0u8; roster.len().div_ceil(8)];
+        bits.clear();
+        bits.resize(roster.len().div_ceil(8), 0);
         // Both sides are sorted, so one pass over each suffices: the roster cursor only ever
         // moves forward.
         let mut index = 0;
@@ -958,13 +973,14 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             bits[index / 8] |= 1u8 << (index % 8);
             index += 1;
         }
-        self.tables_present = Some((write_schema_id, bits));
+        self.tables_present = Some(write_schema_id);
         Ok(self)
     }
 
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
-    pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
-        self.worker_indexes = indexes.to_vec();
+    pub fn worker_indexes(self, indexes: &[u16]) -> Self {
+        self.p.staged_worker_indexes.clear();
+        self.p.staged_worker_indexes.extend_from_slice(indexes);
         self
     }
 
@@ -981,11 +997,10 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     /// [`WorkerAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
-        let id = self.id.context("Chunk id must be set")?;
-        let parsed = parse_chunk_id(&id)?;
+        let parsed = self.parsed_id.context("Chunk id must be set")??;
         anyhow::ensure!(
             parsed.first_block == *block_range.start() && parsed.last_block == *block_range.end(),
-            "chunk id '{id}' names blocks {}-{}, but the chunk covers {}-{}",
+            "chunk id names blocks {}-{}, but the chunk covers {}-{}",
             parsed.first_block,
             parsed.last_block,
             block_range.start(),
@@ -1003,18 +1018,15 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             "generation {} is not registered for this dataset",
             self.version
         );
-        let bits = match self.tables_present {
-            Some((encoded_against, bits)) => {
-                anyhow::ensure!(
-                    encoded_against == write_schema_id,
-                    "tables_present is a bitmap over write schema {encoded_against}'s roster, \
-                     but the chunk declares write schema {write_schema_id}"
-                );
-                bits
-            }
-            // An empty bitmap is how "every table present" travels.
-            None => Vec::new(),
-        };
+        // A chunk that never called `tables_present` leaves the staged bitmap empty, which is how
+        // "every table present" travels.
+        if let Some(encoded_against) = self.tables_present {
+            anyhow::ensure!(
+                encoded_against == write_schema_id,
+                "tables_present is a bitmap over write schema {encoded_against}'s roster, \
+                 but the chunk declares write schema {write_schema_id}"
+            );
+        }
 
         self.p.push_chunk(PushChunk {
             top: parsed.top,
@@ -1023,27 +1035,25 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             size: self.size.expect("Size must be set"),
             write_schema_id,
             version: self.version,
-            bits,
-            worker_indexes: &self.worker_indexes,
         })
     }
 }
 
-/// One row across every column, assembled by the chunk builder and appended by the parent.
-struct PushChunk<'a> {
+/// One row across every column, assembled by the chunk builder and appended by the parent. The
+/// two variable-length parts — the worker indexes and the tables bitmap — travel in the parent's
+/// staging buffers instead, so a chunk costs no allocation.
+struct PushChunk {
     top: u64,
     block_range: RangeInclusive<u64>,
     hash: assignment_fb::ChunkHash,
     size: u32,
     write_schema_id: u32,
     version: u32,
-    bits: Vec<u8>,
-    worker_indexes: &'a [u16],
 }
 
 impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     /// With [`AssignmentBuilder::check_continuity`] off, a gap still appends and only reports.
-    fn push_chunk(&mut self, chunk: PushChunk<'_>) -> anyhow::Result<()> {
+    fn push_chunk(&mut self, chunk: PushChunk) -> anyhow::Result<()> {
         let continuity = match self.last_block {
             Some(last) if last + 1 != *chunk.block_range.start() => Err(anyhow::anyhow!(
                 "Chunks in the dataset must be contiguous, got {} -> {}",
@@ -1075,9 +1085,15 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         self.columns.sizes.push(chunk.size);
         self.columns.write_schema_ids.push(chunk.write_schema_id);
         self.columns.versions.push(chunk.version);
-        self.columns.any_tables_trimmed |= !chunk.bits.is_empty();
-        self.columns.push_bitmap(chunk.bits);
-        self.columns.worker_indexes.extend_from_slice(chunk.worker_indexes);
+        let Self {
+            columns,
+            staged_tables_present,
+            staged_worker_indexes,
+            ..
+        } = self;
+        columns.any_tables_trimmed |= !staged_tables_present.is_empty();
+        columns.push_bitmap(staged_tables_present);
+        columns.worker_indexes.extend_from_slice(staged_worker_indexes);
         let end = self
             .columns
             .worker_indexes
@@ -1096,8 +1112,8 @@ impl WorkerDatasetColumns {
     ///
     /// Identical bitmaps aren't shared: CSR offsets ascend, so a slice can't point backwards. The
     /// per-chunk vectors were interned to save a 4-byte pointer each; inline bits are narrower.
-    fn push_bitmap(&mut self, bits: Vec<u8>) {
-        self.tables_present.extend_from_slice(&bits);
+    fn push_bitmap(&mut self, bits: &[u8]) {
+        self.tables_present.extend_from_slice(bits);
         self.tables_present_ends.push(self.tables_present.len() as u32);
     }
 }
@@ -1134,6 +1150,9 @@ pub struct PortalAssignmentBuilder {
     last_peer_id: Option<PeerId>,
     check_continuity: bool,
     columns: PortalDatasetColumns,
+    /// The open chunk's worker indexes, cleared by `new_chunk`, so staging a chunk reuses one
+    /// allocation instead of making one per chunk.
+    staged_worker_indexes: Vec<u16>,
 }
 
 impl PortalAssignmentBuilder {
@@ -1288,7 +1307,6 @@ impl PortalAssignmentBuilder {
         hash: assignment_fb::ChunkHash,
         version: u32,
         timestamp: u64,
-        worker_indexes: &[u16],
     ) -> anyhow::Result<()> {
         let continuity = match self.last_block {
             Some(last) if last + 1 != *block_range.start() => Err(anyhow::anyhow!(
@@ -1320,7 +1338,12 @@ impl PortalAssignmentBuilder {
         self.columns.hashes.push(hash);
         self.columns.versions.push(version);
         self.columns.timestamps.push(timestamp);
-        self.columns.worker_indexes.extend_from_slice(worker_indexes);
+        let Self {
+            columns,
+            staged_worker_indexes,
+            ..
+        } = self;
+        columns.worker_indexes.extend_from_slice(staged_worker_indexes);
         let end = self
             .columns
             .worker_indexes
@@ -1424,30 +1447,32 @@ pub struct PortalAssignmentChunkBuilder<'b> {
     p: &'b mut PortalAssignmentBuilder,
 
     block_range: Option<RangeInclusive<u64>>,
-    id: Option<String>,
+    /// Parsed by [`Self::id`], since nothing downstream wants the string back. The error is held
+    /// rather than returned so it still surfaces at `finish`.
+    parsed_id: Option<anyhow::Result<ParsedChunkId>>,
     version: u32,
     last_block_timestamp: u64,
-    worker_indexes: Vec<u16>,
 }
 
 impl<'b> PortalAssignmentChunkBuilder<'b> {
     fn new(parent: &'b mut PortalAssignmentBuilder) -> Self {
+        parent.staged_worker_indexes.clear();
         Self {
             p: parent,
             block_range: None,
-            id: None,
+            parsed_id: None,
             version: 0,
             last_block_timestamp: 0,
-            worker_indexes: Vec::new(),
         }
     }
 
     /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`. Not stored as such: it is
     /// split into the `tops`, `first_blocks`, `block_deltas` and `hashes` columns and reassembled
-    /// on read, so it must parse — see [`Self::finish`].
+    /// on read, so it must parse. Parsing happens here rather than at `finish`, which keeps the
+    /// string out of the staged chunk; a malformed id is still reported by [`Self::finish`].
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn id(mut self, id: &str) -> Self {
-        self.id = Some(id.to_owned());
+        self.parsed_id = Some(parse_chunk_id(id));
         self
     }
 
@@ -1476,8 +1501,9 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
 
     /// Confirmed routing (which workers portals should route to), not the raw ideal placement.
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
-    pub fn worker_indexes(mut self, indexes: &[u16]) -> Self {
-        self.worker_indexes = indexes.to_vec();
+    pub fn worker_indexes(self, indexes: &[u16]) -> Self {
+        self.p.staged_worker_indexes.clear();
+        self.p.staged_worker_indexes.extend_from_slice(indexes);
         self
     }
 
@@ -1492,11 +1518,10 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
     /// block continuity (see [`PortalAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
-        let id = self.id.context("Chunk id must be set")?;
-        let parsed = parse_chunk_id(&id)?;
+        let parsed = self.parsed_id.context("Chunk id must be set")??;
         anyhow::ensure!(
             parsed.first_block == *block_range.start() && parsed.last_block == *block_range.end(),
-            "chunk id '{id}' names blocks {}-{}, but the chunk covers {}-{}",
+            "chunk id names blocks {}-{}, but the chunk covers {}-{}",
             parsed.first_block,
             parsed.last_block,
             block_range.start(),
@@ -1508,7 +1533,6 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
             parsed.hash,
             self.version,
             self.last_block_timestamp,
-            &self.worker_indexes,
         )
     }
 }

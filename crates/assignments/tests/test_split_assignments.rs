@@ -662,6 +662,50 @@ fn test_portal_tops_are_runs_and_hashes_keep_their_length() {
     assert!(dataset.chunk(3).is_none(), "past the end of the columns");
 }
 
+/// The routing column is flattened and staged through a buffer the builder reuses, so a chunk
+/// must neither inherit the previous chunk's workers nor spill into the next one's.
+#[cfg(all(feature = "builder", feature = "reader"))]
+#[test]
+fn test_worker_slices_stay_separate() {
+    let mut builder = test_builder();
+    builder.register_write_schema(7, &["blocks"]).unwrap();
+
+    let mut dataset = test_dataset(&mut builder);
+    // The middle chunk names no workers at all, which is the case that would inherit the previous
+    // chunk's list rather than an empty one.
+    for (id, range, workers) in [
+        (
+            "0221000000/0221000000-0221000649-BQJdx",
+            221000000..=221000649u64,
+            Some(&[0u16, 2][..]),
+        ),
+        ("0221000000/0221000650-0221001549-AuRE1", 221000650..=221001549, None),
+        ("0221000000/0221001550-0221001999-C7pQz", 221001550..=221001999, Some(&[1][..])),
+    ] {
+        let staged = dataset.new_chunk().id(id).block_range(range).size(1000000).write_schema_id(7);
+        let staged = match workers {
+            Some(workers) => staged.worker_indexes(workers),
+            None => staged,
+        };
+        staged.finish().unwrap();
+    }
+    dataset.finish().unwrap();
+    builder.add_worker(
+        common::get_test_keypair().public().to_peer_id(),
+        sqd_assignments::WorkerStatus::Ok,
+    );
+
+    let assignment = sqd_assignments::WorkerAssignment::from_owned(builder.finish()).unwrap();
+    let dataset = assignment.get_dataset("s3://solana-mainnet-2").unwrap();
+    let slices: Vec<Vec<u16>> =
+        dataset.chunks().map(|chunk| chunk.worker_indexes().collect()).collect();
+    assert_eq!(
+        slices,
+        vec![vec![0, 2], vec![], vec![1]],
+        "including the chunk that named no workers"
+    );
+}
+
 /// The routing column is flattened, so the offsets are what keep chunks' worker lists apart.
 #[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
@@ -670,18 +714,20 @@ fn test_portal_worker_slices_stay_separate() {
 
     let mut builder = PortalAssignmentBuilder::new();
     let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
+    // The third chunk names no workers at all, which is the case that would inherit the previous
+    // chunk's list rather than an empty one.
     for (id, range, workers) in [
-        ("0000000000/0000000000-0000000099-abcde", 0..=99u64, &[0u16, 2][..]),
-        ("0000000000/0000000100-0000000199-bcdef", 100..=199, &[][..]),
-        ("0000000000/0000000200-0000000299-cdefa", 200..=299, &[1][..]),
+        ("0000000000/0000000000-0000000099-abcde", 0..=99u64, Some(&[0u16, 2][..])),
+        ("0000000000/0000000100-0000000199-bcdef", 100..=199, Some(&[][..])),
+        ("0000000000/0000000200-0000000299-cdefa", 200..=299, Some(&[1][..])),
+        ("0000000000/0000000300-0000000399-defab", 300..=399, None),
     ] {
-        dataset
-            .new_chunk()
-            .id(id)
-            .block_range(range)
-            .worker_indexes(workers)
-            .finish()
-            .unwrap();
+        let staged = dataset.new_chunk().id(id).block_range(range);
+        let staged = match workers {
+            Some(workers) => staged.worker_indexes(workers),
+            None => staged,
+        };
+        staged.finish().unwrap();
     }
     dataset.finish(None).unwrap();
     builder.add_worker(
@@ -696,8 +742,8 @@ fn test_portal_worker_slices_stay_separate() {
         dataset.chunks().map(|chunk| chunk.worker_indexes().collect()).collect();
     assert_eq!(
         slices,
-        vec![vec![0, 2], vec![], vec![1]],
-        "including the empty one in the middle"
+        vec![vec![0, 2], vec![], vec![1], vec![]],
+        "including the empty one in the middle and the chunk that named no workers"
     );
     assert_eq!(
         dataset.worker_offsets().len(),
