@@ -39,6 +39,8 @@ table PortalAssignmentDataset {
   // `timestamps` is bisected the same way, which asks that it ascend. Ingest does not always
   // deliver that -- a handful of mainnet chunks step backwards, and some carry 0 for a timestamp
   // that was never recorded -- and a lookup near one of those returns a neighbouring chunk.
+  // Recording 0 is what a column can express: it has no per-element validity bit, so "never
+  // recorded" and "zero" are one value here, as they already are to the legacy reader.
 
   first_blocks: [uint64] (required, id: 3);  // ascending
   // last_block - first_block, so each chunk carries its own end. Gaps between chunks are legal
@@ -51,7 +53,10 @@ table PortalAssignmentDataset {
   // Absolute epoch milliseconds, as ingest records them. Milliseconds outgrew uint32 in 1970 and
   // a per-dataset base doesn't rescue them either -- uint32 spans 49.7 days, and 241 of 245
   // mainnet datasets hold more history than that -- so the column is as wide as the value.
-  timestamps: [uint64] (id: 7);  // absent = the dataset carries no timestamps
+  //
+  // Required, unlike `versions`: all 245 mainnet datasets time every chunk, so an optional column
+  // saved nothing and only added a second way to say "no timestamp here" on top of the 0 above.
+  timestamps: [uint64] (required, id: 7);  // 0 = never recorded
 
   // One entry per chunk. A run entry costs 8 bytes against this column's 4, so runs pay while one
   // covers more than two chunks, which fragmented backfills cut short; a dense column holds a

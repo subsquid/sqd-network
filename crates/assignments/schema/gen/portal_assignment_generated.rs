@@ -234,11 +234,11 @@ impl<'a> PortalAssignmentDataset<'a> {
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, TopRun>>>(PortalAssignmentDataset::VT_TOPS, None).unwrap()}
   }
   #[inline]
-  pub fn timestamps(&self) -> Option<::flatbuffers::Vector<'a, u64>> {
+  pub fn timestamps(&self) -> ::flatbuffers::Vector<'a, u64> {
     // Safety:
     // Created from valid Table for this object
     // which contains a valid value in this slot
-    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u64>>>(PortalAssignmentDataset::VT_TIMESTAMPS, None)}
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, u64>>>(PortalAssignmentDataset::VT_TIMESTAMPS, None).unwrap()}
   }
   #[inline]
   pub fn versions(&self) -> Option<::flatbuffers::Vector<'a, u32>> {
@@ -283,7 +283,7 @@ impl ::flatbuffers::Verifiable for PortalAssignmentDataset<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("block_deltas", Self::VT_BLOCK_DELTAS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ChunkHash>>>("hashes", Self::VT_HASHES, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, TopRun>>>("tops", Self::VT_TOPS, true)?
-     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("timestamps", Self::VT_TIMESTAMPS, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u64>>>("timestamps", Self::VT_TIMESTAMPS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("versions", Self::VT_VERSIONS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u32>>>("worker_offsets", Self::VT_WORKER_OFFSETS, true)?
      .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, u16>>>("worker_indexes", Self::VT_WORKER_INDEXES, true)?
@@ -317,7 +317,7 @@ impl<'a> Default for PortalAssignmentDatasetArgs<'a> {
       block_deltas: None, // required field
       hashes: None, // required field
       tops: None, // required field
-      timestamps: None,
+      timestamps: None, // required field
       versions: None,
       worker_offsets: None, // required field
       worker_indexes: None, // required field
@@ -395,6 +395,7 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PortalAssignmentDatasetBuilde
     self.fbb_.required(o, PortalAssignmentDataset::VT_BLOCK_DELTAS,"block_deltas");
     self.fbb_.required(o, PortalAssignmentDataset::VT_HASHES,"hashes");
     self.fbb_.required(o, PortalAssignmentDataset::VT_TOPS,"tops");
+    self.fbb_.required(o, PortalAssignmentDataset::VT_TIMESTAMPS,"timestamps");
     self.fbb_.required(o, PortalAssignmentDataset::VT_WORKER_OFFSETS,"worker_offsets");
     self.fbb_.required(o, PortalAssignmentDataset::VT_WORKER_INDEXES,"worker_indexes");
     ::flatbuffers::WIPOffset::new(o.value())

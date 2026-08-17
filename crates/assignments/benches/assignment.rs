@@ -128,6 +128,8 @@ fn build() -> Fixture {
         let id = dataset_id(dataset);
         let base_url = format!("https://chain-{dataset:04}.sqd-datasets.io");
         worker.register_write_schema(dataset as u32 + 1, TABLES).expect("sorted roster");
+        let mut worker_dataset = worker.new_dataset(&id, &base_url);
+        let mut portal_dataset = portal.new_dataset(&id, dataset as u32 + 1);
 
         for chunk in 0..CHUNKS_PER_DATASET {
             let first = chunk as u64 * BLOCKS_PER_CHUNK;
@@ -153,11 +155,9 @@ fn build() -> Fixture {
             }
             staged.finish().expect("contiguous");
 
-            worker
+            worker_dataset
                 .new_chunk()
                 .id(&cid)
-                .dataset_id(&id)
-                .dataset_base_url(&base_url)
                 .block_range(first..=last)
                 .size(1_000_000)
                 .write_schema_id(dataset as u32 + 1)
@@ -165,10 +165,9 @@ fn build() -> Fixture {
                 .finish()
                 .expect("contiguous");
 
-            portal
+            portal_dataset
                 .new_chunk()
                 .id(&cid)
-                .dataset_id(&id)
                 .block_range(first..=last)
                 .last_block_timestamp(ts)
                 .worker_indexes(&indexes)
@@ -176,10 +175,8 @@ fn build() -> Fixture {
                 .expect("contiguous");
         }
         legacy.finish_dataset();
-        worker.finish_dataset().expect("chunks staged");
-        portal
-            .finish_dataset(dataset as u32 + 1, Some(&format!("0x{:064x}", 0)))
-            .expect("timestamped throughout");
+        worker_dataset.finish().expect("chunks staged");
+        portal_dataset.finish(Some(&format!("0x{:064x}", 0))).expect("chunks staged");
     }
 
     for (peer_id, _) in &workers {

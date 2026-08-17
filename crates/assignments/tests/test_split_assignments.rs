@@ -3,7 +3,9 @@ mod common;
 #[cfg(feature = "builder")]
 use rand::{rngs::StdRng, SeedableRng};
 #[cfg(feature = "builder")]
-use sqd_assignments::{WorkerAssignmentBuilder, WorkerAssignmentChunkBuilder};
+use sqd_assignments::{
+    WorkerAssignmentBuilder, WorkerAssignmentChunkBuilder, WorkerDatasetBuilder,
+};
 
 /// A deterministically seeded builder with no write schema registered yet.
 #[cfg(feature = "builder")]
@@ -11,16 +13,20 @@ fn test_builder() -> WorkerAssignmentBuilder<StdRng> {
     WorkerAssignmentBuilder::new_with_rng("test-secret", StdRng::seed_from_u64(0))
 }
 
+/// The dataset the chunks below are staged into, named once rather than by every chunk.
+#[cfg(feature = "builder")]
+fn test_dataset(builder: &mut WorkerAssignmentBuilder<StdRng>) -> WorkerDatasetBuilder<'_, StdRng> {
+    builder.new_dataset("s3://solana-mainnet-2", "https://solana-mainnet-2.sqd-datasets.io")
+}
+
 /// A chunk builder with everything but the write-schema fields set.
 #[cfg(feature = "builder")]
-fn staged_chunk(
-    builder: &mut WorkerAssignmentBuilder<StdRng>,
-) -> WorkerAssignmentChunkBuilder<'_, StdRng> {
-    builder
+fn staged_chunk<'a>(
+    dataset: &'a mut WorkerDatasetBuilder<'_, StdRng>,
+) -> WorkerAssignmentChunkBuilder<'a, StdRng> {
+    dataset
         .new_chunk()
         .id("0221000000/0221000000-0221000649-BQJdx")
-        .dataset_id("s3://solana-mainnet-2")
-        .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .block_range(221000000..=221000649)
         .size(1000000)
         .worker_indexes(&[0])
@@ -35,11 +41,10 @@ fn test_worker_assignment_round_trip() {
     // what `lookup_by_key` binary-searches on.
     builder.register_write_schema(3, &["blocks", "traces"]).unwrap();
 
-    builder
+    let mut dataset = test_dataset(&mut builder);
+    dataset
         .new_chunk()
         .id("0221000000/0221000000-0221000649-BQJdx")
-        .dataset_id("s3://solana-mainnet-2")
-        .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .block_range(221000000..=221000649)
         .size(1000000)
         .write_schema_id(7)
@@ -48,11 +53,9 @@ fn test_worker_assignment_round_trip() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder
+    dataset
         .new_chunk()
         .id("0221000000/0221000650-0221001549-AuRE1")
-        .dataset_id("s3://solana-mainnet-2")
-        .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .block_range(221000650..=221001549)
         .size(1000000)
         .write_schema_id(7)
@@ -60,11 +63,9 @@ fn test_worker_assignment_round_trip() {
         .finish()
         .unwrap();
     // Same tables as the first chunk: two bitmaps with identical bits, resolved independently.
-    builder
+    dataset
         .new_chunk()
         .id("0221000000/0221001550-0221001999-C7pQz")
-        .dataset_id("s3://solana-mainnet-2")
-        .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .block_range(221001550..=221001999)
         .size(1000000)
         .write_schema_id(7)
@@ -73,7 +74,7 @@ fn test_worker_assignment_round_trip() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset().unwrap();
+    dataset.finish().unwrap();
 
     let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
@@ -146,34 +147,35 @@ fn test_chunk_generations_round_trip() {
     builder.register_write_schema(7, &["blocks"]).unwrap();
 
     // An untouched dataset, staged first because `get_dataset` binary-searches on id.
-    builder
+    let mut untouched =
+        builder.new_dataset("s3://ethereum-mainnet", "https://ethereum-mainnet.sqd-datasets.io");
+    untouched
         .new_chunk()
         .id("0000000000/0000000000-0000000999-274f02d8")
-        .dataset_id("s3://ethereum-mainnet")
-        .dataset_base_url("https://ethereum-mainnet.sqd-datasets.io")
         .block_range(0..=999)
         .size(1000)
         .write_schema_id(7)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset().unwrap();
+    untouched.finish().unwrap();
 
-    // Generations belong to the dataset being staged, so these apply to the one below only.
-    builder.register_generation(4, "_bf/01HR2A9B4C6D8E0F2G4H6J8K0M").unwrap();
+    // Generations are registered on the dataset they cover, so these reach this one only.
+    let mut dataset = test_dataset(&mut builder);
+    dataset.register_generation(4, "_bf/01HR2A9B4C6D8E0F2G4H6J8K0M").unwrap();
     // Registered after 4 but sorts before it: entries must reach the blob version-sorted, which is
     // what `lookup_by_key` binary-searches on.
-    builder.register_generation(2, "_bf/01HQZK3M7X8P2NVWTC4RYFGDS9").unwrap();
+    dataset.register_generation(2, "_bf/01HQZK3M7X8P2NVWTC4RYFGDS9").unwrap();
 
-    staged_chunk(&mut builder).write_schema_id(7).finish().unwrap();
-    staged_chunk(&mut builder)
+    staged_chunk(&mut dataset).write_schema_id(7).finish().unwrap();
+    staged_chunk(&mut dataset)
         .id("0221000000/0221000650-0221001549-AuRE1")
         .block_range(221000650..=221001549)
         .write_schema_id(7)
         .version(2)
         .finish()
         .unwrap();
-    builder.finish_dataset().unwrap();
+    dataset.finish().unwrap();
 
     builder.add_worker_with_timestamp(
         common::get_test_keypair().public().to_peer_id(),
@@ -236,26 +238,48 @@ fn test_chunk_generations_round_trip() {
     );
 }
 
-#[cfg(feature = "builder")]
+/// A dataset is emitted by `finish` and by nothing else. Dropping one, or having it rejected, must
+/// leave no trace on the assignment or on whatever is opened next — the staged chunks go, and so
+/// does the last block they set, which would otherwise break the next dataset's continuity.
+#[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
-fn test_chunks_of_a_dataset_must_share_a_base_url() {
-    let mut builder = test_builder().check_continuity(false);
+fn test_an_abandoned_dataset_emits_nothing() {
+    let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks"]).unwrap();
-    staged_chunk(&mut builder).write_schema_id(7).finish().unwrap();
 
-    let error = staged_chunk(&mut builder)
-        .dataset_base_url("https://elsewhere.sqd-datasets.io")
-        .write_schema_id(7)
-        .finish()
-        .expect_err("the dataset holds one base url, so its chunks cannot name two");
+    // Rejected: no chunk was staged.
+    let empty = builder.new_dataset("s3://aaa-empty", "https://aaa-empty.sqd-datasets.io");
+    let error = empty.finish().expect_err("a dataset with no chunks has no columns");
+    assert!(error.to_string().contains("At least one chunk"), "unexpected error: {error}");
 
-    assert!(error.to_string().contains("share a base url"), "unexpected error: {error}");
+    // Abandoned: chunks staged, `finish` never called.
+    {
+        let mut dropped =
+            builder.new_dataset("s3://bbb-dropped", "https://bbb-dropped.sqd-datasets.io");
+        staged_chunk(&mut dropped).write_schema_id(7).finish().unwrap();
+    }
+
+    // Covers the same blocks as the abandoned dataset's chunk, so a leaked `last_block` would trip
+    // continuity here rather than passing quietly.
+    let mut dataset = test_dataset(&mut builder);
+    staged_chunk(&mut dataset).write_schema_id(7).finish().unwrap();
+    dataset.finish().unwrap();
+    builder.add_worker(
+        common::get_test_keypair().public().to_peer_id(),
+        sqd_assignments::WorkerStatus::Ok,
+    );
+
+    let assignment = sqd_assignments::WorkerAssignment::from_owned(builder.finish()).unwrap();
+    assert_eq!(assignment.datasets().len(), 1, "only the finished dataset reaches the blob");
+    let dataset = assignment.get_dataset("s3://solana-mainnet-2").expect("the finished dataset");
+    assert_eq!(dataset.chunk_count(), 1, "the abandoned dataset's chunk is not carried over");
 }
 
 #[cfg(feature = "builder")]
 #[test]
 fn test_register_generation_rejects_version_zero() {
-    let error = test_builder()
+    let mut builder = test_builder();
+    let error = test_dataset(&mut builder)
         .register_generation(0, "_bf/01HQZK3M7X8P2NVWTC4RYFGDS9")
         .expect_err("giving version 0 a prefix would contradict what makes a chunk ingested");
 
@@ -269,9 +293,10 @@ fn test_register_generation_rejects_version_zero() {
 #[test]
 fn test_register_generation_rejects_conflicting_base_url() {
     let mut builder = test_builder();
-    builder.register_generation(2, "_bf/01HQZK3M7X8P2NVWTC4RYFGDS9").unwrap();
+    let mut dataset = test_dataset(&mut builder);
+    dataset.register_generation(2, "_bf/01HQZK3M7X8P2NVWTC4RYFGDS9").unwrap();
 
-    let error = builder
+    let error = dataset
         .register_generation(2, "_bf/01HR2A9B4C6D8E0F2G4H6J8K0M")
         .expect_err("one version cannot name two prefixes");
 
@@ -285,7 +310,8 @@ fn test_finish_rejects_unregistered_generation() {
     let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks"]).unwrap();
 
-    let error = staged_chunk(&mut builder)
+    let mut dataset = test_dataset(&mut builder);
+    let error = staged_chunk(&mut dataset)
         .write_schema_id(7)
         .version(2)
         .finish()
@@ -303,7 +329,9 @@ fn test_tables_present_rejects_table_outside_write_schema() {
     let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks", "transactions"]).unwrap();
 
-    let Err(error) = staged_chunk(&mut builder)
+    let mut dataset = test_dataset(&mut builder);
+
+    let Err(error) = staged_chunk(&mut dataset)
         .write_schema_id(7)
         .tables_present(&["blocks", "traces"])
     else {
@@ -322,7 +350,9 @@ fn test_tables_present_requires_write_schema_id_first() {
     let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks"]).unwrap();
 
-    let Err(error) = staged_chunk(&mut builder).tables_present(&["blocks"]) else {
+    let mut dataset = test_dataset(&mut builder);
+
+    let Err(error) = staged_chunk(&mut dataset).tables_present(&["blocks"]) else {
         panic!("tables_present encodes against the roster, so it needs the schema id");
     };
 
@@ -356,7 +386,8 @@ fn test_unsorted_tables_present_trips_debug_assertion() {
     let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks", "logs", "transactions"]).unwrap();
 
-    let _ = staged_chunk(&mut builder)
+    let mut dataset = test_dataset(&mut builder);
+    let _ = staged_chunk(&mut dataset)
         .write_schema_id(7)
         .tables_present(&["transactions", "blocks"]);
 }
@@ -369,7 +400,9 @@ fn test_unsorted_tables_present_still_fails_without_debug_assertions() {
     let mut builder = test_builder();
     builder.register_write_schema(7, &["blocks", "logs", "transactions"]).unwrap();
 
-    let Err(error) = staged_chunk(&mut builder)
+    let mut dataset = test_dataset(&mut builder);
+
+    let Err(error) = staged_chunk(&mut dataset)
         .write_schema_id(7)
         .tables_present(&["transactions", "blocks"])
     else {
@@ -385,7 +418,8 @@ fn test_unsorted_tables_present_still_fails_without_debug_assertions() {
 fn test_finish_rejects_unregistered_write_schema() {
     let mut builder = test_builder();
 
-    let error = staged_chunk(&mut builder)
+    let mut dataset = test_dataset(&mut builder);
+    let error = staged_chunk(&mut dataset)
         .write_schema_id(7)
         .finish()
         .expect_err("a chunk may not reference a write schema with no roster in the blob");
@@ -405,7 +439,8 @@ fn test_finish_rejects_write_schema_changed_after_tables_present() {
     builder.register_write_schema(7, &["blocks", "logs"]).unwrap();
     builder.register_write_schema(8, &["blocks", "traces"]).unwrap();
 
-    let error = staged_chunk(&mut builder)
+    let mut dataset = test_dataset(&mut builder);
+    let error = staged_chunk(&mut dataset)
         .write_schema_id(7)
         .tables_present(&["logs"])
         .unwrap()
@@ -431,32 +466,26 @@ fn test_portal_assignment_round_trip() {
     use sqd_assignments::PortalAssignmentBuilder;
 
     let mut builder = PortalAssignmentBuilder::new().check_continuity(false);
+    let mut dataset = builder.new_dataset("s3://solana-mainnet-2", 7);
 
-    builder
+    dataset
         .new_chunk()
         .id("0221000000/0221000000-0221000649-BQJdx")
-        .dataset_id("s3://solana-mainnet-2")
         .block_range(221000000..=221000649)
         .last_block_timestamp(1696192039)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder
+    dataset
         .new_chunk()
         .id("0221000000/0221000650-0221001549-AuRE1")
-        .dataset_id("s3://solana-mainnet-2")
         .block_range(221000650..=221001549)
         .last_block_timestamp(1696193050)
         .version(2)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder
-        .finish_dataset(
-            7,
-            Some("0x9f2e1d4c7b8a35460f1e2d3c4b5a69788796a5b4c3d2e1f00123456789abcdef"),
-        )
-        .unwrap();
+    dataset.finish(Some("0x9f2e1d4c7b8a35460f1e2d3c4b5a69788796a5b4c3d2e1f00123456789abcdef")).unwrap();
 
     let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
@@ -496,13 +525,13 @@ fn test_portal_assignment_round_trip() {
         221000649,
         "the end comes from block_deltas, not the neighbour"
     );
-    assert_eq!(chunk1.last_block_timestamp(), Some(1696192039));
+    assert_eq!(chunk1.last_block_timestamp(), 1696192039);
     assert_eq!(chunk1.worker_indexes().collect::<Vec<_>>(), vec![0]);
     assert_eq!(version_of(chunk1), 0, "an unset version means the ingested copy");
 
     let chunk2 = assignment.find_chunk("s3://solana-mainnet-2", 221000650).unwrap();
     assert_eq!(chunk2.id().unwrap(), "0221000000/0221000650-0221001549-AuRE1");
-    assert_eq!(chunk2.last_block_timestamp(), Some(1696193050));
+    assert_eq!(chunk2.last_block_timestamp(), 1696193050);
     assert_eq!(version_of(chunk2), 2, "the portal sees the version but not its storage prefix");
 
     assert_eq!(
@@ -543,25 +572,24 @@ fn test_portal_find_chunk_reports_a_gap() {
     // The gap is why continuity has to be off — the check and the format disagree on whether
     // gaps are legal, and archive.py's `assert self.next_block <= first_block` says they are.
     let mut builder = PortalAssignmentBuilder::new().check_continuity(false);
-    builder
+    let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
+    dataset
         .new_chunk()
         .id("0000000000/0000000000-0000000099-274f02d8")
-        .dataset_id("s3://ethereum-mainnet")
         .block_range(0..=99)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
     // With the check off the chunk is still staged; the error is only reported, as
     // `check_continuity` documents.
-    let gap = builder
+    let gap = dataset
         .new_chunk()
         .id("0000000000/0000000200-0000000299-9QgFD")
-        .dataset_id("s3://ethereum-mainnet")
         .block_range(200..=299)
         .worker_indexes(&[0])
         .finish();
     assert!(gap.is_err(), "the gap is still reported for logging");
-    builder.finish_dataset(1, None).unwrap();
+    dataset.finish(None).unwrap();
     builder.add_worker(
         common::get_test_keypair().public().to_peer_id(),
         sqd_assignments::WorkerStatus::Ok,
@@ -585,22 +613,22 @@ fn test_portal_tops_are_runs_and_hashes_keep_their_length() {
     use sqd_assignments::PortalAssignmentBuilder;
 
     let mut builder = PortalAssignmentBuilder::new();
+    let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
     // Two chunks under one top, then a third that opens a new one.
     for (id, range) in [
         ("0000000000/0000000000-0000000099-abcde", 0..=99u64),
         ("0000000000/0000000100-0000000199-274f02d8", 100..=199),
         ("0000000200/0000000200-0000000299-ab_de123", 200..=299),
     ] {
-        builder
+        dataset
             .new_chunk()
             .id(id)
-            .dataset_id("s3://ethereum-mainnet")
             .block_range(range)
             .worker_indexes(&[0])
             .finish()
             .unwrap();
     }
-    builder.finish_dataset(1, None).unwrap();
+    dataset.finish(None).unwrap();
     builder.add_worker(
         common::get_test_keypair().public().to_peer_id(),
         sqd_assignments::WorkerStatus::Ok,
@@ -623,8 +651,12 @@ fn test_portal_tops_are_runs_and_hashes_keep_their_length() {
     assert_eq!(dataset.chunk(0).unwrap().hash(), Some("abcde"), "5 characters, NUL-padded");
     assert_eq!(dataset.chunk(1).unwrap().hash(), Some("274f02d8"), "8 characters, unpadded");
     assert!(dataset.versions().is_none(), "a dataset no batch job touched carries no column");
-    assert!(dataset.timestamps().is_none(), "nor timestamps it was never given");
-    assert_eq!(dataset.chunk(2).unwrap().last_block_timestamp(), None);
+    assert_eq!(
+        dataset.timestamps().iter().collect::<Vec<_>>(),
+        vec![0, 0, 0],
+        "the column is required, so timestamps it was never given read as 0"
+    );
+    assert_eq!(dataset.chunk(2).unwrap().last_block_timestamp(), 0);
     assert!(dataset.chunk(3).is_none(), "past the end of the columns");
 }
 
@@ -635,21 +667,21 @@ fn test_portal_worker_slices_stay_separate() {
     use sqd_assignments::PortalAssignmentBuilder;
 
     let mut builder = PortalAssignmentBuilder::new();
+    let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
     for (id, range, workers) in [
         ("0000000000/0000000000-0000000099-abcde", 0..=99u64, &[0u16, 2][..]),
         ("0000000000/0000000100-0000000199-bcdef", 100..=199, &[][..]),
         ("0000000000/0000000200-0000000299-cdefa", 200..=299, &[1][..]),
     ] {
-        builder
+        dataset
             .new_chunk()
             .id(id)
-            .dataset_id("s3://ethereum-mainnet")
             .block_range(range)
             .worker_indexes(workers)
             .finish()
             .unwrap();
     }
-    builder.finish_dataset(1, None).unwrap();
+    dataset.finish(None).unwrap();
     builder.add_worker(
         common::get_test_keypair().public().to_peer_id(),
         sqd_assignments::WorkerStatus::Ok,
@@ -678,24 +710,23 @@ fn test_portal_versions_column_appears_only_once_something_is_backfilled() {
     use sqd_assignments::PortalAssignmentBuilder;
 
     let mut builder = PortalAssignmentBuilder::new();
-    builder
+    let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
+    dataset
         .new_chunk()
         .id("0000000000/0000000000-0000000099-abcde")
-        .dataset_id("s3://ethereum-mainnet")
         .block_range(0..=99)
         .version(4)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder
+    dataset
         .new_chunk()
         .id("0000000000/0000000100-0000000199-bcdef")
-        .dataset_id("s3://ethereum-mainnet")
         .block_range(100..=199)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder.finish_dataset(1, None).unwrap();
+    dataset.finish(None).unwrap();
     builder.add_worker(
         common::get_test_keypair().public().to_peer_id(),
         sqd_assignments::WorkerStatus::Ok,
@@ -712,34 +743,45 @@ fn test_portal_versions_column_appears_only_once_something_is_backfilled() {
     );
 }
 
-#[cfg(feature = "builder")]
+/// Ingest times most chunks and not others, so the column has to hold the mix. It says nothing
+/// about a chunk it was never given beyond 0, which is where the legacy reader also puts one.
+#[cfg(all(feature = "builder", feature = "reader"))]
 #[test]
-fn test_portal_timestamps_are_all_or_nothing() {
+fn test_portal_untimed_chunks_read_as_zero() {
     use sqd_assignments::PortalAssignmentBuilder;
 
     let mut builder = PortalAssignmentBuilder::new();
-    builder
+    let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
+    dataset
         .new_chunk()
         .id("0000000000/0000000000-0000000099-abcde")
-        .dataset_id("s3://ethereum-mainnet")
         .block_range(0..=99)
         .last_block_timestamp(1696192039)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    builder
+    dataset
         .new_chunk()
         .id("0000000000/0000000100-0000000199-bcdef")
-        .dataset_id("s3://ethereum-mainnet")
         .block_range(100..=199)
         .worker_indexes(&[0])
         .finish()
         .unwrap();
+    dataset.finish(None).expect("a partly timed dataset still builds");
+    builder.add_worker(
+        common::get_test_keypair().public().to_peer_id(),
+        sqd_assignments::WorkerStatus::Ok,
+    );
 
-    let error = builder
-        .finish_dataset(1, None)
-        .expect_err("one column over all chunks can't cover only some of them");
-    assert!(error.to_string().contains("every chunk"), "unexpected error: {error}");
+    let assignment = sqd_assignments::PortalAssignment::from_owned(builder.finish()).unwrap();
+    let dataset = assignment.get_dataset("s3://ethereum-mainnet").unwrap();
+    assert_eq!(
+        dataset.timestamps().iter().collect::<Vec<_>>(),
+        vec![1696192039, 0],
+        "dense, so an untimed chunk still occupies its slot"
+    );
+    assert_eq!(dataset.chunk(0).unwrap().last_block_timestamp(), 1696192039);
+    assert_eq!(dataset.chunk(1).unwrap().last_block_timestamp(), 0);
 }
 
 #[cfg(feature = "builder")]
@@ -748,10 +790,10 @@ fn test_portal_chunk_id_must_agree_with_the_block_range() {
     use sqd_assignments::PortalAssignmentBuilder;
 
     let mut builder = PortalAssignmentBuilder::new();
-    let error = builder
+    let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
+    let error = dataset
         .new_chunk()
         .id("0000000000/0000000000-0000000099-abcde")
-        .dataset_id("s3://ethereum-mainnet")
         .block_range(0..=100)
         .worker_indexes(&[0])
         .finish()
@@ -774,10 +816,10 @@ fn test_portal_rejects_a_malformed_chunk_id() {
         ("000000000x/0000000000-0000000099-abcde", "non-numeric top"),
     ] {
         let mut builder = PortalAssignmentBuilder::new();
-        let error = builder
+        let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
+        let error = dataset
             .new_chunk()
             .id(id)
-            .dataset_id("s3://ethereum-mainnet")
             .block_range(0..=99)
             .worker_indexes(&[0])
             .finish()

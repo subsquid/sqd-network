@@ -690,10 +690,10 @@ impl PortalAssignment {
                 &[
                     ("block_deltas", dataset.block_deltas().len()),
                     ("hashes", dataset.hashes().len()),
+                    ("timestamps", dataset.timestamps().len()),
                     ("worker_offsets", dataset.worker_offsets().len().saturating_sub(1)),
                 ]
                 .into_iter()
-                .chain(dataset.timestamps().map(|c| ("timestamps", c.len())))
                 .chain(dataset.versions().map(|c| ("versions", c.len())))
                 .collect::<Vec<_>>(),
                 &[(
@@ -779,8 +779,7 @@ impl PortalAssignment {
         Ok(chunk)
     }
 
-    /// The first chunk whose timestamp is at or after `ts`. No `timestamps` column reads as every
-    /// chunk sitting at 0.
+    /// The first chunk whose timestamp is at or after `ts`.
     ///
     /// Bisecting assumes the column ascends, which ingest doesn't guarantee: an unrecorded
     /// timestamp is 0, and a few step backwards outright. A lookup near one lands on a neighbour.
@@ -794,15 +793,11 @@ impl PortalAssignment {
         };
 
         let count = dataset.chunk_count();
-        // The column is read once, not re-resolved through the vtable on every probe.
-        let index = match dataset.timestamps() {
-            // Bisecting on `< ts` lands on the first chunk at or after it, so runs of equal
-            // timestamps resolve to their first member without walking back.
-            Some(timestamps) => partition_point(count, |i| timestamps.get(i) < ts),
-            // No column reads as every chunk sitting at 0.
-            None if ts == 0 => 0,
-            None => count,
-        };
+        // The column is read once, not re-resolved through the vtable on every probe. Bisecting on
+        // `< ts` lands on the first chunk at or after it, so runs of equal timestamps resolve to
+        // their first member without walking back.
+        let timestamps = dataset.timestamps();
+        let index = partition_point(count, |i| timestamps.get(i) < ts);
         if index == count {
             return Err(ChunkNotFound::AfterLast);
         }
@@ -835,9 +830,10 @@ impl<'a> PortalChunk<'a> {
         self.first_block() + self.dataset.block_deltas().get(self.index as usize) as u64
     }
 
-    /// Absolute epoch milliseconds; `None` when the dataset carries no timestamps at all.
-    pub fn last_block_timestamp(&self) -> Option<u64> {
-        self.dataset.timestamps().map(|column| column.get(self.index as usize))
+    /// Absolute epoch milliseconds, or 0 for a chunk whose timestamp was never recorded. The
+    /// column is required, so there is no dataset-wide "no timestamps" to report.
+    pub fn last_block_timestamp(&self) -> u64 {
+        self.dataset.timestamps().get(self.index as usize)
     }
 
     /// Which copy of the chunk workers serve; 0 is the ingested one.
@@ -1355,6 +1351,7 @@ mod malformed {
         let block_deltas = fbb.create_vector(&[999u32]); // one delta for three chunks
         let hashes = fbb.create_vector(&[ChunkHash::new(b"abcdefgh"); 3]);
         let tops = fbb.create_vector(&[TopRun::new(0, 0)]);
+        let timestamps = fbb.create_vector(&[0u64; 3]);
         let worker_offsets = fbb.create_vector(&[0u32; 4]);
         let worker_indexes = fbb.create_vector::<u16>(&[]);
         let dataset = PortalAssignmentDataset::create(
@@ -1366,6 +1363,7 @@ mod malformed {
                 block_deltas: Some(block_deltas),
                 hashes: Some(hashes),
                 tops: Some(tops),
+                timestamps: Some(timestamps),
                 worker_offsets: Some(worker_offsets),
                 worker_indexes: Some(worker_indexes),
                 ..Default::default()

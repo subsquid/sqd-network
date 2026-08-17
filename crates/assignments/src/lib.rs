@@ -58,8 +58,8 @@ pub use common::{NetworkAssignment, NetworkState, SchemaBundle, WorkerStatus};
 pub use builder::AssignmentBuilder;
 #[cfg(feature = "builder")]
 pub use builder::{
-    PortalAssignmentBuilder, PortalAssignmentChunkBuilder, WorkerAssignmentBuilder,
-    WorkerAssignmentChunkBuilder,
+    PortalAssignmentBuilder, PortalAssignmentChunkBuilder, PortalDatasetBuilder,
+    WorkerAssignmentBuilder, WorkerAssignmentChunkBuilder, WorkerDatasetBuilder,
 };
 
 #[cfg(feature = "reader")]

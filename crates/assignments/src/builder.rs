@@ -369,7 +369,7 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
 // Chunks are not built as tables: each one appends a row across the dataset's columns, which
 // `finish_dataset` emits. `WorkerEntry` is shared with the legacy format unchanged.
 
-/// The dataset being staged, taken by [`WorkerAssignmentBuilder::finish_dataset`].
+/// The dataset being staged, taken by [`WorkerDatasetBuilder::finish`].
 #[derive(Default)]
 struct WorkerDatasetColumns {
     first_blocks: Vec<u64>,
@@ -388,15 +388,12 @@ struct WorkerDatasetColumns {
     /// Where each chunk's worker slice ends; the emitted CSR column is a leading 0 then these.
     worker_ends: Vec<u32>,
     worker_indexes: Vec<u16>,
-    /// Kept as a string so a second chunk naming a different url is caught, not dropped.
-    base_url: Option<(String, fb::WIPOffset<&'static str>)>,
 }
 
 pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     builder: fb::FlatBufferBuilder<'static>,
     rng: Rng,
     last_block: Option<u64>,
-    current_dataset_id_offset: Option<fb::WIPOffset<&'static str>>,
     all_datasets: Vec<fb::WIPOffset<assignment_fb::WorkerAssignmentDataset<'static>>>,
     worker_entries: Vec<(WorkerId, fb::WIPOffset<assignment_fb::WorkerEntry<'static>>)>,
     last_peer_id: Option<PeerId>,
@@ -428,7 +425,6 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
             builder,
             rng,
             last_block: None,
-            current_dataset_id_offset: None,
             all_datasets: Vec::new(),
             worker_entries: Vec::new(),
             last_peer_id: None,
@@ -483,47 +479,44 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         Ok(())
     }
 
-    /// The prefix a batch job wrote a generation under, relative to the dataset's base url (e.g.
-    /// `_bf/01HQZK3M7X8P2NVWTC4RYFGDS9`). Per-dataset, so it must precede the chunks carrying that
-    /// version and be re-registered for every dataset the generation covers.
+    /// Opens the dataset that chunks are staged into. Chunks never name a dataset or a base url
+    /// themselves — both belong to the dataset they were opened under — so neither can disagree
+    /// with the dataset holding them.
     ///
-    /// # Errors
-    ///
-    /// If `version` is 0 — the ingested layout, defined by having no entry — or if the version was
-    /// already registered here with a different prefix.
-    pub fn register_generation(&mut self, version: u32, base_url: &str) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            version != 0,
-            "version 0 is the ingested layout, which needs no generation entry"
-        );
-        match self.current_generations.entry(version) {
-            Entry::Occupied(existing) => anyhow::ensure!(
-                existing.get() == base_url,
-                "generation {version} re-registered with a different base url"
-            ),
-            Entry::Vacant(slot) => {
-                slot.insert(base_url.to_owned());
-            }
+    /// `base_url` is the dataset's storage root, which every chunk's download url extends.
+    #[must_use = "a dataset is emitted by `finish`; a builder that is dropped emits nothing"]
+    pub fn new_dataset(&mut self, id: &str, base_url: &str) -> WorkerDatasetBuilder<'_, Rng> {
+        let id = self.builder.create_shared_string(id);
+        let base_url = self.builder.create_shared_string(base_url);
+        WorkerDatasetBuilder {
+            p: self,
+            id,
+            base_url,
+            emitted: false,
         }
-        Ok(())
     }
 
-    pub fn new_chunk(&mut self) -> WorkerAssignmentChunkBuilder<'_, Rng> {
-        WorkerAssignmentChunkBuilder::new(self)
+    /// Forgets everything staged for the open dataset, so the next one starts clean.
+    fn discard_dataset(&mut self) {
+        self.columns = WorkerDatasetColumns::default();
+        self.last_block = None;
+        self.current_generations.clear();
     }
 
     /// Emits the staged chunks as the dataset's columns.
-    ///
-    /// # Errors
-    ///
-    /// If no chunk was staged, or a run column doesn't start at chunk 0 and ascend — which staging
-    /// already guarantees, but the reader's search depends on it.
-    pub fn finish_dataset(&mut self) -> anyhow::Result<()> {
-        let columns = std::mem::take(&mut self.columns);
-        let generations = self.create_generations();
-        let chunk_count = columns.first_blocks.len();
+    fn emit_dataset(
+        &mut self,
+        id: fb::WIPOffset<&'static str>,
+        base_url: fb::WIPOffset<&'static str>,
+    ) -> anyhow::Result<()> {
+        let chunk_count = self.columns.first_blocks.len();
         anyhow::ensure!(chunk_count > 0, "At least one chunk should be present in the dataset");
-        check_runs(columns.tops.iter().map(|run| run.first_chunk_index()), "top")?;
+        check_runs(self.columns.tops.iter().map(|run| run.first_chunk_index()), "top")?;
+
+        let columns = std::mem::take(&mut self.columns);
+        // After the checks, so a rejected dataset doesn't strand its generation entries in the
+        // buffer — nothing would reference them, and a retry would write them again.
+        let generations = self.create_generations();
         let first_blocks = self.builder.create_vector(&columns.first_blocks);
         let block_deltas = self.builder.create_vector(&columns.block_deltas);
         let hashes = self.builder.create_vector(&columns.hashes);
@@ -556,12 +549,12 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         let offset = assignment_fb::WorkerAssignmentDataset::create(
             &mut self.builder,
             &assignment_fb::WorkerAssignmentDatasetArgs {
-                id: self.current_dataset_id_offset.take(),
+                id: Some(id),
                 last_block: self
                     .last_block
                     .take()
-                    .expect("At least one chunk should be present in the dataset"),
-                base_url: columns.base_url.map(|(_, offset)| offset),
+                    .expect("a staged chunk sets last_block, and the count was checked above"),
+                base_url: Some(base_url),
                 generations,
                 first_blocks: Some(first_blocks),
                 block_deltas: Some(block_deltas),
@@ -777,6 +770,77 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     }
 }
 
+/// One dataset of a [`WorkerAssignmentBuilder`], opened by
+/// [`new_dataset`](WorkerAssignmentBuilder::new_dataset).
+///
+/// Holding the parent is what keeps datasets from overlapping: a second one can't be opened while
+/// this is alive, so a chunk always belongs to exactly the dataset it was staged under, and the
+/// generations registered here can only reach that dataset.
+#[must_use = "a dataset is emitted by `finish`; a builder that is dropped emits nothing"]
+pub struct WorkerDatasetBuilder<'b, Rng: CryptoRngCore> {
+    p: &'b mut WorkerAssignmentBuilder<Rng>,
+    id: fb::WIPOffset<&'static str>,
+    base_url: fb::WIPOffset<&'static str>,
+    /// Set by `finish`, so `Drop` only cleans up after a dataset that was never emitted.
+    emitted: bool,
+}
+
+impl<Rng: CryptoRngCore> WorkerDatasetBuilder<'_, Rng> {
+    /// The prefix a batch job wrote a generation under, relative to this dataset's base url (e.g.
+    /// `_bf/01HQZK3M7X8P2NVWTC4RYFGDS9`). Must precede the chunks carrying that version, and is
+    /// scoped to this dataset — a generation covering several datasets is registered on each.
+    ///
+    /// # Errors
+    ///
+    /// If `version` is 0 — the ingested layout, defined by having no entry — or if the version was
+    /// already registered here with a different prefix.
+    pub fn register_generation(&mut self, version: u32, base_url: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            version != 0,
+            "version 0 is the ingested layout, which needs no generation entry"
+        );
+        match self.p.current_generations.entry(version) {
+            Entry::Occupied(existing) => anyhow::ensure!(
+                existing.get() == base_url,
+                "generation {version} re-registered with a different base url"
+            ),
+            Entry::Vacant(slot) => {
+                slot.insert(base_url.to_owned());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn new_chunk(&mut self) -> WorkerAssignmentChunkBuilder<'_, Rng> {
+        WorkerAssignmentChunkBuilder::new(self.p)
+    }
+
+    /// Emits the dataset.
+    ///
+    /// # Errors
+    ///
+    /// If no chunk was staged, or a run column doesn't start at chunk 0 and ascend — which staging
+    /// already guarantees, but the reader's search depends on it. Either way the dataset is closed
+    /// and its chunks and generations are released, so a rejection can't leak into whatever is
+    /// opened next.
+    pub fn finish(mut self) -> anyhow::Result<()> {
+        self.emitted = true;
+        let result = self.p.emit_dataset(self.id, self.base_url);
+        if result.is_err() {
+            self.p.discard_dataset();
+        }
+        result
+    }
+}
+
+impl<Rng: CryptoRngCore> Drop for WorkerDatasetBuilder<'_, Rng> {
+    fn drop(&mut self) {
+        if !self.emitted {
+            self.p.discard_dataset();
+        }
+    }
+}
+
 /// A searched run column is only sound if it starts at chunk 0 and ascends; otherwise the reader's
 /// "last run at or before this chunk" has nothing to land on.
 fn check_runs(mut starts: impl Iterator<Item = u32>, what: &str) -> anyhow::Result<()> {
@@ -797,9 +861,7 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
 
     block_range: Option<RangeInclusive<u64>>,
     id: Option<String>,
-    dataset_id: Option<fb::WIPOffset<&'static str>>,
     size: Option<u32>,
-    dataset_base_url: Option<String>,
     version: u32,
     write_schema_id: Option<u32>,
     /// The bitmap and the write schema it was encoded against — they can diverge if
@@ -809,14 +871,12 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
 }
 
 impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
-    pub fn new(parent: &'b mut WorkerAssignmentBuilder<Rng>) -> Self {
+    fn new(parent: &'b mut WorkerAssignmentBuilder<Rng>) -> Self {
         Self {
             p: parent,
             block_range: None,
             id: None,
-            dataset_id: None,
             size: None,
-            dataset_base_url: None,
             version: 0,
             write_schema_id: None,
             tables_present: None,
@@ -832,13 +892,6 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         self
     }
 
-    /// Names the dataset the chunk is staged into; chunks don't carry the id themselves.
-    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
-    pub fn dataset_id(mut self, dataset_id: &str) -> Self {
-        self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
-        self
-    }
-
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
         self.block_range = Some(range);
@@ -848,14 +901,6 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn size(mut self, size: u32) -> Self {
         self.size = Some(size);
-        self
-    }
-
-    /// Held once on the dataset, so every chunk must name the same url; `finish` rejects a
-    /// disagreement.
-    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
-    pub fn dataset_base_url(mut self, url: &str) -> Self {
-        self.dataset_base_url = Some(url.to_owned());
         self
     }
 
@@ -971,11 +1016,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
             None => Vec::new(),
         };
 
-        let base_url = self.dataset_base_url.context("dataset_base_url must be set")?;
-        let dataset = self.dataset_id.expect("Dataset ID must be set");
         self.p.push_chunk(PushChunk {
-            dataset,
-            base_url,
             top: parsed.top,
             block_range,
             hash: parsed.hash,
@@ -990,8 +1031,6 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
 
 /// One row across every column, assembled by the chunk builder and appended by the parent.
 struct PushChunk<'a> {
-    dataset: WIPOffset<&'static str>,
-    base_url: String,
     top: u64,
     block_range: RangeInclusive<u64>,
     hash: assignment_fb::ChunkHash,
@@ -1015,18 +1054,6 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         };
         if continuity.is_err() && self.check_continuity {
             return continuity;
-        }
-
-        match &self.columns.base_url {
-            Some((staged, _)) => anyhow::ensure!(
-                *staged == chunk.base_url,
-                "chunks of one dataset must share a base url, got '{staged}' then '{}'",
-                chunk.base_url
-            ),
-            None => {
-                let offset = self.builder.create_shared_string(&chunk.base_url);
-                self.columns.base_url = Some((chunk.base_url, offset));
-            }
         }
 
         let index: u32 = self
@@ -1060,7 +1087,6 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         self.columns.worker_ends.push(end);
 
         self.last_block = Some(*chunk.block_range.end());
-        self.current_dataset_id_offset = Some(chunk.dataset);
         continuity
     }
 }
@@ -1081,7 +1107,7 @@ impl WorkerDatasetColumns {
 // No encryption, no RNG: portals never see `encrypted_headers`. Chunks are staged as columns, the
 // same way as the worker side.
 
-/// The dataset being staged, taken by [`PortalAssignmentBuilder::finish_dataset`].
+/// The dataset being staged, taken by [`PortalDatasetBuilder::finish`].
 #[derive(Default)]
 struct PortalDatasetColumns {
     first_blocks: Vec<u64>,
@@ -1090,10 +1116,9 @@ struct PortalDatasetColumns {
     /// Appended only when a chunk's top differs from the previous one's, which is what makes the
     /// runs start at 0 and strictly ascend.
     tops: Vec<assignment_fb::TopRun>,
-    /// Absolute epoch milliseconds, as given. A dataset either times every chunk or none of them.
+    /// Absolute epoch milliseconds, as given; 0 for a chunk that was staged without one, which is
+    /// the only thing a column can say about a timestamp it never got.
     timestamps: Vec<u64>,
-    /// All-or-nothing, so by `finish_dataset` this is either 0 or the chunk count.
-    timestamped: usize,
     versions: Vec<u32>,
     /// Where each chunk's worker slice ends; the emitted column is a leading 0 then these.
     worker_ends: Vec<u32>,
@@ -1104,7 +1129,6 @@ struct PortalDatasetColumns {
 pub struct PortalAssignmentBuilder {
     builder: fb::FlatBufferBuilder<'static>,
     last_block: Option<u64>,
-    current_dataset_id_offset: Option<fb::WIPOffset<&'static str>>,
     all_datasets: Vec<fb::WIPOffset<assignment_fb::PortalAssignmentDataset<'static>>>,
     worker_entries: Vec<(WorkerId, fb::WIPOffset<assignment_fb::PortalEntry<'static>>)>,
     last_peer_id: Option<PeerId>,
@@ -1129,55 +1153,61 @@ impl PortalAssignmentBuilder {
         self
     }
 
-    pub fn new_chunk(&mut self) -> PortalAssignmentChunkBuilder<'_> {
-        PortalAssignmentChunkBuilder::new(self)
-    }
-
-    /// Emits the staged chunks as the dataset's columns.
+    /// Opens the dataset that chunks are staged into. Chunks never name a dataset themselves — they
+    /// belong to the one they were opened under — so nothing can file a chunk under a dataset it
+    /// doesn't cover.
     ///
     /// `read_schema_id` is a client-facing view that may hide tables, in a separate id space from
-    /// [`WorkerAssignmentChunkBuilder::write_schema_id`]. `last_block_hash` is the head block's
-    /// full hash — the `hashes` column holds truncated ones, so it can't stand in.
-    ///
-    /// # Errors
-    ///
-    /// If no chunk was staged, or only some carried a timestamp: one column over all chunks is
-    /// all or nothing.
-    pub fn finish_dataset(
+    /// [`WorkerAssignmentChunkBuilder::write_schema_id`]. Datasets are emitted in the order they
+    /// are opened.
+    #[must_use = "a dataset is emitted by `finish`; a builder that is dropped emits nothing"]
+    pub fn new_dataset(&mut self, id: &str, read_schema_id: u32) -> PortalDatasetBuilder<'_> {
+        let id = self.builder.create_shared_string(id);
+        PortalDatasetBuilder {
+            p: self,
+            id,
+            read_schema_id,
+            emitted: false,
+        }
+    }
+
+    /// Forgets everything staged for the open dataset, so the next one starts clean.
+    fn discard_dataset(&mut self) {
+        self.columns = PortalDatasetColumns::default();
+        self.last_block = None;
+    }
+
+    /// Emits the staged chunks as the dataset's columns. `last_block_hash` is the head block's full
+    /// hash — the `hashes` column holds truncated ones, so it can't stand in.
+    fn emit_dataset(
         &mut self,
+        id: fb::WIPOffset<&'static str>,
         read_schema_id: u32,
         last_block_hash: Option<&str>,
     ) -> anyhow::Result<()> {
-        let columns = std::mem::take(&mut self.columns);
-        let chunk_count = columns.first_blocks.len();
+        let chunk_count = self.columns.first_blocks.len();
         anyhow::ensure!(chunk_count > 0, "At least one chunk should be present in the dataset");
-        anyhow::ensure!(
-            columns.timestamped == 0 || columns.timestamped == chunk_count,
-            "either every chunk of a dataset carries a timestamp or none does, got {} of {}",
-            columns.timestamped,
-            chunk_count
-        );
         // Guaranteed by how `push_chunk` appends runs, but the reader underflows if it ever
         // stops holding.
         anyhow::ensure!(
-            columns.tops.first().is_some_and(|run| run.first_chunk_index() == 0),
+            self.columns.tops.first().is_some_and(|run| run.first_chunk_index() == 0),
             "the first top run must start at chunk 0"
         );
         anyhow::ensure!(
-            columns
+            self.columns
                 .tops
                 .windows(2)
                 .all(|w| w[0].first_chunk_index() < w[1].first_chunk_index()),
             "top runs must strictly ascend by first_chunk_index"
         );
 
+        let columns = std::mem::take(&mut self.columns);
         let last_block_hash = last_block_hash.map(|hash| self.builder.create_string(hash));
         let first_blocks = self.builder.create_vector(&columns.first_blocks);
         let block_deltas = self.builder.create_vector(&columns.block_deltas);
         let hashes = self.builder.create_vector(&columns.hashes);
         let tops = self.builder.create_vector(&columns.tops);
-        let timestamps =
-            (columns.timestamped > 0).then(|| self.builder.create_vector(&columns.timestamps));
+        let timestamps = self.builder.create_vector(&columns.timestamps);
         let versions = columns
             .versions
             .iter()
@@ -1193,18 +1223,18 @@ impl PortalAssignmentBuilder {
         let offset = assignment_fb::PortalAssignmentDataset::create(
             &mut self.builder,
             &assignment_fb::PortalAssignmentDatasetArgs {
-                id: self.current_dataset_id_offset.take(),
+                id: Some(id),
                 last_block: self
                     .last_block
                     .take()
-                    .expect("At least one chunk should be present in the dataset"),
+                    .expect("a staged chunk sets last_block, and the count was checked above"),
                 read_schema_id,
                 last_block_hash,
                 first_blocks: Some(first_blocks),
                 block_deltas: Some(block_deltas),
                 hashes: Some(hashes),
                 tops: Some(tops),
-                timestamps,
+                timestamps: Some(timestamps),
                 versions,
                 worker_offsets: Some(worker_offsets),
                 worker_indexes: Some(worker_indexes),
@@ -1251,15 +1281,13 @@ impl PortalAssignmentBuilder {
 
     /// Appends one row across every column. With [`AssignmentBuilder::check_continuity`] off, a
     /// gap still appends and only reports.
-    #[allow(clippy::too_many_arguments)]
     fn push_chunk(
         &mut self,
-        dataset: WIPOffset<&'static str>,
         top: u64,
         block_range: RangeInclusive<u64>,
         hash: assignment_fb::ChunkHash,
         version: u32,
-        timestamp: Option<u64>,
+        timestamp: u64,
         worker_indexes: &[u16],
     ) -> anyhow::Result<()> {
         let continuity = match self.last_block {
@@ -1291,14 +1319,7 @@ impl PortalAssignmentBuilder {
         self.columns.block_deltas.push(delta);
         self.columns.hashes.push(hash);
         self.columns.versions.push(version);
-        match timestamp {
-            Some(timestamp) => {
-                self.columns.timestamps.push(timestamp);
-                self.columns.timestamped += 1;
-            }
-            // Keeps the column aligned with the others; `finish_dataset` rejects the mix anyway.
-            None => self.columns.timestamps.push(0),
-        }
+        self.columns.timestamps.push(timestamp);
         self.columns.worker_indexes.extend_from_slice(worker_indexes);
         let end = self
             .columns
@@ -1309,8 +1330,51 @@ impl PortalAssignmentBuilder {
         self.columns.worker_ends.push(end);
 
         self.last_block = Some(*block_range.end());
-        self.current_dataset_id_offset = Some(dataset);
         continuity
+    }
+}
+
+/// One dataset of a [`PortalAssignmentBuilder`], opened by
+/// [`new_dataset`](PortalAssignmentBuilder::new_dataset).
+///
+/// Holding the parent is what keeps datasets from overlapping: a second one can't be opened while
+/// this is alive, so a chunk always belongs to exactly the dataset it was staged under.
+#[must_use = "a dataset is emitted by `finish`; a builder that is dropped emits nothing"]
+pub struct PortalDatasetBuilder<'b> {
+    p: &'b mut PortalAssignmentBuilder,
+    id: fb::WIPOffset<&'static str>,
+    read_schema_id: u32,
+    /// Set by `finish`, so `Drop` only cleans up after a dataset that was never emitted.
+    emitted: bool,
+}
+
+impl PortalDatasetBuilder<'_> {
+    pub fn new_chunk(&mut self) -> PortalAssignmentChunkBuilder<'_> {
+        PortalAssignmentChunkBuilder::new(self.p)
+    }
+
+    /// Emits the dataset. `last_block_hash` is the head block's full hash, which ingest records on
+    /// the last chunk, so it arrives here rather than at `new_dataset`.
+    ///
+    /// # Errors
+    ///
+    /// If no chunk was staged. Either way the dataset is closed and its chunks are released, so a
+    /// rejection can't leak into whatever is opened next.
+    pub fn finish(mut self, last_block_hash: Option<&str>) -> anyhow::Result<()> {
+        self.emitted = true;
+        let result = self.p.emit_dataset(self.id, self.read_schema_id, last_block_hash);
+        if result.is_err() {
+            self.p.discard_dataset();
+        }
+        result
+    }
+}
+
+impl Drop for PortalDatasetBuilder<'_> {
+    fn drop(&mut self) {
+        if !self.emitted {
+            self.p.discard_dataset();
+        }
     }
 }
 
@@ -1361,21 +1425,19 @@ pub struct PortalAssignmentChunkBuilder<'b> {
 
     block_range: Option<RangeInclusive<u64>>,
     id: Option<String>,
-    dataset_id: Option<fb::WIPOffset<&'static str>>,
     version: u32,
-    last_block_timestamp: Option<u64>,
+    last_block_timestamp: u64,
     worker_indexes: Vec<u16>,
 }
 
 impl<'b> PortalAssignmentChunkBuilder<'b> {
-    pub fn new(parent: &'b mut PortalAssignmentBuilder) -> Self {
+    fn new(parent: &'b mut PortalAssignmentBuilder) -> Self {
         Self {
             p: parent,
             block_range: None,
             id: None,
-            dataset_id: None,
             version: 0,
-            last_block_timestamp: None,
+            last_block_timestamp: 0,
             worker_indexes: Vec::new(),
         }
     }
@@ -1389,23 +1451,17 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
         self
     }
 
-    /// Which dataset the chunk belongs to. Names the dataset it is staged into; chunks don't
-    /// carry the id themselves, since they are only ever read through that dataset.
-    #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
-    pub fn dataset_id(mut self, dataset_id: &str) -> Self {
-        self.dataset_id = Some(self.p.builder.create_shared_string(dataset_id));
-        self
-    }
-
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn block_range(mut self, range: RangeInclusive<u64>) -> Self {
         self.block_range = Some(range);
         self
     }
 
+    /// Absolute epoch milliseconds. Defaults to 0, which is what the column says about a chunk
+    /// whose timestamp ingest never recorded — the same reading the legacy format gives it.
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn last_block_timestamp(mut self, timestamp: u64) -> Self {
-        self.last_block_timestamp = Some(timestamp);
+        self.last_block_timestamp = timestamp;
         self
     }
 
@@ -1447,7 +1503,6 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
             block_range.end()
         );
         self.p.push_chunk(
-            self.dataset_id.expect("Dataset ID must be set"),
             parsed.top,
             block_range,
             parsed.hash,

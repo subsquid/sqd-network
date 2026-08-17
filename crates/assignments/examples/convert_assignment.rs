@@ -230,13 +230,14 @@ fn build_worker(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
     for (index, dataset) in legacy.datasets().iter().enumerate() {
         let write_schema_id = schema_id(index);
         let roster = &rosters[index];
-        for chunk in dataset.chunks().iter() {
+        // The base url is the dataset's, so it comes from its first chunk rather than from each.
+        let chunks = dataset.chunks();
+        let mut staging = builder.new_dataset(dataset.id(), chunks.get(0).dataset_base_url());
+        for chunk in chunks.iter() {
             let tables = tables_of(&chunk);
-            let mut staged = builder
+            let mut staged = staging
                 .new_chunk()
                 .id(chunk.id())
-                .dataset_id(chunk.dataset_id())
-                .dataset_base_url(chunk.dataset_base_url())
                 .block_range(chunk.first_block()..=last_block_of(&chunk)?)
                 .size(chunk.size())
                 .write_schema_id(write_schema_id)
@@ -247,7 +248,7 @@ fn build_worker(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
             }
             staged.finish()?;
         }
-        builder.finish_dataset()?;
+        staging.finish()?;
     }
 
     for index in 0..legacy.workers().len() {
@@ -273,11 +274,11 @@ fn build_portal(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
     for (index, dataset) in legacy.datasets().iter().enumerate() {
         let mut previous = 0u64;
         let (mut dataset_zeros, mut dataset_descents) = (0usize, 0usize);
+        let mut staging = builder.new_dataset(dataset.id(), schema_id(index));
         for chunk in dataset.chunks().iter() {
-            let mut staged = builder
+            let mut staged = staging
                 .new_chunk()
                 .id(chunk.id())
-                .dataset_id(chunk.dataset_id())
                 .block_range(chunk.first_block()..=last_block_of(&chunk)?)
                 .worker_indexes(&chunk.worker_indexes().iter().collect::<Vec<_>>());
             if let Some(timestamp) = chunk.last_block_timestamp() {
@@ -292,12 +293,12 @@ fn build_portal(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
             }
             staged.finish()?;
         }
+        staging.finish(dataset.last_block_hash())?;
         if dataset_zeros > 0 || dataset_descents > 0 {
             zeros += dataset_zeros;
             descents += dataset_descents;
             anomalous.insert(dataset.id().to_owned(), (dataset_zeros, dataset_descents));
         }
-        builder.finish_dataset(schema_id(index), dataset.last_block_hash())?;
     }
 
     for index in 0..legacy.workers().len() {
@@ -390,8 +391,10 @@ fn verify(
                 pc.first_block() == source_chunk.first_block() && pc.last_block() == last_block,
                 "{chunk_id}: portal block range differs"
             );
+            // The portal column is required, so a timestamp legacy never recorded reads back as
+            // the 0 it already means there.
             anyhow::ensure!(
-                pc.last_block_timestamp() == source_chunk.last_block_timestamp(),
+                pc.last_block_timestamp() == source_chunk.last_block_timestamp().unwrap_or(0),
                 "{chunk_id}: timestamp differs"
             );
             anyhow::ensure!(pc.version() == 0 && wc.version() == 0, "{chunk_id}: version is not 0");
