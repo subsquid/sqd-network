@@ -485,7 +485,9 @@ fn test_portal_assignment_round_trip() {
         .worker_indexes(&[0])
         .finish()
         .unwrap();
-    dataset.finish(Some("0x9f2e1d4c7b8a35460f1e2d3c4b5a69788796a5b4c3d2e1f00123456789abcdef")).unwrap();
+    dataset
+        .finish(Some("0x9f2e1d4c7b8a35460f1e2d3c4b5a69788796a5b4c3d2e1f00123456789abcdef"))
+        .unwrap();
 
     let keypair = common::get_test_keypair();
     let peer_id = keypair.public().to_peer_id();
