@@ -35,7 +35,8 @@
 //! SQD_BENCH_LEGACY=/tmp/mainnet.fb.1.gz cargo bench -p sqd-assignments --bench assignment
 //! ```
 //!
-//! The legacy input may be plain, gzipped or zstd-compressed. Mainnet needs about 4 GB of memory:
+//! The legacy input may be plain, gzipped or zstd-compressed, told apart by its `.gz` or `.zst`
+//! suffix. Mainnet needs about 4 GB of memory:
 //! all three blobs are held at once, and `load_verified` copies the largest per iteration.
 
 use std::{io::Read, path::Path, sync::LazyLock};
@@ -216,16 +217,17 @@ fn build() -> Fixture {
     }
 }
 
-/// Reads an assignment, decompressing it if it arrives that way.
+/// Reads an assignment, decompressing it if the suffix says it is compressed; anything but `.gz`
+/// or `.zst` is taken as plain.
 fn read_blob(path: &Path) -> Vec<u8> {
     let raw = std::fs::read(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
-    match raw.first_chunk::<4>() {
-        Some([0x1f, 0x8b, ..]) => {
+    match path.extension().and_then(|suffix| suffix.to_str()) {
+        Some("gz") => {
             let mut out = Vec::new();
             flate2::read::GzDecoder::new(&raw[..]).read_to_end(&mut out).expect("gzip");
             out
         }
-        Some([0x28, 0xb5, 0x2f, 0xfd]) => zstd::stream::decode_all(&raw[..]).expect("zstd"),
+        Some("zst") => zstd::stream::decode_all(&raw[..]).expect("zstd"),
         _ => raw,
     }
 }

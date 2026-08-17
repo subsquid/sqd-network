@@ -3,7 +3,8 @@
 //!
 //! # Running it
 //!
-//! The input may be plain, gzipped or zstd-compressed. Outputs are named after the input's first
+//! The input may be plain, gzipped or zstd-compressed, told apart by its `.gz` or `.zst` suffix.
+//! Outputs are named after the input's first
 //! path component and land in the working directory unless `--out-dir` says otherwise — worth
 //! passing from a source tree, since they run to hundreds of megabytes:
 //!
@@ -151,22 +152,21 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Reads an assignment, decompressing it if it arrives that way. The tool writes `.gz` and `.zst`,
-/// so it reads them too — and a flatbuffer parsed straight from compressed bytes fails with
-/// something unhelpful about alignment rather than "this is compressed".
+/// Reads an assignment, decompressing it if the suffix says it is compressed. The tool writes
+/// `.gz` and `.zst`, so it reads them back by the same names; anything else is taken as plain.
 fn read_legacy(path: &Path) -> anyhow::Result<(Assignment, u64)> {
     let raw = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let compressed = raw.len();
-    let buf = match raw.first_chunk::<4>() {
-        Some([0x1f, 0x8b, ..]) => {
+    let buf = match path.extension().and_then(|suffix| suffix.to_str()) {
+        Some("gz") => {
             let mut out = Vec::new();
             flate2::read::GzDecoder::new(&raw[..])
                 .read_to_end(&mut out)
-                .context("input starts as gzip but does not decompress")?;
+                .context("input is named .gz but does not decompress as gzip")?;
             out
         }
-        Some([0x28, 0xb5, 0x2f, 0xfd]) => zstd::stream::decode_all(&raw[..])
-            .context("input starts as zstd but does not decompress")?,
+        Some("zst") => zstd::stream::decode_all(&raw[..])
+            .context("input is named .zst but does not decompress as zstd")?,
         _ => raw,
     };
     if buf.len() == compressed {
