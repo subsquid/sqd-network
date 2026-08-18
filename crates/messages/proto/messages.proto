@@ -44,6 +44,7 @@ message Query {
   Compression compression = 12;
   QueryEngine query_engine = 13;
   OutputFormat output_format = 14;
+  uint32 chunk_version = 15;
 }
 
 enum Compression {

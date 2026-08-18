@@ -16,11 +16,7 @@ enum WorkerStatus: byte {
   UnsupportedVersion,
 }
 
-// A worker's entry within a published assignment: identity, serve-eligibility status, and the
-// sealed HTTP auth headers for the storage backend. Renamed from `WorkerAssignment` (NET-1180) to
-// free that name for the new worker-facing root table in worker_assignment.fbs, which reuses this
-// same table; this type is internal to the assignments crate (builder.rs/reader.rs) and was never
-// referenced by name elsewhere.
+// A worker's identity, status, and sealed storage headers.
 table WorkerEntry {
   worker_id: WorkerId (required);  // sorted by parsed PeerId
 
@@ -47,6 +43,19 @@ table Chunk {
   base_url: string (required);  // relative url added to dataset_base_url
   files: [FileUrl] (required);
   worker_indexes: [uint16] (required);
+}
+
+// A chunk's short hash at fixed width, which keeps a hash column a flat array. Writers emit 5 to 8
+// characters and NUL pads the rest, since '0' is itself a valid hash character. Assembling a chunk
+// id trims the trailing NULs. Shared by both split formats, which describe the same chunks.
+struct ChunkHash {
+  bytes: [ubyte:8];
+}
+
+// Applies `top` from `first_chunk_index` until the next run.
+struct TopRun {
+  first_chunk_index: uint32;
+  top: uint64;
 }
 
 table FileUrl {

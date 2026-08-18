@@ -1,7 +1,4 @@
-//! Facade over the three raw flatc-generated schemas (`assignment_generated`,
-//! `worker_assignment_generated`, `portal_assignment_generated`), re-exported here into one flat
-//! namespace, plus small hand-written impls for all three -- despite the module's name, it's not
-//! legacy-only.
+//! FlatBuffers schema exports and helper implementations.
 
 use libp2p_identity::PeerId;
 
@@ -48,7 +45,27 @@ impl Dataset<'_> {
 }
 
 impl PortalAssignmentDataset<'_> {
-    pub fn first_block(&self) -> u64 {
-        self.chunks().get(0).first_block()
+    pub fn chunk_count(&self) -> usize {
+        self.first_blocks().len()
     }
+
+    pub fn first_block(&self) -> u64 {
+        self.first_blocks().get(0)
+    }
+}
+
+impl<'a> WorkerAssignmentDataset<'a> {
+    /// `None` for version 0, which has no prefix, and for a version never registered here.
+    pub fn get_generation(&self, version: u32) -> Option<GenerationEntry<'a>> {
+        self.generations()?
+            .lookup_by_key(version, |generation, key| generation.key_compare_with_value(*key))
+    }
+}
+
+/// Appends a path segment with exactly one separator, whichever side already carries it.
+pub(crate) fn push_segment(url: &mut String, segment: &str) {
+    if !url.ends_with('/') {
+        url.push('/');
+    }
+    url.push_str(segment.trim_start_matches('/'));
 }
