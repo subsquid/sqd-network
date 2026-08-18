@@ -1,9 +1,6 @@
 // When changing this file, regenerate the sources by running
 // flatc --rust -o gen ./assignment.fbs ./worker_assignment.fbs ./portal_assignment.fbs
-//
-// Each field's `id` fixes its slot, so a new field takes the next free id and sits wherever it
-// reads best. Renumbering repoints every published blob, so ids stay put. Ids run consecutively
-// from 0, so `(deprecated)` retires a field.
+// Field ids are stable wire slots and must not be renumbered.
 
 include "assignment.fbs";
 
@@ -22,52 +19,24 @@ table PortalAssignment {
 table PortalAssignmentDataset {
   id: string (key, id: 0);
   last_block: uint64 (id: 1);
-  // The head block's full hash. `hashes` holds short hashes truncated for chunk ids, so the whole
-  // value lives here, once per dataset. Declared beside `last_block` while holding the highest id,
-  // which is what the ids are for.
+  // Full hash of the dataset head block.
   last_block_hash: string (id: 11);
-  // The dataset's current read schema, for query validation -- a client-facing view that may hide
-  // tables, resolved through NetworkState's schema bundle. Separate id space from the worker
-  // assignment's `write_schema_id`.
+  // Resolved through NetworkState's schema bundle.
   read_schema_id: uint32 (id: 2);
 
   // --- chunk columns, all subscripted by the same chunk index ---
   //
-  // That index comes from bisecting `first_blocks`, so every value is absolute and a lookup
-  // reaches any chunk in one step. `tops` is the exception, above.
-  //
-  // `timestamps` is bisected the same way, which asks that it ascend. Ingest does not always
-  // deliver that -- a handful of mainnet chunks step backwards, and some carry 0 for a timestamp
-  // that was never recorded -- and a lookup near one of those returns a neighbouring chunk.
-  // Recording 0 is what a column can express: it has no per-element validity bit, so "never
-  // recorded" and "zero" are one value here, as they already are to the legacy reader.
-
   first_blocks: [uint64] (required, id: 3);  // ascending
-  // last_block - first_block, so each chunk carries its own end. Gaps between chunks are legal
-  // (archive.py permits them), and an explicit end keeps a portal's coverage exact across one.
-  // uint32 because --chunk-size bounds a chunk's span.
+  // last_block - first_block
   block_deltas: [uint32] (required, id: 4);
   hashes: [ChunkHash] (required, id: 5);
   tops: [TopRun] (required, id: 6);
 
-  // Absolute epoch milliseconds, as ingest records them. Milliseconds outgrew uint32 in 1970 and
-  // a per-dataset base doesn't rescue them either -- uint32 spans 49.7 days, and 241 of 245
-  // mainnet datasets hold more history than that -- so the column is as wide as the value.
-  //
-  // Required, unlike `versions`: all 245 mainnet datasets time every chunk, so an optional column
-  // saved nothing and only added a second way to say "no timestamp here" on top of the 0 above.
   timestamps: [uint64] (required, id: 7);  // 0 = never recorded
 
-  // One entry per chunk. A run entry costs 8 bytes against this column's 4, so runs pay while one
-  // covers more than two chunks, which fragmented backfills cut short; a dense column holds a
-  // predictable ceiling. The column appears with the first backfill.
   versions: [uint32] (id: 8);  // absent = every chunk at version 0
 
-  // Confirmed routing: which workers a portal sends the query to. CSR expresses a column of
-  // variable-length lists -- chunk i's workers run from worker_offsets[i] to
-  // worker_offsets[i + 1], which makes worker_offsets one longer than the other columns.
-  // Run-length encoding on top waits on measurement: it pays once a worker's chunks form
-  // contiguous slices.
+  // CSR worker lists; offsets has one more entry than the chunk columns.
   worker_offsets: [uint32] (required, id: 9);
   worker_indexes: [uint16] (required, id: 10);
 }

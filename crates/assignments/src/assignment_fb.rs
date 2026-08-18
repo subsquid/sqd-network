@@ -1,5 +1,4 @@
-//! The three flatc-generated schemas re-exported into one namespace, plus hand-written impls over
-//! them. Despite the name, not legacy-only.
+//! FlatBuffers schema exports and helper implementations.
 
 use libp2p_identity::PeerId;
 

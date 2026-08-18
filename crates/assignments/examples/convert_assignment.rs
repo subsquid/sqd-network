@@ -1,55 +1,12 @@
-//! Converts a legacy assignment into the split worker and portal assignments, then verifies the
-//! pair reproduces everything the source said.
-//!
-//! # Running it
-//!
-//! The input may be plain, gzipped or zstd-compressed, told apart by its `.gz` or `.zst` suffix.
-//! Outputs are named after the input's first
-//! path component and land in the working directory unless `--out-dir` says otherwise — worth
-//! passing from a source tree, since they run to hundreds of megabytes:
+//! Converts a legacy assignment into worker and portal assignments and verifies the result.
 //!
 //! ```text
 //! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
 //!     /tmp/mainnet.fb.1.gz --out-dir /tmp
-//! # writes /tmp/mainnet.{worker,portal}.fb alongside .fb.gz and .fb.zst
-//!
-//! # pick which compressed copies to write: gzip, zstd, both (default) or none
-//! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
-//!     mainnet.fb.1.gz --compress zstd
-//!
-//! # re-check outputs produced earlier, without rebuilding them
-//! cargo run --release -p sqd-assignments --all-features --example convert_assignment -- \
-//!     mainnet.fb.1.gz --verify-only
 //! ```
 //!
-//! zstd defaults to 9: its own default of 3 comes out larger than gzip, and 19 buys ~10% more at
-//! twenty times the cost. `--zstd-level` takes any of them.
-//!
-//! Mainnet needs roughly 4 GB: the source and both outputs are held at once.
-//!
-//! # What the conversion does
-//!
-//! Most fields move across unchanged. The parts that don't:
-//!
-//! - **Schemas.** Legacy carries none, so they are derived from each chunk's file list: a table is
-//!   a `*.parquet` name with the extension stripped, anything else ignored. A dataset's roster is
-//!   the union of its chunks' tables, its `write_schema_id` is its 1-based ordinal, and a chunk
-//!   missing tables gets a `tables_present` bitmap. `read_schema_id` takes the same ordinal, in
-//!   its own id space.
-//! - **Chunk ids.** Both formats split each into the `tops`, `first_blocks`, `block_deltas` and
-//!   `hashes` columns and rebuild it on read; neither stores the string.
-//! - **Sealed headers.** Copied byte for byte; the Cloudflare secret needed to mint fresh ones
-//!   doesn't travel with an assignment, and the signature keeps its original timestamp.
-//! - **Timestamps.** Copied as absolute milliseconds. Anomalies are reported, never repaired: a
-//!   chunk whose timestamp was never recorded carries 0, and a few step backwards, both of which
-//!   the legacy format has and its own reader comments on.
-//!
-//! # What the verification proves
-//!
-//! Every chunk's id, block range, timestamp, version, worker indexes and tables, and that it is
-//! filed under the dataset it names; every dataset's id, order, head block and hash; every
-//! worker's identity, status and sealed header bytes. It
-//! aborts on the first mismatch, since a conversion this size gets checked by nothing else.
+//! Inputs may be plain, gzip, or zstd. Use `--compress`, `--zstd-level`, `--out-dir`, and
+//! `--verify-only` to control output.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -64,13 +21,10 @@ use sqd_assignments::{
     WorkerAssignmentBuilder,
 };
 
-/// Which compressed copies to write beside the plain `.fb`.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Compress {
     gzip: bool,
     zstd: bool,
-    /// A blob is compressed once and downloaded by every worker and portal, so this leans towards
-    /// size: 9 lands under gzip on both axes, where zstd's own default of 3 does not.
     zstd_level: i32,
 }
 
@@ -114,7 +68,6 @@ fn main() -> anyhow::Result<()> {
     let input = input
         .context("usage: convert_assignment <assignment.fb> [--out-dir DIR] [--verify-only]")?;
 
-    // "mainnet.fb.1" -> "mainnet", so the outputs sit beside their source by name.
     let stem = input
         .file_name()
         .and_then(|name| name.to_str())
@@ -230,7 +183,6 @@ fn build_worker(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
     for (index, dataset) in legacy.datasets().iter().enumerate() {
         let write_schema_id = schema_id(index);
         let roster = &rosters[index];
-        // The base url is the dataset's, so it comes from its first chunk rather than from each.
         let chunks = dataset.chunks();
         let mut staging = builder.new_dataset(dataset.id(), chunks.get(0).dataset_base_url());
         for chunk in chunks.iter() {
@@ -242,7 +194,6 @@ fn build_worker(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
                 .size(chunk.size())
                 .write_schema_id(write_schema_id)
                 .worker_indexes(&chunk.worker_indexes().iter().collect::<Vec<_>>());
-            // A chunk holding the whole roster leaves the bitmap off entirely.
             if tables.len() != roster.len() {
                 staged = staged.tables_present(&tables)?;
             }
@@ -350,9 +301,6 @@ fn verify(
         for (i, source_chunk) in chunks.iter().enumerate() {
             let chunk_id = source_chunk.id();
             let last_block = last_block_of(&source_chunk)?;
-            // Neither format keeps `dataset_id` on the chunk: a chunk belongs to the dataset it is
-            // filed under. Dropping it is only lossless while the two agree, which holds for every
-            // chunk of mainnet but is the source's to break, not ours to assume.
             anyhow::ensure!(
                 source_chunk.dataset_id() == id,
                 "{chunk_id}: chunk names dataset '{}' but is filed under '{id}'",
@@ -391,8 +339,6 @@ fn verify(
                 pc.first_block() == source_chunk.first_block() && pc.last_block() == last_block,
                 "{chunk_id}: portal block range differs"
             );
-            // The portal column is required, so a timestamp legacy never recorded reads back as
-            // the 0 it already means there.
             anyhow::ensure!(
                 pc.last_block_timestamp() == source_chunk.last_block_timestamp().unwrap_or(0),
                 "{chunk_id}: timestamp differs"
@@ -464,7 +410,6 @@ fn schema_id(dataset_index: usize) -> u32 {
     dataset_index as u32 + 1
 }
 
-/// How long each compressor took on one blob, so the report can weigh size against cost.
 #[derive(Default, Clone, Copy)]
 struct Timings {
     gzip: Option<Duration>,

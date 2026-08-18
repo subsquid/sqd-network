@@ -16,11 +16,7 @@ enum WorkerStatus: byte {
   UnsupportedVersion,
 }
 
-// A worker's entry within a published assignment: identity, serve-eligibility status, and the
-// sealed HTTP auth headers for the storage backend. Renamed from `WorkerAssignment` (NET-1180) to
-// free that name for the new worker-facing root table in worker_assignment.fbs, which reuses this
-// same table; this type is internal to the assignments crate (builder.rs/reader.rs) and was never
-// referenced by name elsewhere.
+// A worker's identity, status, and sealed storage headers.
 table WorkerEntry {
   worker_id: WorkerId (required);  // sorted by parsed PeerId
 
@@ -56,15 +52,7 @@ struct ChunkHash {
   bytes: [ubyte:8];
 }
 
-// The top-level directory a run of chunks lives under: the `0221000000` of
-// "0221000000/0221000000-0221000649-9QgFD". Writers close a top directory on a chunk count (1000
-// in subsquid/data, 500 in squid-sdk, older datasets differ), so the top follows the chunk sequence
-// and travels on the wire. It holds constant across a directory, so it travels as runs: ~N/1000
-// entries, 80 KB against 40 MB on 5M chunks.
-//
-// A run covers chunks from its `first_chunk_index` until the next run's, so a lookup searches this
-// column for the chunk index that subscripts the others. The first run starts at chunk 0 and the
-// rest strictly ascend, which gives that search a run to land on; the builder enforces both.
+// Applies `top` from `first_chunk_index` until the next run.
 struct TopRun {
   first_chunk_index: uint32;
   top: uint64;

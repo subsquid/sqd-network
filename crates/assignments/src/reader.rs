@@ -855,8 +855,7 @@ impl<'a> PortalChunk<'a> {
         std::str::from_utf8(bytes).ok()
     }
 
-    /// The chunk id a query names, rebuilt from its columns — same form as before, so it drops
-    /// straight into `Query.chunk_id`. `None` on the same terms as [`Self::hash`].
+    /// The chunk id used by a query. `None` on the same terms as [`Self::hash`].
     pub fn id(&self) -> Option<String> {
         let mut id = String::with_capacity(ID_CAPACITY);
         push_chunk_id(&mut id, self.top(), self.first_block(), self.last_block(), self.hash()?);
@@ -895,8 +894,7 @@ impl<'a> assignment_fb::PortalAssignmentDataset<'a> {
     }
 }
 
-/// `{:010}` without `std::fmt`, which costs ~35ns a value — several times the column reads around
-/// it. Values too wide for the pad print in full, as `{:010}` does.
+/// Appends a decimal value padded to ten digits.
 fn push_padded(out: &mut String, value: u64) {
     const PAD: u64 = 10_000_000_000;
     if value >= PAD {
@@ -927,7 +925,6 @@ fn push_chunk_id(out: &mut String, top: u64, first_block: u64, last_block: u64, 
 
 /// Three ten-digit numbers, three separators, a hash of up to eight.
 const ID_CAPACITY: usize = 3 * 10 + 3 + 8;
-/// Plus a base url and a generation prefix, so a url is one allocation.
 const URL_CAPACITY: usize = ID_CAPACITY + 96;
 
 /// `slice::partition_point` over anything subscriptable. `pred` must hold for a prefix only.

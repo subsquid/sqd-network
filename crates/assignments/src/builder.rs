@@ -104,10 +104,7 @@ impl<Rng: CryptoRngCore> AssignmentBuilder<Rng> {
         self.current_chunks.clear();
     }
 
-    /// `chunk_indexes` is accepted for backward API compatibility but no longer used: the
-    /// generated `WorkerEntryArgs` excludes the `chunks` field entirely now that it's
-    /// `(deprecated)` in the schema — flatc won't let a deprecated field be populated by new
-    /// code. Chunk-to-worker mappings travel via each chunk's `worker_indexes` instead.
+    /// `chunk_indexes` is retained for API compatibility and ignored.
     pub fn add_worker(&mut self, id: PeerId, status: common::WorkerStatus, _chunk_indexes: &[u32]) {
         let timestamp = std::time::UNIX_EPOCH.elapsed().unwrap().as_secs().try_into().unwrap();
         self.add_worker_with_timestamp(id, status, _chunk_indexes, timestamp);
@@ -366,8 +363,7 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
 
 // ===== Worker-facing assignment =====
 //
-// Chunks are not built as tables: each one appends a row across the dataset's columns, which
-// `finish_dataset` emits. `WorkerEntry` is shared with the legacy format unchanged.
+// Chunks are stored as dataset columns.
 
 /// The dataset being staged, taken by [`WorkerDatasetBuilder::finish`].
 #[derive(Default)]
@@ -398,8 +394,7 @@ pub struct WorkerAssignmentBuilder<Rng: CryptoRngCore> {
     worker_entries: Vec<(WorkerId, fb::WIPOffset<assignment_fb::WorkerEntry<'static>>)>,
     last_peer_id: Option<PeerId>,
     cloudflare_storage_secret: String,
-    /// Written on first use: an assignment whose workers all carry copied headers seals nothing,
-    /// and 32 unreferenced random bytes would make an otherwise reproducible build differ.
+    /// Written when headers are first encrypted.
     common_identity: Option<fb::WIPOffset<fb::Vector<'static, u8>>>,
     common_secret_key: SecretKey,
     check_continuity: bool,
@@ -444,8 +439,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         }
     }
 
-    /// See [`AssignmentBuilder::check_continuity`]. A gap now only trips this check — the reader
-    /// can't misread one, since `block_deltas` carries each chunk's end.
+    /// See [`AssignmentBuilder::check_continuity`].
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn check_continuity(mut self, check: bool) -> Self {
         self.check_continuity = check;
@@ -457,8 +451,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     ///
     /// # Errors
     ///
-    /// If `tables` is not strictly ascending, or the id was already registered with a different
-    /// roster — staged bitmaps are encoded against the old ordering.
+    /// If `tables` is not strictly ascending or the id has a different registered roster.
     pub fn register_write_schema<S: AsRef<str>>(
         &mut self,
         write_schema_id: u32,
@@ -517,7 +510,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
     ) -> anyhow::Result<()> {
         let chunk_count = self.columns.first_blocks.len();
         anyhow::ensure!(chunk_count > 0, "At least one chunk should be present in the dataset");
-        check_runs(self.columns.tops.iter().map(|run| run.first_chunk_index()), "top")?;
+        check_top_runs(&self.columns.tops)?;
 
         let columns = std::mem::take(&mut self.columns);
         // After the checks, so a rejected dataset doesn't strand its generation entries in the
@@ -648,12 +641,7 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
         self.worker_entries.push((worker_id, offset));
     }
 
-    /// Adds a worker whose headers were sealed elsewhere, copied byte for byte.
-    ///
-    /// [`Self::add_worker`] mints them from the Cloudflare secret, which never travels with a
-    /// blob — so an assignment re-emitted from another one has only the sealed bytes, which stay
-    /// valid for the worker owning the key. The signature keeps its original timestamp, so copied
-    /// headers are as expired as their source.
+    /// Adds a worker with pre-encrypted headers.
     pub fn add_worker_with_sealed_headers(
         &mut self,
         id: PeerId,
@@ -778,10 +766,6 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
 
 /// One dataset of a [`WorkerAssignmentBuilder`], opened by
 /// [`new_dataset`](WorkerAssignmentBuilder::new_dataset).
-///
-/// Holding the parent is what keeps datasets from overlapping: a second one can't be opened while
-/// this is alive, so a chunk always belongs to exactly the dataset it was staged under, and the
-/// generations registered here can only reach that dataset.
 #[must_use = "a dataset is emitted by `finish`; a builder that is dropped emits nothing"]
 pub struct WorkerDatasetBuilder<'b, Rng: CryptoRngCore> {
     p: &'b mut WorkerAssignmentBuilder<Rng>,
@@ -849,15 +833,17 @@ impl<Rng: CryptoRngCore> Drop for WorkerDatasetBuilder<'_, Rng> {
 
 /// A searched run column is only sound if it starts at chunk 0 and ascends; otherwise the reader's
 /// "last run at or before this chunk" has nothing to land on.
-fn check_runs(mut starts: impl Iterator<Item = u32>, what: &str) -> anyhow::Result<()> {
-    let Some(first) = starts.next() else {
-        anyhow::bail!("a dataset with chunks must have at least one {what} run");
+fn check_top_runs(runs: &[assignment_fb::TopRun]) -> anyhow::Result<()> {
+    let Some(first) = runs.first() else {
+        anyhow::bail!("a dataset with chunks must have at least one top run");
     };
-    anyhow::ensure!(first == 0, "the first {what} run must start at chunk 0");
-    let mut previous = first;
-    for start in starts {
-        anyhow::ensure!(start > previous, "{what} runs must strictly ascend by first_chunk_index");
-        previous = start;
+    anyhow::ensure!(first.first_chunk_index() == 0, "the first top run must start at chunk 0");
+    for pair in runs.windows(2) {
+        anyhow::ensure!(
+            pair[0].first_chunk_index() < pair[1].first_chunk_index(),
+            "top runs must strictly ascend by first_chunk_index"
+        );
+        anyhow::ensure!(pair[0].top() < pair[1].top(), "numeric tops must strictly ascend");
     }
     Ok(())
 }
@@ -1039,9 +1025,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     }
 }
 
-/// One row across every column, assembled by the chunk builder and appended by the parent. The
-/// two variable-length parts — the worker indexes and the tables bitmap — travel in the parent's
-/// staging buffers instead, so a chunk costs no allocation.
+/// Values staged for one worker chunk.
 struct PushChunk {
     top: u64,
     block_range: RangeInclusive<u64>,
@@ -1109,9 +1093,6 @@ impl<Rng: CryptoRngCore> WorkerAssignmentBuilder<Rng> {
 
 impl WorkerDatasetColumns {
     /// An empty bitmap keeps an empty slice, which is how "every table present" travels.
-    ///
-    /// Identical bitmaps aren't shared: CSR offsets ascend, so a slice can't point backwards. The
-    /// per-chunk vectors were interned to save a 4-byte pointer each; inline bits are narrower.
     fn push_bitmap(&mut self, bits: &[u8]) {
         self.tables_present.extend_from_slice(bits);
         self.tables_present_ends.push(self.tables_present.len() as u32);
@@ -1120,8 +1101,7 @@ impl WorkerDatasetColumns {
 
 // ===== Portal-facing assignment =====
 //
-// No encryption, no RNG: portals never see `encrypted_headers`. Chunks are staged as columns, the
-// same way as the worker side.
+// Chunks are stored as dataset columns.
 
 /// The dataset being staged, taken by [`PortalDatasetBuilder::finish`].
 #[derive(Default)]
@@ -1206,19 +1186,7 @@ impl PortalAssignmentBuilder {
     ) -> anyhow::Result<()> {
         let chunk_count = self.columns.first_blocks.len();
         anyhow::ensure!(chunk_count > 0, "At least one chunk should be present in the dataset");
-        // Guaranteed by how `push_chunk` appends runs, but the reader underflows if it ever
-        // stops holding.
-        anyhow::ensure!(
-            self.columns.tops.first().is_some_and(|run| run.first_chunk_index() == 0),
-            "the first top run must start at chunk 0"
-        );
-        anyhow::ensure!(
-            self.columns
-                .tops
-                .windows(2)
-                .all(|w| w[0].first_chunk_index() < w[1].first_chunk_index()),
-            "top runs must strictly ascend by first_chunk_index"
-        );
+        check_top_runs(&self.columns.tops)?;
 
         let columns = std::mem::take(&mut self.columns);
         let last_block_hash = last_block_hash.map(|hash| self.builder.create_string(hash));
@@ -1359,9 +1327,6 @@ impl PortalAssignmentBuilder {
 
 /// One dataset of a [`PortalAssignmentBuilder`], opened by
 /// [`new_dataset`](PortalAssignmentBuilder::new_dataset).
-///
-/// Holding the parent is what keeps datasets from overlapping: a second one can't be opened while
-/// this is alive, so a chunk always belongs to exactly the dataset it was staged under.
 #[must_use = "a dataset is emitted by `finish`; a builder that is dropped emits nothing"]
 pub struct PortalDatasetBuilder<'b> {
     p: &'b mut PortalAssignmentBuilder,
@@ -1420,10 +1385,7 @@ fn parse_chunk_id(id: &str) -> anyhow::Result<ParsedChunkId> {
     else {
         anyhow::bail!("chunk id '{id}' is not <top>/<first_block>-<last_block>-<hash>");
     };
-    // A hash is `\w{5,8}` to every writer and to the worker's parser, so it never contains the
-    // separator and always fits the fixed-width column. The lower bound is not cosmetic: the
-    // portal parses a chunk id by fixed offsets and rejects anything outside 38..=41 bytes, so a
-    // hash under five characters would build an id it refuses.
+    // Portal chunk ids require a 5-to-8 character hash.
     anyhow::ensure!(
         (5..=8).contains(&hash.len())
             && hash.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
@@ -1482,8 +1444,7 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
         self
     }
 
-    /// Absolute epoch milliseconds. Defaults to 0, which is what the column says about a chunk
-    /// whose timestamp ingest never recorded — the same reading the legacy format gives it.
+    /// Absolute epoch milliseconds. Defaults to 0 when absent.
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
     pub fn last_block_timestamp(mut self, timestamp: u64) -> Self {
         self.last_block_timestamp = timestamp;

@@ -662,6 +662,48 @@ fn test_portal_tops_are_runs_and_hashes_keep_their_length() {
     assert!(dataset.chunk(3).is_none(), "past the end of the columns");
 }
 
+#[cfg(feature = "builder")]
+#[test]
+fn test_worker_rejects_descending_numeric_tops() {
+    let mut builder = test_builder();
+    builder.register_write_schema(7, &["blocks"]).unwrap();
+    let mut dataset = test_dataset(&mut builder);
+    for (id, range) in [
+        ("0000001000/0000000000-0000000099-abcde", 0..=99u64),
+        ("0000000500/0000000100-0000000199-bcdef", 100..=199),
+    ] {
+        dataset
+            .new_chunk()
+            .id(id)
+            .block_range(range)
+            .size(1000)
+            .write_schema_id(7)
+            .finish()
+            .unwrap();
+    }
+
+    let error = dataset.finish().unwrap_err();
+    assert_eq!(error.to_string(), "numeric tops must strictly ascend");
+}
+
+#[cfg(feature = "builder")]
+#[test]
+fn test_portal_rejects_descending_numeric_tops() {
+    use sqd_assignments::PortalAssignmentBuilder;
+
+    let mut builder = PortalAssignmentBuilder::new();
+    let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
+    for (id, range) in [
+        ("0000001000/0000000000-0000000099-abcde", 0..=99u64),
+        ("0000000500/0000000100-0000000199-bcdef", 100..=199),
+    ] {
+        dataset.new_chunk().id(id).block_range(range).finish().unwrap();
+    }
+
+    let error = dataset.finish(None).unwrap_err();
+    assert_eq!(error.to_string(), "numeric tops must strictly ascend");
+}
+
 /// The routing column is flattened and staged through a buffer the builder reuses, so a chunk
 /// must neither inherit the previous chunk's workers nor spill into the next one's.
 #[cfg(all(feature = "builder", feature = "reader"))]

@@ -1,43 +1,9 @@
-//! What the split formats cost against the legacy `Assignment`, benchmarked along the access
-//! patterns the portal and the worker actually use.
+//! Benchmarks assignment loading and access patterns.
 //!
 //! ```text
 //! cargo bench -p sqd-assignments --bench assignment
-//! cargo bench -p sqd-assignments --bench assignment -- portal/stream_walk   # one group
+//! cargo bench -p sqd-assignments --bench assignment -- portal/stream_walk
 //! ```
-//!
-//! # The two traversals
-//!
-//! Benchmarking either as a plain scan would flatter it:
-//!
-//! - **Portal — logically sequential, physically random.** A stream walks chunks in order but
-//!   keeps no cursor: each step is `find_chunk(dataset, previous.last_block + 1)`, a fresh
-//!   string-keyed dataset search plus a chunk search. It cannot hold a `ChunkRef`, since those are
-//!   raw indices into a buffer swapped under it.
-//! - **Worker — one sequential pass, then random O(1).** It scans its own chunks once per applied
-//!   assignment, and every later access is a `ChunkRef` dereference with no search.
-//!
-//! Both formats are measured doing the same *job*, not the same calls: a stream step needs the
-//! chunk's end, which legacy parses out of the id and the portal reads from `block_deltas`.
-//!
-//! # Fixture
-//!
-//! Synthetic by default, shaped like the mainnet assignment it stands in for: 200 datasets, ~2M
-//! chunks, 7 replicas each, 2000 workers. Large enough that random access misses cache, which is
-//! most of what these numbers are about.
-//!
-//! For a real one, point `SQD_BENCH_LEGACY` at it with the converted pair beside it — same stem
-//! with `.worker.fb` and `.portal.fb`, which is what `convert_assignment` writes:
-//!
-//! ```text
-//! cd /tmp && cargo run --release --manifest-path <repo>/Cargo.toml -p sqd-assignments \
-//!     --all-features --example convert_assignment -- mainnet.fb.1.gz
-//! SQD_BENCH_LEGACY=/tmp/mainnet.fb.1.gz cargo bench -p sqd-assignments --bench assignment
-//! ```
-//!
-//! The legacy input may be plain, gzipped or zstd-compressed, told apart by its `.gz` or `.zst`
-//! suffix. Mainnet needs about 4 GB of memory:
-//! all three blobs are held at once, and `load_verified` copies the largest per iteration.
 
 use std::{io::Read, path::Path, sync::LazyLock};
 
@@ -52,29 +18,21 @@ use sqd_assignments::{
 const DATASETS: usize = 200;
 const CHUNKS_PER_DATASET: usize = 10_000;
 const BLOCKS_PER_CHUNK: u64 = 1_000;
-/// Chunks per top-level directory, as subsquid/data writes them.
 const CHUNKS_PER_TOP: usize = 1_000;
-/// Mainnet averages 7.14.
 const REPLICAS: usize = 7;
 const WORKERS: usize = 2_000;
 const TABLES: &[&str] = &["blocks", "logs", "statediffs", "traces", "transactions"];
-/// How many steps a `stream_walk` takes, i.e. chunks consumed by one query.
 const WALK: usize = 64;
-/// Point lookups per random-access iteration, to keep timing above criterion's noise floor.
 const LOOKUPS: usize = 64;
 
 struct Fixture {
-    /// The raw blobs, kept so the load benchmarks can re-parse them.
     legacy_bytes: Vec<u8>,
     worker_bytes: Vec<u8>,
     legacy: Assignment,
     worker: WorkerAssignment,
     portal: PortalAssignment,
-    /// The worker every `iter_chunks`/`get_chunk` benchmark runs as.
     peer_id: PeerId,
-    /// Shuffled (dataset, block) pairs, so random access really is random.
     probes: Vec<(String, u64)>,
-    /// Shuffled timestamps covering the same span.
     timestamps: Vec<(String, u64)>,
 }
 
@@ -87,7 +45,6 @@ fn chunk_id(chunk: usize, first: u64, last: u64) -> String {
     format!("{top:010}/{first:010}-{last:010}-{:08x}", first ^ 0x274f02d8)
 }
 
-/// Milliseconds, as ingest records them.
 fn timestamp(dataset: usize, chunk: usize) -> u64 {
     1_700_000_000_000 + (dataset as u64 * 97 + chunk as u64) * 12_000
 }

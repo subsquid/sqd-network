@@ -1,22 +1,10 @@
 // When changing this file, regenerate the sources by running
 // flatc --rust -o gen ./assignment.fbs ./worker_assignment.fbs ./portal_assignment.fbs
-//
-// Each field's `id` fixes its slot, so a new field takes the next free id and sits wherever it
-// reads best. Renumbering repoints every published blob, so ids stay put. Ids run consecutively
-// from 0, so `(deprecated)` retires a field.
+// Field ids are stable wire slots and must not be renumbered.
 
 include "assignment.fbs";
 
-// The worker-facing assignment: what a worker needs to download and serve its chunks. Published as
-// NetworkState's `worker_assignment` blob. Chunks travel as columns on the dataset — a table per
-// chunk spends 28 bytes on its own header, vtable pointer and vector slot before any content, and
-// pads every uint32 to 8 bytes besides; see docs/assignment-wire-format.md in network-scheduler
-// for the field-by-field trace.
-//
-// A chunk's `write_schema_id` names its write schema -- the one covering every table and column
-// physically present in the chunk. The portal's `read_schema_id` is a client-facing view that may
-// hide tables; the two are separate id spaces. Column-level schema content lives in NetworkState's
-// schema bundle.
+// Worker-facing assignment data.
 
 table WorkerAssignment {
   datasets: [WorkerAssignmentDataset] (required, id: 0);
@@ -24,8 +12,6 @@ table WorkerAssignment {
   schemas: [TableRoster] (required, id: 2);  // sorted by id, as (key) lookup requires
 }
 
-// Ordering is fixed at publication and travels with the bitmap, so a published blob keeps its
-// meaning as the schema gains tables.
 table TableRoster {
   write_schema_id: uint32 (key, id: 0);
   tables: [string] (required, id: 1);  // sorted; bit i of `tables_present` <-> tables[i]
@@ -69,33 +55,20 @@ table WorkerAssignmentDataset {
 
   // --- chunk columns, all subscripted by the same chunk index ---
   //
-  // A chunk's id is not stored: it is `top/first_block-last_block-hash`, rebuilt from the four
-  // columns below. As a string it costs 40 bytes a chunk, as columns 12.
+  // Chunk id: `top/first_block-last_block-hash`.
 
   first_blocks: [uint64] (required, id: 4);  // ascending
-  // last_block - first_block, so each chunk carries its own end rather than borrowing the next
-  // chunk's start. uint32 because --chunk-size bounds a chunk's span.
+  // last_block - first_block
   block_deltas: [uint32] (required, id: 5);
   hashes: [ChunkHash] (required, id: 6);
   tops: [TopRun] (required, id: 7);
   sizes: [uint32] (required, id: 8);
   write_schema_ids: [uint32] (required, id: 9);
 
-  // Bitmap over the tables of the `schemas` entry whose `write_schema_id` equals the chunk's --
-  // found by key lookup, since ids are sparse. Bit i (byte i/8, LSB-first) set = that roster's
-  // tables[i] present.
-  //
-  // Per-chunk and variable length, since rosters differ in size, so the bits are flattened and
-  // `tables_present_offsets` cuts them up: chunk i's bitmap runs from offsets[i] to offsets[i+1],
-  // making that column one longer than the others. An empty slice means every table is present,
-  // and chunks with identical bitmaps point at the same one. Both absent = no chunk anywhere in
-  // the dataset trims its tables.
+  // CSR bitmaps over each chunk's table roster. An empty slice means all tables.
   tables_present_offsets: [uint32] (id: 10);
   tables_present: [ubyte] (id: 11);
 
-  // Dense, not runs: a run entry costs 8 bytes against this column's 4, so it pays only while one
-  // covers more than two chunks, which fragmented backfills break. The column appears with the
-  // first backfill.
   versions: [uint32] (id: 12);  // absent = every chunk at version 0
 
   // Which workers hold each chunk. CSR expresses a column of variable-length lists — chunk i's
