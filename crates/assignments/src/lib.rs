@@ -52,7 +52,10 @@ mod reader;
 #[cfg(feature = "builder")]
 mod signatures;
 
-pub use common::{NetworkAssignment, NetworkState, SchemaBundle, WorkerStatus};
+pub use common::{
+    AssignmentType, InvalidNetworkState, NetworkAssignment, NetworkAssignmentV2, NetworkState,
+    ResolvedAssignments, SchemaBundle, WorkerStatus,
+};
 
 #[cfg(feature = "builder")]
 pub use builder::AssignmentBuilder;
