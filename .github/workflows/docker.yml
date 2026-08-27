@@ -2,19 +2,155 @@ name: docker
 on:
   workflow_dispatch: # manually run
 
+# bootnode and keygen are published for linux/amd64 and linux/arm64. Each platform is
+# built on a runner of that architecture (no QEMU, no cross-compilation) and pushed
+# untagged, by digest; `publish` then combines the two digests into the usual
+# <image>:<version> and <image>:latest tags. The observer stays amd64-only, as before.
+#
+# The Dockerfile pins every stage to $BUILDPLATFORM, which is why the old single-runner
+# multi-platform build shipped the amd64 binary under the arm/v7, arm64 and 386 labels.
+# On a native runner the pin resolves to the runner's own platform and is harmless.
+
 env:
   CI: true
 
 jobs:
-  publish:
-    name: Build & publish docker images
+  build-amd64:
+    name: Build amd64
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - uses: SebRollen/toml-action@v1.2.0
+        id: observer_version
+        with:
+          file: 'crates/observer/Cargo.toml'
+          field: 'package.version'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_LOGIN }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build bootnode (push by digest)
+        id: bootnode
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: bootnode
+          platforms: linux/amd64
+          outputs: type=image,name=subsquid/bootnode,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+      - name: Build keygen (push by digest)
+        id: keygen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: keygen
+          platforms: linux/amd64
+          outputs: type=image,name=subsquid/keygen,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+      - name: Build & publish observer (amd64 only)
+        uses: docker/build-push-action@v6
+        env:
+          VERSION: ${{ steps.observer_version.outputs.value }}
+        with:
+          context: .
+          target: observer
+          platforms: linux/amd64
+          push: true
+          tags: subsquid/observer:${{ env.VERSION }},subsquid/observer:latest
+          cache-from: type=gha,scope=amd64
+          cache-to: type=gha,mode=max,scope=amd64
+
+      - name: Export digests
+        env:
+          BOOTNODE_DIGEST: ${{ steps.bootnode.outputs.digest }}
+          KEYGEN_DIGEST: ${{ steps.keygen.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests/bootnode /tmp/digests/keygen
+          touch "/tmp/digests/bootnode/${BOOTNODE_DIGEST#sha256:}"
+          touch "/tmp/digests/keygen/${KEYGEN_DIGEST#sha256:}"
+
+      - name: Upload digests
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-amd64
+          path: /tmp/digests
+          if-no-files-found: error
+          retention-days: 1
+
+  build-arm64:
+    name: Build arm64
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_LOGIN }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build bootnode (push by digest)
+        id: bootnode
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: bootnode
+          platforms: linux/arm64
+          outputs: type=image,name=subsquid/bootnode,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+
+      - name: Build keygen (push by digest)
+        id: keygen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: keygen
+          platforms: linux/arm64
+          outputs: type=image,name=subsquid/keygen,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=arm64
+          cache-to: type=gha,mode=max,scope=arm64
+
+      - name: Export digests
+        env:
+          BOOTNODE_DIGEST: ${{ steps.bootnode.outputs.digest }}
+          KEYGEN_DIGEST: ${{ steps.keygen.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests/bootnode /tmp/digests/keygen
+          touch "/tmp/digests/bootnode/${BOOTNODE_DIGEST#sha256:}"
+          touch "/tmp/digests/keygen/${KEYGEN_DIGEST#sha256:}"
+
+      - name: Upload digests
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-arm64
+          path: /tmp/digests
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish multi-arch tags
+    needs: [build-amd64, build-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - uses: SebRollen/toml-action@v1.2.0
         id: bootnode_version
@@ -28,11 +164,15 @@ jobs:
           file: 'crates/keygen/Cargo.toml'
           field: 'package.version'
 
-      - uses: SebRollen/toml-action@v1.2.0
-        id: observer_version
+      - name: Download digests
+        uses: actions/download-artifact@v4
         with:
-          file: 'crates/observer/Cargo.toml'
-          field: 'package.version'
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Docker login
         uses: docker/login-action@v3
@@ -40,40 +180,24 @@ jobs:
           username: ${{ secrets.DOCKER_LOGIN }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
-      - name: Build & publish bootnode
-        uses: docker/build-push-action@v5
+      - name: Tag bootnode and keygen as version and latest
         env:
-          VERSION: ${{ steps.bootnode_version.outputs.value }}
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm/v7,linux/arm64/v8,linux/386
-          target: bootnode
-          push: true
-          tags: subsquid/bootnode:${{ env.VERSION }},subsquid/bootnode:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build & publish keygen
-        uses: docker/build-push-action@v5
-        env:
-          VERSION: ${{ steps.keygen_version.outputs.value }}
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm/v7,linux/arm64/v8,linux/386
-          target: keygen
-          push: true
-          tags: subsquid/keygen:${{ env.VERSION }},subsquid/keygen:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build & publish observer
-        uses: docker/build-push-action@v5
-        env:
-          VERSION: ${{ steps.observer_version.outputs.value }}
-        with:
-          context: .
-          target: observer
-          push: true
-          tags: subsquid/observer:${{ env.VERSION }},subsquid/observer:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          BOOTNODE_VERSION: ${{ steps.bootnode_version.outputs.value }}
+          KEYGEN_VERSION: ${{ steps.keygen_version.outputs.value }}
+        run: |
+          shopt -s nullglob
+          publish() {
+            local image=$1 version=$2 sources=()
+            for digest in /tmp/digests/"${image}"/*; do
+              sources+=("subsquid/${image}@sha256:$(basename "${digest}")")
+            done
+            if [ "${#sources[@]}" -ne 2 ]; then
+              echo "::error::expected 2 platform digests for ${image}, found ${#sources[@]}"
+              exit 1
+            fi
+            docker buildx imagetools create \
+              -t "subsquid/${image}:${version}" -t "subsquid/${image}:latest" "${sources[@]}"
+            docker buildx imagetools inspect "subsquid/${image}:${version}"
+          }
+          publish bootnode "${BOOTNODE_VERSION}"
+          publish keygen "${KEYGEN_VERSION}"
