@@ -1,6 +1,9 @@
 # https://www.lpalmieri.com/posts/fast-rust-docker-builds/#cargo-chef
-FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:latest-rust-1.83-slim-bookworm AS chef
+FROM --platform=$BUILDPLATFORM lukemathwalker/cargo-chef:latest-rust-1.89-slim-bookworm AS chef
 WORKDIR /app
+# Build with the toolchain the repo pins (rustup reads this file); the image tag
+# above matches it only to avoid downloading the toolchain during the build.
+COPY rust-toolchain .
 
 
 FROM --platform=$BUILDPLATFORM chef AS planner
