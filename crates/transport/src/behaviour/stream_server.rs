@@ -5,7 +5,10 @@ use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
 use libp2p::{swarm::ToSwarm, PeerId, Stream, StreamProtocol};
 use tokio::sync::mpsc;
 
-use crate::behaviour::wrapped::{BehaviourWrapper, TToSwarm};
+use crate::{
+    behaviour::wrapped::{BehaviourWrapper, TToSwarm},
+    libp2p_stream,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ServerConfig {
