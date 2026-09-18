@@ -5153,7 +5153,7 @@ dependencies = [
 
 [[package]]
 name = "sqd-assignments"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5169,6 +5169,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "sqd-data-chunk",
  "thiserror 2.0.18",
  "tracing",
  "url",
@@ -5217,6 +5218,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqd-data-chunk"
+version = "0.1.0"
+
+[[package]]
 name = "sqd-keygen"
 version = "1.0.0"
 dependencies = [
@@ -5240,6 +5245,7 @@ dependencies = [
  "semver",
  "serde",
  "sha3",
+ "sqd-data-chunk",
 ]
 
 [[package]]

@@ -1,0 +1,9 @@
+[package]
+name = "sqd-data-chunk"
+license = "AGPL-3.0-or-later"
+version = "0.1.0"
+edition = "2021"
+description = "Validated data chunk identifiers for the SQD Network"
+
+[lints]
+workspace = true

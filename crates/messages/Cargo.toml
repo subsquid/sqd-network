@@ -17,6 +17,7 @@ prost = "0.13"
 semver = { version = "1", optional = true }
 serde = { version = "1", features = ["derive"] }
 sha3 = "0.10"
+sqd-data-chunk = { path = "../data-chunk" }
 
 libp2p-identity = { workspace = true }
 

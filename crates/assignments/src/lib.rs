@@ -64,6 +64,8 @@ pub use builder::{
     PortalAssignmentBuilder, PortalAssignmentChunkBuilder, PortalDatasetBuilder,
     WorkerAssignmentBuilder, WorkerAssignmentChunkBuilder, WorkerDatasetBuilder,
 };
+#[cfg(feature = "builder")]
+pub use sqd_data_chunk::DataChunk;
 
 #[cfg(feature = "reader")]
 pub use reader::{

@@ -17,7 +17,7 @@ use std::{
 
 use anyhow::Context as _;
 use sqd_assignments::{
-    Assignment, PortalAssignment, PortalAssignmentBuilder, WorkerAssignment,
+    Assignment, DataChunk, PortalAssignment, PortalAssignmentBuilder, WorkerAssignment,
     WorkerAssignmentBuilder,
 };
 
@@ -187,10 +187,11 @@ fn build_worker(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
         let mut staging = builder.new_dataset(dataset.id(), chunks.get(0).dataset_base_url());
         for chunk in chunks.iter() {
             let tables = tables_of(&chunk);
+            let id = id_of(&chunk)?;
             let mut staged = staging
                 .new_chunk()
-                .id(chunk.id())
-                .block_range(chunk.first_block()..=last_block_of(&chunk)?)
+                .id(id)
+                .block_range(id.first_block()..=id.last_block())
                 .size(chunk.size())
                 .write_schema_id(write_schema_id)
                 .worker_indexes(&chunk.worker_indexes().iter().collect::<Vec<_>>());
@@ -227,10 +228,11 @@ fn build_portal(legacy: &Assignment) -> anyhow::Result<Vec<u8>> {
         let (mut dataset_zeros, mut dataset_descents) = (0usize, 0usize);
         let mut staging = builder.new_dataset(dataset.id(), schema_id(index));
         for chunk in dataset.chunks().iter() {
+            let id = id_of(&chunk)?;
             let mut staged = staging
                 .new_chunk()
-                .id(chunk.id())
-                .block_range(chunk.first_block()..=last_block_of(&chunk)?)
+                .id(id)
+                .block_range(id.first_block()..=id.last_block())
                 .worker_indexes(&chunk.worker_indexes().iter().collect::<Vec<_>>());
             if let Some(timestamp) = chunk.last_block_timestamp() {
                 if timestamp == 0 {
@@ -300,7 +302,7 @@ fn verify(
 
         for (i, source_chunk) in chunks.iter().enumerate() {
             let chunk_id = source_chunk.id();
-            let last_block = last_block_of(&source_chunk)?;
+            let last_block = id_of(&source_chunk)?.last_block();
             anyhow::ensure!(
                 source_chunk.dataset_id() == id,
                 "{chunk_id}: chunk names dataset '{}' but is filed under '{id}'",
@@ -389,20 +391,17 @@ fn verify(
 }
 
 /// Legacy chunks carry no end block; the id does, and it agrees with `first_block` throughout.
-fn last_block_of(chunk: &sqd_assignments::fb::Chunk<'_>) -> anyhow::Result<u64> {
-    let id = chunk.id();
-    let (_, rest) = id.split_once('/').with_context(|| format!("chunk id '{id}' has no top"))?;
-    let mut parts = rest.splitn(3, '-');
-    let (Some(first), Some(last), Some(_)) = (parts.next(), parts.next(), parts.next()) else {
-        anyhow::bail!("chunk id '{id}' is not <top>/<first>-<last>-<hash>");
-    };
-    let first: u64 = first.parse().with_context(|| format!("chunk id '{id}'"))?;
+fn id_of(chunk: &sqd_assignments::fb::Chunk<'_>) -> anyhow::Result<DataChunk> {
+    let id: DataChunk = chunk
+        .id()
+        .parse()
+        .map_err(|()| anyhow::anyhow!("chunk id '{}' does not parse", chunk.id()))?;
     anyhow::ensure!(
-        first == chunk.first_block(),
+        id.first_block() == chunk.first_block(),
         "chunk id '{id}' disagrees with first_block {}",
         chunk.first_block()
     );
-    last.parse().with_context(|| format!("chunk id '{id}'"))
+    Ok(id)
 }
 
 /// Ordinals are 1-based, leaving 0 free to mean "unset".

@@ -26,7 +26,7 @@ fn staged_chunk<'a>(
 ) -> WorkerAssignmentChunkBuilder<'a, StdRng> {
     dataset
         .new_chunk()
-        .id("0221000000/0221000000-0221000649-BQJdx")
+        .id("0221000000/0221000000-0221000649-BQJdx".parse().unwrap())
         .block_range(221000000..=221000649)
         .size(1000000)
         .worker_indexes(&[0])
@@ -44,7 +44,7 @@ fn test_worker_assignment_round_trip() {
     let mut dataset = test_dataset(&mut builder);
     dataset
         .new_chunk()
-        .id("0221000000/0221000000-0221000649-BQJdx")
+        .id("0221000000/0221000000-0221000649-BQJdx".parse().unwrap())
         .block_range(221000000..=221000649)
         .size(1000000)
         .write_schema_id(7)
@@ -55,7 +55,7 @@ fn test_worker_assignment_round_trip() {
         .unwrap();
     dataset
         .new_chunk()
-        .id("0221000000/0221000650-0221001549-AuRE1")
+        .id("0221000000/0221000650-0221001549-AuRE1".parse().unwrap())
         .block_range(221000650..=221001549)
         .size(1000000)
         .write_schema_id(7)
@@ -65,7 +65,7 @@ fn test_worker_assignment_round_trip() {
     // Same tables as the first chunk: two bitmaps with identical bits, resolved independently.
     dataset
         .new_chunk()
-        .id("0221000000/0221001550-0221001999-C7pQz")
+        .id("0221000000/0221001550-0221001999-C7pQz".parse().unwrap())
         .block_range(221001550..=221001999)
         .size(1000000)
         .write_schema_id(7)
@@ -151,7 +151,7 @@ fn test_chunk_generations_round_trip() {
         builder.new_dataset("s3://ethereum-mainnet", "https://ethereum-mainnet.sqd-datasets.io");
     untouched
         .new_chunk()
-        .id("0000000000/0000000000-0000000999-274f02d8")
+        .id("0000000000/0000000000-0000000999-274f02d8".parse().unwrap())
         .block_range(0..=999)
         .size(1000)
         .write_schema_id(7)
@@ -169,7 +169,7 @@ fn test_chunk_generations_round_trip() {
 
     staged_chunk(&mut dataset).write_schema_id(7).finish().unwrap();
     staged_chunk(&mut dataset)
-        .id("0221000000/0221000650-0221001549-AuRE1")
+        .id("0221000000/0221000650-0221001549-AuRE1".parse().unwrap())
         .block_range(221000650..=221001549)
         .write_schema_id(7)
         .version(2)
@@ -470,7 +470,7 @@ fn test_portal_assignment_round_trip() {
 
     dataset
         .new_chunk()
-        .id("0221000000/0221000000-0221000649-BQJdx")
+        .id("0221000000/0221000000-0221000649-BQJdx".parse().unwrap())
         .block_range(221000000..=221000649)
         .last_block_timestamp(1696192039)
         .worker_indexes(&[0])
@@ -478,7 +478,7 @@ fn test_portal_assignment_round_trip() {
         .unwrap();
     dataset
         .new_chunk()
-        .id("0221000000/0221000650-0221001549-AuRE1")
+        .id("0221000000/0221000650-0221001549-AuRE1".parse().unwrap())
         .block_range(221000650..=221001549)
         .last_block_timestamp(1696193050)
         .version(2)
@@ -577,7 +577,7 @@ fn test_portal_find_chunk_reports_a_gap() {
     let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
     dataset
         .new_chunk()
-        .id("0000000000/0000000000-0000000099-274f02d8")
+        .id("0000000000/0000000000-0000000099-274f02d8".parse().unwrap())
         .block_range(0..=99)
         .worker_indexes(&[0])
         .finish()
@@ -586,7 +586,7 @@ fn test_portal_find_chunk_reports_a_gap() {
     // `check_continuity` documents.
     let gap = dataset
         .new_chunk()
-        .id("0000000000/0000000200-0000000299-9QgFD")
+        .id("0000000000/0000000200-0000000299-9QgFD".parse().unwrap())
         .block_range(200..=299)
         .worker_indexes(&[0])
         .finish();
@@ -624,7 +624,7 @@ fn test_portal_tops_are_runs_and_hashes_keep_their_length() {
     ] {
         dataset
             .new_chunk()
-            .id(id)
+            .id(id.parse().unwrap())
             .block_range(range)
             .worker_indexes(&[0])
             .finish()
@@ -669,12 +669,12 @@ fn test_worker_accepts_descending_numeric_tops() {
     builder.register_write_schema(7, &["blocks"]).unwrap();
     let mut dataset = test_dataset(&mut builder);
     for (id, range) in [
-        ("0000001000/0000000000-0000000099-abcde", 0..=99u64),
-        ("0000000500/0000000100-0000000199-bcdef", 100..=199),
+        ("0000000100/0000000100-0000000199-abcde", 100..=199u64),
+        ("0000000000/0000000200-0000000299-bcdef", 200..=299),
     ] {
         dataset
             .new_chunk()
-            .id(id)
+            .id(id.parse().unwrap())
             .block_range(range)
             .size(1000)
             .write_schema_id(7)
@@ -693,10 +693,10 @@ fn test_portal_accepts_descending_numeric_tops() {
     let mut builder = PortalAssignmentBuilder::new();
     let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
     for (id, range) in [
-        ("0000001000/0000000000-0000000099-abcde", 0..=99u64),
-        ("0000000500/0000000100-0000000199-bcdef", 100..=199),
+        ("0000000100/0000000100-0000000199-abcde", 100..=199u64),
+        ("0000000000/0000000200-0000000299-bcdef", 200..=299),
     ] {
-        dataset.new_chunk().id(id).block_range(range).finish().unwrap();
+        dataset.new_chunk().id(id.parse().unwrap()).block_range(range).finish().unwrap();
     }
 
     dataset.finish(None).unwrap();
@@ -722,7 +722,12 @@ fn test_worker_slices_stay_separate() {
         ("0221000000/0221000650-0221001549-AuRE1", 221000650..=221001549, None),
         ("0221000000/0221001550-0221001999-C7pQz", 221001550..=221001999, Some(&[1][..])),
     ] {
-        let staged = dataset.new_chunk().id(id).block_range(range).size(1000000).write_schema_id(7);
+        let staged = dataset
+            .new_chunk()
+            .id(id.parse().unwrap())
+            .block_range(range)
+            .size(1000000)
+            .write_schema_id(7);
         let staged = match workers {
             Some(workers) => staged.worker_indexes(workers),
             None => staged,
@@ -762,7 +767,7 @@ fn test_portal_worker_slices_stay_separate() {
         ("0000000000/0000000200-0000000299-cdefa", 200..=299, Some(&[1][..])),
         ("0000000000/0000000300-0000000399-defab", 300..=399, None),
     ] {
-        let staged = dataset.new_chunk().id(id).block_range(range);
+        let staged = dataset.new_chunk().id(id.parse().unwrap()).block_range(range);
         let staged = match workers {
             Some(workers) => staged.worker_indexes(workers),
             None => staged,
@@ -801,7 +806,7 @@ fn test_portal_versions_column_appears_only_once_something_is_backfilled() {
     let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
     dataset
         .new_chunk()
-        .id("0000000000/0000000000-0000000099-abcde")
+        .id("0000000000/0000000000-0000000099-abcde".parse().unwrap())
         .block_range(0..=99)
         .version(4)
         .worker_indexes(&[0])
@@ -809,7 +814,7 @@ fn test_portal_versions_column_appears_only_once_something_is_backfilled() {
         .unwrap();
     dataset
         .new_chunk()
-        .id("0000000000/0000000100-0000000199-bcdef")
+        .id("0000000000/0000000100-0000000199-bcdef".parse().unwrap())
         .block_range(100..=199)
         .worker_indexes(&[0])
         .finish()
@@ -842,7 +847,7 @@ fn test_portal_untimed_chunks_read_as_zero() {
     let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
     dataset
         .new_chunk()
-        .id("0000000000/0000000000-0000000099-abcde")
+        .id("0000000000/0000000000-0000000099-abcde".parse().unwrap())
         .block_range(0..=99)
         .last_block_timestamp(1696192039)
         .worker_indexes(&[0])
@@ -850,7 +855,7 @@ fn test_portal_untimed_chunks_read_as_zero() {
         .unwrap();
     dataset
         .new_chunk()
-        .id("0000000000/0000000100-0000000199-bcdef")
+        .id("0000000000/0000000100-0000000199-bcdef".parse().unwrap())
         .block_range(100..=199)
         .worker_indexes(&[0])
         .finish()
@@ -881,40 +886,10 @@ fn test_portal_chunk_id_must_agree_with_the_block_range() {
     let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
     let error = dataset
         .new_chunk()
-        .id("0000000000/0000000000-0000000099-abcde")
+        .id("0000000000/0000000000-0000000099-abcde".parse().unwrap())
         .block_range(0..=100)
         .worker_indexes(&[0])
         .finish()
         .expect_err("the id is rebuilt from the range, so the two must say the same thing");
     assert!(error.to_string().contains("names blocks"), "unexpected error: {error}");
-}
-
-#[cfg(feature = "builder")]
-#[test]
-fn test_portal_rejects_a_malformed_chunk_id() {
-    use sqd_assignments::PortalAssignmentBuilder;
-
-    for (id, expected) in [
-        ("0000000000-0000000099-abcde", "no top directory"),
-        ("0000000000/0000000000-abcde", "is not <top>"),
-        ("0000000000/0000000000-0000000099-", "5 to 8 word characters"),
-        ("0000000000/0000000000-0000000099-toolonghash", "5 to 8 word characters"),
-        ("0000000000/0000000000-0000000099-abcd", "5 to 8 word characters"),
-        ("0000000000/0000000000-0000000099-has-dash", "5 to 8 word characters"),
-        ("000000000x/0000000000-0000000099-abcde", "non-numeric top"),
-    ] {
-        let mut builder = PortalAssignmentBuilder::new();
-        let mut dataset = builder.new_dataset("s3://ethereum-mainnet", 1);
-        let error = dataset
-            .new_chunk()
-            .id(id)
-            .block_range(0..=99)
-            .worker_indexes(&[0])
-            .finish()
-            .unwrap_err();
-        assert!(
-            error.to_string().contains(expected),
-            "id '{id}': expected {expected:?}, got {error}"
-        );
-    }
 }
