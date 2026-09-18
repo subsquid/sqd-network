@@ -53,7 +53,7 @@ mod non_monotone_tops {
             appended(
                 dataset
                     .new_chunk()
-                    .id(id)
+                    .id(id.parse().unwrap())
                     .block_range(*first..=*last)
                     .size(1)
                     .write_schema_id(1)
@@ -73,7 +73,7 @@ mod non_monotone_tops {
         for (id, first, last, version) in chunks {
             dataset
                 .new_chunk()
-                .id(id)
+                .id(id.parse().unwrap())
                 .block_range(*first..=*last)
                 .version(*version)
                 .worker_indexes(&[0])

@@ -10,6 +10,7 @@ use crypto_box::{
 };
 use flatbuffers::{self as fb, WIPOffset};
 use libp2p_identity::PeerId;
+use sqd_messages::data_chunk::DataChunk;
 
 use crate::{
     common,
@@ -286,8 +287,8 @@ impl<'b, Rng: CryptoRngCore> ChunkBuilder<'b, Rng> {
     }
 
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
-    pub fn id(mut self, id: &str) -> Self {
-        self.id = Some(self.p.builder.create_string(id));
+    pub fn id(mut self, id: DataChunk) -> Self {
+        self.id = Some(self.p.builder.create_string(&id.to_string()));
         self
     }
 
@@ -851,9 +852,7 @@ pub struct WorkerAssignmentChunkBuilder<'b, Rng: CryptoRngCore> {
     p: &'b mut WorkerAssignmentBuilder<Rng>,
 
     block_range: Option<RangeInclusive<u64>>,
-    /// Parsed by [`Self::id`], since nothing downstream wants the string back. The error is held
-    /// rather than returned so it still surfaces at `finish`.
-    parsed_id: Option<anyhow::Result<ParsedChunkId>>,
+    id: Option<DataChunk>,
     size: Option<u32>,
     version: u32,
     write_schema_id: Option<u32>,
@@ -869,7 +868,7 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         Self {
             p: parent,
             block_range: None,
-            parsed_id: None,
+            id: None,
             size: None,
             version: 0,
             write_schema_id: None,
@@ -877,13 +876,11 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         }
     }
 
-    /// e.g. `"0221000000/0221000000-0221000649-9QgFD"`. Split into the `tops`, `first_blocks`,
-    /// `block_deltas` and `hashes` columns and rebuilt on read, so it must parse — here rather
-    /// than at `finish`, which keeps the string out of the staged chunk. A malformed id is
-    /// reported by [`Self::finish`] all the same.
+    /// Split into the `tops`, `first_blocks`, `block_deltas` and `hashes` columns and rebuilt on
+    /// read.
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
-    pub fn id(mut self, id: &str) -> Self {
-        self.parsed_id = Some(parse_chunk_id(id));
+    pub fn id(mut self, id: DataChunk) -> Self {
+        self.id = Some(id);
         self
     }
 
@@ -975,19 +972,19 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
     ///
     /// # Errors
     ///
-    /// If the id is unset or malformed, or disagrees with `block_range`; if `write_schema_id` is
+    /// If the id is unset, or disagrees with `block_range`; if `write_schema_id` is
     /// unset or names an unregistered schema; if a table isn't in that schema's roster; if a
     /// non-zero `version` has no generation registered for this dataset; if the chunk names a
     /// different base url than the dataset's other chunks; or if it breaks block continuity (see
     /// [`WorkerAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
-        let parsed = self.parsed_id.context("Chunk id must be set")??;
+        let id = self.id.context("Chunk id must be set")?;
         anyhow::ensure!(
-            parsed.first_block == *block_range.start() && parsed.last_block == *block_range.end(),
+            id.first_block() == *block_range.start() && id.last_block() == *block_range.end(),
             "chunk id names blocks {}-{}, but the chunk covers {}-{}",
-            parsed.first_block,
-            parsed.last_block,
+            id.first_block(),
+            id.last_block(),
             block_range.start(),
             block_range.end()
         );
@@ -1014,9 +1011,9 @@ impl<'b, Rng: CryptoRngCore> WorkerAssignmentChunkBuilder<'b, Rng> {
         }
 
         self.p.push_chunk(PushChunk {
-            top: parsed.top,
+            top: id.top(),
             block_range,
-            hash: parsed.hash,
+            hash: chunk_hash(&id),
             size: self.size.expect("Size must be set"),
             write_schema_id,
             version: self.version,
@@ -1365,52 +1362,18 @@ impl Drop for PortalDatasetBuilder<'_> {
     }
 }
 
-/// The pieces a chunk id is made of; the reader reassembles them the same way.
-struct ParsedChunkId {
-    top: u64,
-    first_block: u64,
-    last_block: u64,
-    hash: assignment_fb::ChunkHash,
-}
-
-/// Splits `"0221000000/0221000000-0221000649-9QgFD"` into the parts the columns hold.
-fn parse_chunk_id(id: &str) -> anyhow::Result<ParsedChunkId> {
-    let (top, rest) = id
-        .split_once('/')
-        .with_context(|| format!("chunk id '{id}' has no top directory"))?;
-    let mut parts = rest.splitn(3, '-');
-    let (Some(first_block), Some(last_block), Some(hash)) =
-        (parts.next(), parts.next(), parts.next())
-    else {
-        anyhow::bail!("chunk id '{id}' is not <top>/<first_block>-<last_block>-<hash>");
-    };
-    // Portal chunk ids require a 5-to-8 character hash.
-    anyhow::ensure!(
-        (5..=8).contains(&hash.len())
-            && hash.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'),
-        "chunk id '{id}' has a hash that is not 5 to 8 word characters"
-    );
+fn chunk_hash(id: &DataChunk) -> assignment_fb::ChunkHash {
+    let hash = id.last_hash().as_bytes();
     let mut bytes = [0u8; 8];
-    bytes[..hash.len()].copy_from_slice(hash.as_bytes());
-    Ok(ParsedChunkId {
-        top: top.parse().with_context(|| format!("chunk id '{id}' has a non-numeric top"))?,
-        first_block: first_block
-            .parse()
-            .with_context(|| format!("chunk id '{id}' has a non-numeric first block"))?,
-        last_block: last_block
-            .parse()
-            .with_context(|| format!("chunk id '{id}' has a non-numeric last block"))?,
-        hash: assignment_fb::ChunkHash::new(&bytes),
-    })
+    bytes[..hash.len()].copy_from_slice(hash);
+    assignment_fb::ChunkHash::new(&bytes)
 }
 
 pub struct PortalAssignmentChunkBuilder<'b> {
     p: &'b mut PortalAssignmentBuilder,
 
     block_range: Option<RangeInclusive<u64>>,
-    /// Parsed by [`Self::id`], since nothing downstream wants the string back. The error is held
-    /// rather than returned so it still surfaces at `finish`.
-    parsed_id: Option<anyhow::Result<ParsedChunkId>>,
+    id: Option<DataChunk>,
     version: u32,
     last_block_timestamp: u64,
 }
@@ -1421,19 +1384,17 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
         Self {
             p: parent,
             block_range: None,
-            parsed_id: None,
+            id: None,
             version: 0,
             last_block_timestamp: 0,
         }
     }
 
-    /// The chunk id, e.g. `"0221000000/0221000000-0221000649-9QgFD"`. Not stored as such: it is
-    /// split into the `tops`, `first_blocks`, `block_deltas` and `hashes` columns and reassembled
-    /// on read, so it must parse. Parsing happens here rather than at `finish`, which keeps the
-    /// string out of the staged chunk; a malformed id is still reported by [`Self::finish`].
+    /// Split into the `tops`, `first_blocks`, `block_deltas` and `hashes` columns and rebuilt on
+    /// read.
     #[must_use = "a chunk is staged by `finish`; a builder that is dropped stages nothing"]
-    pub fn id(mut self, id: &str) -> Self {
-        self.parsed_id = Some(parse_chunk_id(id));
+    pub fn id(mut self, id: DataChunk) -> Self {
+        self.id = Some(id);
         self
     }
 
@@ -1473,24 +1434,24 @@ impl<'b> PortalAssignmentChunkBuilder<'b> {
     ///
     /// # Errors
     ///
-    /// If the id is unset or malformed, if it disagrees with `block_range` — the two encode the
+    /// If the id is unset, if it disagrees with `block_range` — the two encode the
     /// same block numbers, and the id is rebuilt from the range on read — or if the chunk breaks
     /// block continuity (see [`PortalAssignmentBuilder::check_continuity`]).
     pub fn finish(self) -> anyhow::Result<()> {
         let block_range = self.block_range.expect("Block range must be set");
-        let parsed = self.parsed_id.context("Chunk id must be set")??;
+        let id = self.id.context("Chunk id must be set")?;
         anyhow::ensure!(
-            parsed.first_block == *block_range.start() && parsed.last_block == *block_range.end(),
+            id.first_block() == *block_range.start() && id.last_block() == *block_range.end(),
             "chunk id names blocks {}-{}, but the chunk covers {}-{}",
-            parsed.first_block,
-            parsed.last_block,
+            id.first_block(),
+            id.last_block(),
             block_range.start(),
             block_range.end()
         );
         self.p.push_chunk(
-            parsed.top,
+            id.top(),
             block_range,
-            parsed.hash,
+            chunk_hash(&id),
             self.version,
             self.last_block_timestamp,
         )

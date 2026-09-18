@@ -11,7 +11,7 @@ fn test_building() {
 
     builder
         .new_chunk()
-        .id("0221000000/0221000000-0221000649-BQJdx")
+        .id("0221000000/0221000000-0221000649-BQJdx".parse().unwrap())
         .dataset_id("s3://solana-mainnet-2")
         .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .block_range(221000000..=221000649)
@@ -28,7 +28,7 @@ fn test_building() {
         .unwrap();
     builder
         .new_chunk()
-        .id("0221000000/0221000650-0221001549-AuRE1")
+        .id("0221000000/0221000650-0221001549-AuRE1".parse().unwrap())
         .dataset_id("s3://solana-mainnet-2")
         .dataset_base_url("https://solana-mainnet-2.sqd-datasets.io")
         .block_range(221000650..=221001549)

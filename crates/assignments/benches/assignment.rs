@@ -14,6 +14,7 @@ use sqd_assignments::{
     Assignment, PortalAssignment, PortalAssignmentBuilder, WorkerAssignment,
     WorkerAssignmentBuilder, WorkerStatus,
 };
+use sqd_messages::data_chunk::DataChunk;
 
 const DATASETS: usize = 200;
 const CHUNKS_PER_DATASET: usize = 10_000;
@@ -40,9 +41,9 @@ fn dataset_id(index: usize) -> String {
     format!("s3://chain-{index:04}-mainnet")
 }
 
-fn chunk_id(chunk: usize, first: u64, last: u64) -> String {
+fn chunk_id(chunk: usize, first: u64, last: u64) -> DataChunk {
     let top = (chunk / CHUNKS_PER_TOP) as u64 * CHUNKS_PER_TOP as u64 * BLOCKS_PER_CHUNK;
-    format!("{top:010}/{first:010}-{last:010}-{:08x}", first ^ 0x274f02d8)
+    DataChunk::new(top, first, last, &format!("{:08x}", first ^ 0x274f02d8)).expect("valid id")
 }
 
 fn timestamp(dataset: usize, chunk: usize) -> u64 {
@@ -99,7 +100,7 @@ fn build() -> Fixture {
 
             let mut staged = legacy
                 .new_chunk()
-                .id(&cid)
+                .id(cid)
                 .dataset_id(&id)
                 .dataset_base_url(&base_url)
                 .block_range(first..=last)
@@ -115,7 +116,7 @@ fn build() -> Fixture {
 
             worker_dataset
                 .new_chunk()
-                .id(&cid)
+                .id(cid)
                 .block_range(first..=last)
                 .size(1_000_000)
                 .write_schema_id(dataset as u32 + 1)
@@ -125,7 +126,7 @@ fn build() -> Fixture {
 
             portal_dataset
                 .new_chunk()
-                .id(&cid)
+                .id(cid)
                 .block_range(first..=last)
                 .last_block_timestamp(ts)
                 .worker_indexes(&indexes)
