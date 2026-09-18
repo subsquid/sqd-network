@@ -10,7 +10,7 @@ use crypto_box::{
 };
 use flatbuffers::{self as fb, WIPOffset};
 use libp2p_identity::PeerId;
-use sqd_messages::data_chunk::DataChunk;
+use sqd_data_chunk::DataChunk;
 
 use crate::{
     common,

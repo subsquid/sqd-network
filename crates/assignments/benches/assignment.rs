@@ -11,10 +11,9 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion
 use libp2p_identity::{Keypair, PeerId};
 use rand::{rngs::StdRng, Rng, SeedableRng};
 use sqd_assignments::{
-    Assignment, PortalAssignment, PortalAssignmentBuilder, WorkerAssignment,
+    Assignment, DataChunk, PortalAssignment, PortalAssignmentBuilder, WorkerAssignment,
     WorkerAssignmentBuilder, WorkerStatus,
 };
-use sqd_messages::data_chunk::DataChunk;
 
 const DATASETS: usize = 200;
 const CHUNKS_PER_DATASET: usize = 10_000;

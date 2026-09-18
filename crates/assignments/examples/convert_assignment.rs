@@ -17,10 +17,9 @@ use std::{
 
 use anyhow::Context as _;
 use sqd_assignments::{
-    Assignment, PortalAssignment, PortalAssignmentBuilder, WorkerAssignment,
+    Assignment, DataChunk, PortalAssignment, PortalAssignmentBuilder, WorkerAssignment,
     WorkerAssignmentBuilder,
 };
-use sqd_messages::data_chunk::DataChunk;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Compress {
