@@ -103,6 +103,7 @@ impl Shared {
 
     pub(crate) fn on_connection_closed(&mut self, conn: ConnectionId) {
         self.connections.remove(&conn);
+        self.senders.remove(&conn);
     }
 
     pub(crate) fn on_dial_failure(&mut self, peer: PeerId, reason: String) {
@@ -118,29 +119,67 @@ impl Shared {
         }
     }
 
-    pub(crate) fn sender(&mut self, peer: PeerId) -> mpsc::Sender<NewStream> {
-        let maybe_sender = self
-            .connections
+    /// The swarm skipped our dial because the peer is connected or already being dialed. A dial
+    /// in flight resolves the pending channel itself; a connected peer means the request raced
+    /// the new connection, and nothing else would ever take that channel.
+    pub(crate) fn on_dial_skipped(&mut self, peer: PeerId) {
+        let Some(sender) = self.connected_sender(peer) else {
+            return;
+        };
+        let Some((_, mut receiver)) = self.pending_channels.remove(&peer) else {
+            return;
+        };
+
+        while let Ok(Some(new_stream)) = receiver.try_next() {
+            // Every clone has a guaranteed slot, so this fails only if the connection is gone.
+            if let Err(e) = sender.clone().try_send(new_stream) {
+                let _ = e.into_inner().sender.send(Err(super::OpenStreamError::Io(
+                    io::Error::from(io::ErrorKind::ConnectionReset),
+                )));
+            }
+        }
+    }
+
+    fn connected_sender(&self, peer: PeerId) -> Option<mpsc::Sender<NewStream>> {
+        self.connections
             .iter()
             .filter_map(|(c, p)| (p == &peer).then_some(c))
             .choose(&mut rand::rng())
-            .and_then(|c| self.senders.get(c));
+            .and_then(|c| self.senders.get(c))
+            .cloned()
+    }
 
-        match maybe_sender {
+    /// No dial will resolve the pending channels; dropping them cancels their requests.
+    pub(crate) fn on_behaviour_dropped(&mut self) {
+        self.pending_channels.clear();
+    }
+
+    pub(crate) fn sender(&mut self, peer: PeerId) -> io::Result<mpsc::Sender<NewStream>> {
+        match self.connected_sender(peer) {
             Some(sender) => {
                 tracing::debug!("Returning sender to existing connection");
 
-                sender.clone()
+                Ok(sender)
             }
             None => {
+                if let Some((sender, _)) = self.pending_channels.get(&peer) {
+                    tracing::debug!(%peer, "Returning sender for pending connection");
+                    return Ok(sender.clone());
+                }
+
                 tracing::debug!(%peer, "Not connected to peer, initiating dial");
 
-                let (sender, _) =
-                    self.pending_channels.entry(peer).or_insert_with(|| mpsc::channel(0));
+                self.dial_sender.unbounded_send(peer).map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::NotConnected,
+                        "stream behaviour is no longer running",
+                    )
+                })?;
 
-                let _ = self.dial_sender.unbounded_send(peer);
+                let (sender, receiver) = mpsc::channel(0);
+                self.pending_channels.insert(peer, (sender.clone(), receiver));
 
-                sender.clone()
+                Ok(sender)
             }
         }
     }
@@ -163,5 +202,29 @@ impl Shared {
         self.senders.insert(connection, sender);
 
         receiver
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closing_connection_removes_its_sender() {
+        let (dial_sender, _dial_receiver) = mpsc::unbounded();
+        let mut shared = Shared::new(dial_sender);
+        let connection = ConnectionId::new_unchecked(1);
+        let peer = PeerId::random();
+
+        let _receiver = shared.receiver(peer, connection);
+        shared.on_connection_established(connection, peer);
+
+        assert!(shared.connections.contains_key(&connection));
+        assert!(shared.senders.contains_key(&connection));
+
+        shared.on_connection_closed(connection);
+
+        assert!(!shared.connections.contains_key(&connection));
+        assert!(!shared.senders.contains_key(&connection));
     }
 }
