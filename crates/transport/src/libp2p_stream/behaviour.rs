@@ -46,6 +46,14 @@ impl Behaviour {
     }
 }
 
+impl Drop for Behaviour {
+    fn drop(&mut self) {
+        // Close first, so no request can queue a dial after the pending ones are dropped.
+        self.dial_receiver.close();
+        Shared::lock(&self.shared).on_behaviour_dropped();
+    }
+}
+
 /// The protocol is already registered.
 #[derive(Debug)]
 pub struct AlreadyRegistered;
@@ -104,9 +112,11 @@ impl NetworkBehaviour for Behaviour {
             FromSwarm::DialFailure(DialFailure {
                 peer_id: Some(peer_id),
                 error:
-                    error @ (DialError::Transport(_)
+                    error @ (DialError::LocalPeerId { .. }
+                    | DialError::Transport(_)
                     | DialError::Denied { .. }
                     | DialError::NoAddresses
+                    | DialError::Aborted
                     | DialError::WrongPeerId { .. }),
                 ..
             }) => {
@@ -114,6 +124,11 @@ impl NetworkBehaviour for Behaviour {
 
                 Shared::lock(&self.shared).on_dial_failure(peer_id, reason)
             }
+            FromSwarm::DialFailure(DialFailure {
+                peer_id: Some(peer_id),
+                error: DialError::DialPeerConditionFalse(_),
+                ..
+            }) => Shared::lock(&self.shared).on_dial_skipped(peer_id),
             _ => {}
         }
     }
