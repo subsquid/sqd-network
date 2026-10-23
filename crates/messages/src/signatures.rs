@@ -152,13 +152,13 @@ impl QueryFinished {
             total_time_micros,
             worker_signature: query_result.signature.clone(),
             result: match &query_result.result {
-                Some(query_result::Result::Ok(QueryOk { data, last_block })) => {
-                    Some(query_finished::Result::Ok(QueryOkSummary {
-                        uncompressed_data_size: data.len() as u64,
-                        data_hash: sha3_256(data).to_vec(),
-                        last_block: *last_block,
-                    }))
-                }
+                Some(query_result::Result::Ok(QueryOk {
+                    data, last_block, ..
+                })) => Some(query_finished::Result::Ok(QueryOkSummary {
+                    uncompressed_data_size: data.len() as u64,
+                    data_hash: sha3_256(data).to_vec(),
+                    last_block: *last_block,
+                })),
                 Some(query_result::Result::Err(err)) => {
                     Some(query_finished::Result::Err(err.clone()))
                 }
@@ -309,5 +309,28 @@ mod tests {
         assert!(!query.verify_signature(client_id, worker_id));
         query.output_format = 2;
         assert!(!query.verify_signature(client_id, worker_id));
+    }
+
+    #[test]
+    fn uncompressed_size_is_outside_signature() {
+        // Portals that predate the field must still verify results that carry it.
+        let keypair = Keypair::generate_ed25519();
+        let worker_id = keypair.public().to_peer_id();
+        let mut result = QueryResult {
+            query_id: sample_query().query_id,
+            result: Some(query_result::Result::Ok(QueryOk {
+                data: vec![1, 2, 3].into(),
+                last_block: 816499,
+                uncompressed_data_size: None,
+            })),
+            ..Default::default()
+        };
+        result.sign(&keypair).unwrap();
+
+        let Some(query_result::Result::Ok(ok)) = &mut result.result else {
+            unreachable!()
+        };
+        ok.uncompressed_data_size = Some(42);
+        assert!(result.verify_signature(worker_id));
     }
 }
