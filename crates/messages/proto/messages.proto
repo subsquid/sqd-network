@@ -77,6 +77,8 @@ message QueryResult {
 message QueryOk {
   bytes data = 1;
   uint64 last_block = 3;
+  // Size of `data` before compression. Not covered by the signature.
+  optional uint64 uncompressed_data_size = 4;
 }
 
 message QueryError {
