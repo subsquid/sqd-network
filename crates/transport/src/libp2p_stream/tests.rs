@@ -403,6 +403,79 @@ fn dial_skipped_for_a_dial_in_flight_keeps_the_request() {
     ));
 }
 
+/// The base behaviour feeds `NewPortRedials` and hands it to the stream client, both only built
+/// with `actors`.
+#[cfg(feature = "actors")]
+mod new_port {
+    use super::*;
+    use crate::behaviour::new_port::{port_use, tests::transport_error, NewPortRedials};
+
+    /// `open_stream` dials through the dial builder, so a peer whose dial failed in the transport
+    /// is redialed from a new port until a connection to it succeeds; other peers keep the listen
+    /// port.
+    #[test]
+    fn open_stream_redials_from_a_new_port_after_a_transport_failure() {
+        let redials = NewPortRedials::new(4);
+        let builder = redials.clone();
+        let mut behaviour =
+            stream::Behaviour::with_dial_builder(move |peer, opts| builder.dial_opts(peer, opts));
+        let [failed, healthy] = [PeerId::random(), PeerId::random()];
+        let address = memory_addr();
+        let mut control = behaviour.new_control();
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        let mut dial = |behaviour: &mut stream::Behaviour, peer| {
+            let mut open = Box::pin(control.open_stream(peer, PROTOCOL));
+            assert!(open.as_mut().poll(&mut cx).is_pending());
+            let Poll::Ready(ToSwarm::Dial { opts }) = NetworkBehaviour::poll(behaviour, &mut cx)
+            else {
+                panic!("no dial to {peer}");
+            };
+            // Resolve the pending dial, so the next request to the peer dials again.
+            dial_failed(behaviour, &redials, peer, opts.connection_id(), &DialError::Aborted);
+            port_use(&opts)
+        };
+
+        dial_failed(
+            &mut behaviour,
+            &redials,
+            failed,
+            ConnectionId::new_unchecked(1),
+            &transport_error(),
+        );
+        assert_eq!(dial(&mut behaviour, healthy), PortUse::Reuse);
+        assert_eq!(dial(&mut behaviour, failed), PortUse::New);
+
+        let endpoint = dialer(&address);
+        redials.on_swarm_event(FromSwarm::ConnectionEstablished(ConnectionEstablished {
+            peer_id: failed,
+            connection_id: ConnectionId::new_unchecked(2),
+            endpoint: &endpoint,
+            failed_addresses: &[],
+            other_established: 0,
+        }));
+        assert_eq!(dial(&mut behaviour, failed), PortUse::Reuse, "a connection did not clear it");
+    }
+
+    /// What the swarm reports to every behaviour, the stream behaviour and the one tracking failed
+    /// dials alike.
+    fn dial_failed(
+        behaviour: &mut stream::Behaviour,
+        redials: &NewPortRedials,
+        peer: PeerId,
+        connection_id: ConnectionId,
+        error: &DialError,
+    ) {
+        let event = FromSwarm::DialFailure(DialFailure {
+            peer_id: Some(peer),
+            error,
+            connection_id,
+        });
+        redials.on_swarm_event(event);
+        NetworkBehaviour::on_swarm_event(behaviour, event);
+    }
+}
+
 fn memory_addr() -> Multiaddr {
     "/memory/1".parse().unwrap()
 }

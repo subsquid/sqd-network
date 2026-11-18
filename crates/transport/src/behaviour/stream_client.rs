@@ -4,6 +4,7 @@ use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use libp2p::{PeerId, StreamProtocol};
 
 use crate::{
+    behaviour::new_port::NewPortRedials,
     libp2p_stream::{self, OpenStreamError},
     util::StreamWithPayload,
     BehaviourWrapper,
@@ -147,6 +148,14 @@ pub struct ClientBehaviour {
 }
 
 impl ClientBehaviour {
+    pub fn new(redials: NewPortRedials) -> Self {
+        Self {
+            inner: libp2p_stream::Behaviour::with_dial_builder(move |peer, opts| {
+                redials.dial_opts(peer, opts)
+            }),
+        }
+    }
+
     pub fn new_handle(&self, protocol: &'static str, config: ClientConfig) -> StreamClientHandle {
         let control = self.inner.new_control();
         StreamClientHandle {
