@@ -2,6 +2,8 @@ pub mod addr_cache;
 #[cfg(feature = "actors")]
 pub mod base;
 pub mod keep_alive;
+#[cfg(feature = "actors")]
+pub mod new_port;
 pub mod node_whitelist;
 #[cfg(feature = "noise")]
 pub mod noise;

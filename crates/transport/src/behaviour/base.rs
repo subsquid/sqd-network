@@ -36,6 +36,7 @@ use crate::{
     behaviour::{
         addr_cache::AddressCache,
         keep_alive::KeepAliveBehaviour,
+        new_port::NewPortRedials,
         node_whitelist::{WhitelistBehavior, WhitelistConfig},
         wrapped::{BehaviourWrapper, TToSwarm, Wrapped},
     },
@@ -85,6 +86,11 @@ pub struct BaseConfig {
     /// fails (default: 30 sec).
     /// Prevents a tight dial→refuse→redial loop against workers that reject this peer.
     pub reconnect_cooldown: Duration,
+    /// Maximum number of dials from a new local port, in flight or connected (default: 32).
+    /// After a dial to a peer fails in the transport, the next dials to it use a new port, each
+    /// with its own UDP socket and QUIC endpoint. Past this limit they reuse the listen port;
+    /// 0 turns new-port dials off.
+    pub max_new_port_connections: usize,
 }
 
 impl BaseConfig {
@@ -100,6 +106,7 @@ impl BaseConfig {
             .expect("addr_cache_size should be > 0");
         let max_concurrent_lookups = parse_env_var("MAX_CONCURRENT_LOOKUPS", 20);
         let reconnect_cooldown = Duration::from_secs(parse_env_var("RECONNECT_COOLDOWN_SEC", 30));
+        let max_new_port_connections = parse_env_var("MAX_NEW_PORT_CONNECTIONS", 32);
         Self {
             onchain_update_interval,
             autonat_timeout,
@@ -110,6 +117,7 @@ impl BaseConfig {
             addr_cache_size,
             max_concurrent_lookups,
             reconnect_cooldown,
+            max_new_port_connections,
         }
     }
 }
@@ -135,6 +143,8 @@ pub struct BaseBehaviour {
     /// Peers waiting in `reconnect_queue` or `pending_lookups`. A peer waits in at most one
     /// place at a time.
     reconnect_scheduled: HashSet<PeerId>,
+    /// Shared with `inner.stream`, whose dials it also picks the port for.
+    new_port_redials: NewPortRedials,
 }
 
 #[allow(dead_code)]
@@ -154,6 +164,7 @@ impl BaseBehaviour {
         kad_config.set_publication_interval(Some(Duration::from_secs(60 * 60)));
         kad_config.set_provider_publication_interval(Some(Duration::from_secs(10 * 60)));
         let only_global_ips = std::env::var("PRIVATE_NETWORK").is_err();
+        let new_port_redials = NewPortRedials::new(config.max_new_port_connections);
 
         let mut inner = InnerBehaviour {
             identify: identify::Behaviour::new(
@@ -186,7 +197,7 @@ impl BaseBehaviour {
             #[cfg(feature = "pubsub")]
             pubsub: PubsubBehaviour::new(keypair.clone(), config.max_pubsub_msg_size).into(),
             address_cache: AddressCache::new(config.addr_cache_size),
-            stream: ClientBehaviour::default().into(),
+            stream: ClientBehaviour::new(new_port_redials.clone()).into(),
             keep_alive: KeepAliveBehaviour::default(),
         };
 
@@ -212,6 +223,7 @@ impl BaseBehaviour {
             reconnect_cooldown: config.reconnect_cooldown,
             reconnect_queue: DelayQueue::new(),
             reconnect_scheduled: HashSet::new(),
+            new_port_redials,
         }
     }
 
@@ -245,7 +257,7 @@ impl BaseBehaviour {
         if self.inner.address_cache.contains(&peer_id) {
             log::debug!("Dialing peer {peer_id} using cached address");
             self.pending_events.push_back(ToSwarm::Dial {
-                opts: DialOpts::peer_id(peer_id).build(),
+                opts: self.new_port_redials.dial_opts(peer_id, DialOpts::peer_id(peer_id)),
             });
         } else if self.ongoing_lookups.contains_left(&peer_id) {
             log::debug!("Query for peer {peer_id} already ongoing");
@@ -291,6 +303,7 @@ impl BehaviourWrapper for BaseBehaviour {
     }
 
     fn on_swarm_event(&mut self, ev: FromSwarm) -> impl IntoIterator<Item = TToSwarm<Self>> {
+        self.new_port_redials.on_swarm_event(ev);
         match ev {
             FromSwarm::ConnectionEstablished(conn) => self.on_connection_established(conn),
             FromSwarm::ConnectionClosed(conn) => self.on_connection_closed(conn),
@@ -535,10 +548,13 @@ impl BaseBehaviour {
 
         // Try to dial even if `peer_info` is `None`.
         // There might be some address(es) cached from previous queries.
-        query_finished.then_some(ToSwarm::Dial {
+        query_finished.then(|| ToSwarm::Dial {
             // Not using the default condition (`DisconnectedAndNotDialing`), because we may want
             // to establish an outbound connection to the peer despite existing inbound connection.
-            opts: DialOpts::peer_id(peer_id).condition(PeerCondition::NotDialing).build(),
+            opts: self.new_port_redials.dial_opts(
+                peer_id,
+                DialOpts::peer_id(peer_id).condition(PeerCondition::NotDialing),
+            ),
         })
     }
 
@@ -605,6 +621,7 @@ mod tests {
     use sqd_contract_client::{DummyClient, DummyData};
 
     use super::*;
+    use crate::behaviour::new_port::port_use;
 
     fn addr(port: u16, peer: PeerId) -> Multiaddr {
         format!("/ip4/1.2.3.4/udp/{port}/quic-v1/p2p/{peer}").parse().unwrap()
@@ -1037,5 +1054,108 @@ mod tests {
             !active.reconnect_scheduled.contains(&stranger),
             "scheduled a reconnect for an unregistered peer"
         );
+    }
+
+    fn only_dial(events: Vec<TToSwarm<BaseBehaviour>>) -> DialOpts {
+        let mut dials = events.into_iter().filter_map(|ev| match ev {
+            ToSwarm::Dial { opts } => Some(opts),
+            _ => None,
+        });
+        let dial = dials.next().expect("no dial");
+        assert!(dials.next().is_none(), "more than one dial");
+        dial
+    }
+
+    /// After a transport failure, both reconnect dials, from the cache and after a lookup, go out
+    /// from a new port, until a connection to the worker succeeds.
+    #[tokio::test(start_paused = true)]
+    async fn redials_from_a_new_port_until_a_connection_succeeds() {
+        let local = Keypair::generate_ed25519();
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        let stale = addr(12208, peer);
+
+        let mut behaviour = stranded_worker(&local, peer, &stale);
+        let cooldown = behaviour.reconnect_cooldown + Duration::from_secs(1);
+        tokio::time::advance(cooldown).await;
+        let dial = only_dial(drain_poll(&mut behaviour));
+        assert_eq!(
+            port_use(&dial),
+            PortUse::Reuse,
+            "a worker that never failed a dial got a new port"
+        );
+        deliver_dial_failure(&mut behaviour, peer, &transport_error(&stale));
+
+        behaviour.on_kademlia_event(kad::Event::RoutablePeer {
+            peer,
+            address: stale.clone(),
+        });
+        tokio::time::advance(cooldown).await;
+        let dial = only_dial(drain_poll(&mut behaviour));
+        assert_eq!(port_use(&dial), PortUse::New, "the cached-address redial");
+        deliver_dial_failure(&mut behaviour, peer, &transport_error(&stale));
+
+        tokio::time::advance(cooldown).await;
+        drain_poll(&mut behaviour);
+        let query_id = *behaviour.ongoing_lookups.get_by_left(&peer).expect("no lookup started");
+        let Some(ToSwarm::Dial { opts: dial }) =
+            behaviour.on_kademlia_event(kad::Event::OutboundQueryProgressed {
+                id: query_id,
+                result: QueryResult::GetClosestPeers(Ok(GetClosestPeersOk {
+                    key: peer.to_bytes(),
+                    peers: vec![kad::PeerInfo {
+                        peer_id: peer,
+                        addrs: vec![stale.clone()],
+                    }],
+                })),
+                stats: QueryStats::empty(),
+                step: ProgressStep {
+                    count: NonZeroUsize::MIN,
+                    last: true,
+                },
+            })
+        else {
+            panic!("no dial after the lookup");
+        };
+        assert_eq!(port_use(&dial), PortUse::New, "the redial after a lookup");
+
+        let endpoint = dialed(&stale);
+        behaviour.on_swarm_event(FromSwarm::ConnectionEstablished(ConnectionEstablished {
+            peer_id: peer,
+            connection_id: dial.connection_id(),
+            endpoint: &endpoint,
+            failed_addresses: &[],
+            other_established: 0,
+        }));
+        behaviour.on_swarm_event(FromSwarm::ConnectionClosed(ConnectionClosed {
+            peer_id: peer,
+            connection_id: dial.connection_id(),
+            endpoint: &endpoint,
+            cause: None,
+            remaining_established: 0,
+        }));
+        tokio::time::advance(cooldown).await;
+        let dial = only_dial(drain_poll(&mut behaviour));
+        assert_eq!(port_use(&dial), PortUse::Reuse, "a connection did not clear the new port");
+    }
+
+    /// The heartbeat and query requests dial through the stream client, which shares the base
+    /// behaviour's record of failed dials.
+    #[tokio::test]
+    async fn stream_requests_redial_from_a_new_port_after_a_transport_failure() {
+        let mut behaviour = test_behaviour(&Keypair::generate_ed25519());
+        let peer = Keypair::generate_ed25519().public().to_peer_id();
+        deliver_dial_failure(&mut behaviour, peer, &transport_error(&addr(12208, peer)));
+
+        let handle = behaviour.request_handle("/test", ClientConfig::default());
+        let mut request = Box::pin(handle.get_raw_stream(peer));
+        let mut cx = Context::from_waker(futures::task::noop_waker_ref());
+        assert!(futures::FutureExt::poll_unpin(&mut request, &mut cx).is_pending());
+
+        let Poll::Ready(ToSwarm::Dial { opts }) =
+            NetworkBehaviour::poll(&mut behaviour.inner.stream, &mut cx)
+        else {
+            panic!("the request did not dial");
+        };
+        assert_eq!(port_use(&opts), PortUse::New);
     }
 }

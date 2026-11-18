@@ -28,6 +28,9 @@
 //! its queued requests to that connection; with dials de-duplicated they would otherwise wait for
 //! good.
 //!
+//! [`Behaviour::with_dial_builder`] is added, so the owner can finish the options of the dials
+//! `open_stream` makes, e.g. to dial from a new local port.
+//!
 //! Apart from the changes listed above, the module paths (`crate::` -> `super::`),
 //! `rand::thread_rng()` -> `rand::rng()` (renamed in rand 0.9) and this repository's rustfmt
 //! settings, the code is upstream's. Keep it that way: refreshing this copy should stay a matter

@@ -8,8 +8,10 @@ use futures::{channel::mpsc, StreamExt};
 use libp2p_core::{transport::PortUse, Endpoint, Multiaddr};
 use libp2p_identity::PeerId;
 use libp2p_swarm::{
-    self as swarm, dial_opts::DialOpts, ConnectionDenied, ConnectionId, FromSwarm,
-    NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+    self as swarm,
+    dial_opts::{DialOpts, WithPeerId},
+    ConnectionDenied, ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent,
+    THandlerOutEvent, ToSwarm,
 };
 use swarm::{
     behaviour::ConnectionEstablished, dial_opts::PeerCondition, ConnectionClosed, DialError,
@@ -22,6 +24,7 @@ use super::{handler::Handler, shared::Shared, Control};
 pub struct Behaviour {
     shared: Arc<Mutex<Shared>>,
     dial_receiver: mpsc::UnboundedReceiver<PeerId>,
+    build_dial: Box<dyn Fn(PeerId, WithPeerId) -> DialOpts + Send>,
 }
 
 impl Default for Behaviour {
@@ -32,11 +35,20 @@ impl Default for Behaviour {
 
 impl Behaviour {
     pub fn new() -> Self {
+        Self::with_dial_builder(|_, opts| opts.build())
+    }
+
+    /// Like [`Behaviour::new`], with `build_dial` finishing the options of every dial this
+    /// behaviour makes.
+    pub fn with_dial_builder(
+        build_dial: impl Fn(PeerId, WithPeerId) -> DialOpts + Send + 'static,
+    ) -> Self {
         let (dial_sender, dial_receiver) = mpsc::unbounded();
 
         Self {
             shared: Arc::new(Mutex::new(Shared::new(dial_sender))),
             dial_receiver,
+            build_dial: Box::new(build_dial),
         }
     }
 
@@ -147,10 +159,9 @@ impl NetworkBehaviour for Behaviour {
         cx: &mut Context<'_>,
     ) -> Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
         if let Poll::Ready(Some(peer)) = self.dial_receiver.poll_next_unpin(cx) {
+            let opts = DialOpts::peer_id(peer).condition(PeerCondition::DisconnectedAndNotDialing);
             return Poll::Ready(ToSwarm::Dial {
-                opts: DialOpts::peer_id(peer)
-                    .condition(PeerCondition::DisconnectedAndNotDialing)
-                    .build(),
+                opts: (self.build_dial)(peer, opts),
             });
         }
 
