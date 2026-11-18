@@ -24,7 +24,7 @@ use super::{handler::Handler, shared::Shared, Control};
 pub struct Behaviour {
     shared: Arc<Mutex<Shared>>,
     dial_receiver: mpsc::UnboundedReceiver<PeerId>,
-    build_dial: Box<dyn Fn(PeerId, WithPeerId) -> DialOpts + Send>,
+    build_dial: Box<dyn Fn(PeerId, WithPeerId) -> DialOpts + Send + Sync>,
 }
 
 impl Default for Behaviour {
@@ -41,7 +41,7 @@ impl Behaviour {
     /// Like [`Behaviour::new`], with `build_dial` finishing the options of every dial this
     /// behaviour makes.
     pub fn with_dial_builder(
-        build_dial: impl Fn(PeerId, WithPeerId) -> DialOpts + Send + 'static,
+        build_dial: impl Fn(PeerId, WithPeerId) -> DialOpts + Send + Sync + 'static,
     ) -> Self {
         let (dial_sender, dial_receiver) = mpsc::unbounded();
 

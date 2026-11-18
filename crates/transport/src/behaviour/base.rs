@@ -632,9 +632,11 @@ mod tests {
     fn test_behaviour(keypair: &Keypair) -> BaseBehaviour {
         let config = BaseConfig {
             // Pinned rather than read from the environment: `ONCHAIN_UPDATE_INTERVAL_SEC=0` or
-            // `ADDR_CACHE_SIZE=0` in a developer's shell would otherwise panic the test.
+            // `ADDR_CACHE_SIZE=0` in a developer's shell would otherwise panic the test, and
+            // `MAX_NEW_PORT_CONNECTIONS=0` would fail it.
             onchain_update_interval: Duration::from_secs(60),
             addr_cache_size: NonZeroUsize::new(16).expect("non-zero"),
+            max_new_port_connections: 32,
             ..BaseConfig::from_env()
         };
         BaseBehaviour::new(
